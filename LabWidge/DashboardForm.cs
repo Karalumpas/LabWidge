@@ -36,7 +36,7 @@ internal sealed partial class DashboardForm : Form
     private int _hiddenTicks;
     private readonly Action _saveSettings;
     private readonly System.Windows.Forms.Timer _timer;
-    private readonly ToolTip _tip = new() { UseAnimation = false, UseFading = false };
+    private readonly WidgetTip _tip = new();
     private readonly List<Hit> _hits = new();
 
     private AppSettings _settings;
@@ -157,7 +157,7 @@ internal sealed partial class DashboardForm : Form
         _settings.CompactMode = compact;
         _lastModeToggle = DateTime.Now;
         _saveSettings();
-        _tip.Hide(this);
+        _tip.HideTip();
         FitSize();
         Invalidate();
     }
@@ -186,6 +186,12 @@ internal sealed partial class DashboardForm : Form
     }
 
     protected override bool ShowWithoutActivation => true;
+
+    protected override void OnVisibleChanged(EventArgs e)
+    {
+        base.OnVisibleChanged(e);
+        if (!Visible) _tip.HideTip();
+    }
 
     protected override void OnHandleCreated(EventArgs e)
     {
@@ -350,8 +356,8 @@ internal sealed partial class DashboardForm : Form
         if (key != _hoverKey)
         {
             _hoverKey = key;
-            if (hit?.Tip != null) _tip.Show(hit.Tip, this, e.X + (int)U(14), e.Y + (int)U(18));
-            else _tip.Hide(this);
+            if (hit?.Tip != null) ShowTip(hit.Tip);
+            else _tip.HideTip();
             Invalidate();
         }
     }
@@ -362,7 +368,7 @@ internal sealed partial class DashboardForm : Form
         if (_drag != null) return;
         _mouse = new Point(-1, -1);
         _hoverKey = null;
-        _tip.Hide(this);
+        _tip.HideTip();
         Invalidate();
     }
 
@@ -408,7 +414,7 @@ internal sealed partial class DashboardForm : Form
             ScrollTo(_scroll - e.Delta * U(48) / SystemInformation.MouseWheelScrollDelta);
             _mouse = ToContent(e.Location);
             _hoverKey = null;
-            _tip.Hide(this);
+            _tip.HideTip();
             return;
         }
         _wheelRest += e.Delta;
@@ -433,17 +439,20 @@ internal sealed partial class DashboardForm : Form
 
     private void BeginDrag()
     {
-        _tip.Hide(this);
+        _tip.HideTip();
         var before = Location;
         ReleaseCapture();
         SendMessage(Handle, 0xA1 /*WM_NCLBUTTONDOWN*/, (IntPtr)2 /*HTCAPTION*/, IntPtr.Zero);
         if (Location != before) RememberPosition(save: true);
     }
 
-    private void ShowTipAtMouse(string text)
+    /// <summary>Shows the text left of the widget, at the height of the mouse – so it never covers the content.</summary>
+    private void ShowTip(string text, int durationMs = 0)
     {
-        _tip.Show(text, this, _mouse.X + (int)U(14), _mouse.Y + (int)U(18), 1500);
+        _tip.ShowBeside(this, text, Cursor.Position.Y, _p, Opacity, durationMs);
     }
+
+    private void ShowTipAtMouse(string text) => ShowTip(text, 1500);
 
     private void CopyText(string text)
     {

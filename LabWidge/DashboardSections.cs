@@ -124,7 +124,7 @@ internal sealed partial class DashboardForm
         };
         foreach (var b in group) _drag.Anim[b.Key] = b.Top + offset;
 
-        _tip.Hide(this);
+        _tip.HideTip();
         _hoverKey = null;
         Capture = true;
         Cursor = Cursors.SizeNS;
