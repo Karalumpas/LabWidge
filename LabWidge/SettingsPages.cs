@@ -548,7 +548,7 @@ internal sealed class WidgetPage : SettingsPage
         if (_orderReset) s.SectionOrder = null;
         s.WidgetWidth = _autoWidth.Checked ? null : (int)_width.Value;
         s.WidgetHeight = _autoHeight.Checked ? null : (int)_height.Value;
-        if (_pinsReset) { s.SectionPins.Clear(); s.SectionPinSummaries = Array.Empty<string>(); }
+        if (_pinsReset) { s.SectionPins.Clear(); s.SectionLastPins.Clear(); s.SectionPinSummaries = Array.Empty<string>(); }
         return null;
     }
 }
