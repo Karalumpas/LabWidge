@@ -1,0 +1,8 @@
+name = "labwidge-prices"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# The ENTSO-E token is a secret, not a variable here:  npx wrangler secret put ENTSOE_TOKEN
+
+[observability]
+enabled = true

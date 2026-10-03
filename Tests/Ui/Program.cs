@@ -123,6 +123,85 @@ internal static class UiChecks
         Check(previousMenu!.IsDisposed, "Widget disposal leaked its section menu.");
         Console.WriteLine("PASS UI: real section-menu mouse clicks pin, unpin and select summaries without premature disposal");
         Console.WriteLine("6 UI integration checks passed; previews: " + Output);
+        Showcase();
+    }
+
+    /// <summary>
+    /// Renders the screenshots for the README into dist/ui-preview/showcase – with made-up data,
+    /// so they never show a real IP address, device or home. Copy them to docs/images when the look changes.
+    /// </summary>
+    private static void Showcase()
+    {
+        using var fixture = new Fixture();
+        var s = fixture.Settings;
+        var widget = fixture.Widget;
+        s.SectionPins.Clear();
+        s.SectionPinSummaries = Array.Empty<string>();
+        s.SectionOrder = new[] { "price", "ha", "system", "audio", "proxmox", "network", "cloudflare" };
+        s.CollapsedNetwork = s.CollapsedCloudflare = s.CollapsedProxmox = true;
+        s.WidgetWidth = 344;
+        s.WidgetHeight = null;
+
+        var shots = new List<Bitmap>();
+        foreach (var theme in new[] { WidgetTheme.Dark, WidgetTheme.Light })
+        {
+            s.Theme = theme;
+            widget.ApplySettings(s);
+            Call(widget, "FitSize");
+            shots.Add(Frame(widget, $"showcase/widget-{theme.ToString().ToLowerInvariant()}.png"));
+        }
+
+        s.Theme = WidgetTheme.Dark;
+        widget.ApplySettings(s);
+        widget.SetCompact(true);
+        Call(widget, "FitSize");
+        Frame(widget, "showcase/compact-dark.png").Dispose();
+        widget.SetCompact(false);
+
+        // The hero: both themes side by side on a soft background
+        const int pad = 48, gap = 36;
+        var height = shots.Max(b => b.Height);
+        using var hero = new Bitmap(pad * 2 + shots.Sum(b => b.Width) + gap, pad * 2 + height, PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(hero))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using var bg = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(0, 0, hero.Width, hero.Height),
+                Color.FromArgb(31, 58, 104), Color.FromArgb(14, 20, 32), 60f);
+            g.FillRectangle(bg, 0, 0, hero.Width, hero.Height);
+            var x = pad;
+            foreach (var shot in shots)
+            {
+                var rect = new Rectangle(x, pad + (height - shot.Height) / 2, shot.Width, shot.Height);
+                for (var i = 1; i <= 12; i++)
+                {
+                    using var shadow = new SolidBrush(Color.FromArgb(10, 0, 0, 0));
+                    using var path = Rounded(new Rectangle(rect.X - i + 4, rect.Y - i + 10, rect.Width + i * 2 - 8, rect.Height + i * 2 - 8), 10 + i);
+                    g.FillPath(shadow, path);
+                }
+                using (var clip = Rounded(rect, 8))
+                {
+                    g.SetClip(clip);
+                    g.DrawImage(shot, rect);
+                    g.ResetClip();
+                }
+                x += shot.Width + gap;
+            }
+        }
+        hero.Save(Path.Combine(Output, "showcase", "hero.png"), ImageFormat.Png);
+        foreach (var shot in shots) shot.Dispose();
+        Console.WriteLine("Showcase screenshots: " + Path.Combine(Output, "showcase"));
+    }
+
+    private static System.Drawing.Drawing2D.GraphicsPath Rounded(Rectangle r, int radius)
+    {
+        var path = new System.Drawing.Drawing2D.GraphicsPath();
+        var d = radius * 2;
+        path.AddArc(r.X, r.Y, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 
     private static object? Call(object target, string method, params object[] args) => target.GetType().GetMethod(method, Private)!.Invoke(target, args);
@@ -140,7 +219,9 @@ internal static class UiChecks
         graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
         graphics.Clear(widget.BackColor);
         Call(widget, "Render", graphics);
-        bitmap.Save(Path.Combine(Output, name), ImageFormat.Png);
+        var file = Path.Combine(Output, name);
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        bitmap.Save(file, ImageFormat.Png);
         return bitmap;
     }
 
@@ -184,13 +265,13 @@ internal static class UiChecks
             Set(audio, "DefaultId", "speaker");
             Set(audio, "Volumes", new Dictionary<string, VolumeState> { ["speaker"] = new(.45f, false) });
             var ha = new HomeAssistantService(Http);
-            Set(ha, "Entities", new List<HaEntity> { new("light.room", "Stue", "on", 180, null) });
+            Set(ha, "Entities", new List<HaEntity> { new("light.room", "Living room", "on", 180, null) });
             Set(ha, "LastFetch", DateTime.Now);
             var cf = new CloudflareService(Http);
             Set(cf, "LastFetch", DateTime.Now);
             Set(cf, "LastSuccessfulDnsFetch", DateTime.Now);
             Set(cf, "ARecords", new List<CloudflareRecord> { new() { Name = "home.example.test", Content = "203.0.113.10" } });
-            Set(cf, "Tunnels", new List<CfTunnel> { new("tunnel", "Hjemmenet", "healthy", 4, Array.Empty<string>(), null, null, null,
+            Set(cf, "Tunnels", new List<CfTunnel> { new("tunnel", "Home network", "healthy", 4, Array.Empty<string>(), null, null, null,
                 new List<CfRoute> { new("home.example.test", "http://localhost:8123") }) });
             var pve = new ProxmoxService();
             Set(pve, "LastFetch", DateTime.Now);
