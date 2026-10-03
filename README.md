@@ -1,187 +1,168 @@
-# LabWidge
+<p align="center">
+  <img src="docs/images/icon.png" width="96" height="96" alt="LabWidge icon">
+</p>
 
-A Windows tray app with a desktop widget that brings together the things a home-lab owner keeps an eye on:
+<h1 align="center">LabWidge</h1>
 
-- **Electricity price** – the current day-ahead spot price for your price area, a chart for today/tomorrow and the cheapest 3 hours,
-  in 14 European countries (see [Electricity prices by country](#electricity-prices-by-country)).
-  In Denmark the total price includes the grid tariff (fetched automatically from Datahub for your grid company), Energinet's tariffs,
-  electricity tax, your supplier's add-on and VAT. In the other countries it is the spot price plus your own add-on per kWh and VAT.
-- **Price alerts** – a notification a set number of minutes before the cheapest 3 hours start, and before power gets expensive.
-- **System** – CPU (with a chart), RAM, graphics card and fixed disks. Click a drive to open it. The graphics card shows load and VRAM; NVIDIA cards also show temperature, power draw and fan speed.
-- **Network** – external IP, local IP per adapter, gateway, DNS, ping and up/down traffic. Click an address to copy it.
-- **Audio** – one button per audio output; a click makes it the Windows default (playback and calls). Shows the volume (scroll to adjust),
-  a microphone mute button, and the battery of supported wireless headsets (Corsair HS80 and others using the same protocol).
-- **Home Assistant (optional)** – selected lights, switches and sensors, or a full dashboard in a panel.
-- **Cloudflare (optional)** – updates A records when the external IP changes, and shows whether your Cloudflare Tunnels and the services behind them are up.
-- **Proxmox (optional)** – CPU, RAM and storage of your Proxmox VE server, and start, shut down or reboot VMs and containers.
+<p align="center">
+  <b>Your electricity price, your PC and your home lab – at a glance, right by the clock.</b><br>
+  A free, open-source desktop widget for Windows 10 and 11.
+</p>
 
-The tray icon's bolt changes colour with the electricity price (green/yellow/red), and its tooltip shows the price, the next cheap period and the IP.
+<p align="center">
+  <a href="https://github.com/Karalumpas/labwidge-releases/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Karalumpas/labwidge-releases?label=download&color=2ea44f"></a>
+  <a href="https://github.com/Karalumpas/labwidge-releases/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/Karalumpas/labwidge-releases/total?color=0969da"></a>
+  <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-brightgreen">
+</p>
 
-LabWidge is available in **English and Danish**. The installer asks which language to use, and it can be changed later under
-**Settings → Widget → Language**.
+<p align="center">
+  <a href="https://github.com/Karalumpas/labwidge-releases/releases/latest"><b>⬇ Download for Windows</b></a>
+  &nbsp;·&nbsp; <a href="#install">Install</a>
+  &nbsp;·&nbsp; <a href="#features">Features</a>
+  &nbsp;·&nbsp; <a href="#electricity-prices-in-14-countries">Countries</a>
+  &nbsp;·&nbsp; <a href="#faq">FAQ</a>
+</p>
 
-## Electricity prices by country
+<p align="center">
+  <img src="docs/images/hero.png" width="820" alt="The LabWidge widget in the dark and the light theme: electricity price with chart, Home Assistant, system, audio, Proxmox and network">
+</p>
 
-The installer asks which country you live in (it suggests the one Windows is set to), and it can be changed later under
-**Settings → Electricity**. Choose "Other country" to hide the electricity price. All sources are free and need no account.
+LabWidge sits quietly next to the clock and answers the questions you would otherwise open five apps for:
+*Is power cheap right now? When is it cheapest today? Is my server up? What is my IP? Which speakers are on?*
+It is small, fast and private – no account, no ads and no telemetry.
 
-| Country | Price areas | Source | Unit |
+## Features
+
+**⚡ Electricity price – save money without thinking about it**
+- The price right now, coloured green, yellow or red, with a chart for today and tomorrow and the **cheapest 3 hours**.
+- **Notifications** before the cheap hours start and before power gets expensive – time the dishwasher, the car or the heat pump.
+- Day-ahead spot prices for **14 European countries**. In Denmark it is your real total price: grid tariff (found automatically
+  from your grid company), taxes, your supplier's add-on and VAT. Elsewhere: spot price plus your own add-on and VAT.
+- The tray icon's bolt changes colour with the price, so you can see it even when the widget is hidden.
+
+**🖥️ Your PC**
+- CPU with a live chart, RAM, every fixed disk (click to open it) and the graphics card – NVIDIA cards also show temperature,
+  power draw and fan speed.
+- Network: external IP, local IP per adapter, gateway, DNS, ping and traffic. Click an address to copy it.
+- **Audio switching in one click** – one button per output (speakers, headset, monitor), the volume on the scroll wheel,
+  a microphone mute button and the battery of supported wireless headsets (Corsair HS80 and similar).
+
+**🏠 Your home lab (optional)**
+- **Home Assistant** – lights, switches and sensors you choose, or a full Home Assistant dashboard in a pop-up panel.
+- **Proxmox VE** – CPU, RAM and storage of your server, and start, shut down or reboot VMs and containers.
+- **Cloudflare** – keeps your DNS A records up to date when your IP changes, and shows whether your tunnels and the services
+  behind them are up.
+
+**✨ Made to stay out of your way**
+- Collapse, reorder and pin sections; resize the widget; double-click for a one-line view.
+- Dark and light theme (or follow Windows), adjustable opacity, always on top if you want.
+- English and Danish. Updates install themselves while you are away from the PC.
+
+<p align="center">
+  <img src="docs/images/compact-dark.png" alt="The compact one-line view: price, CPU, RAM, GPU and IP"><br>
+  <sub>The compact view – double-click the widget to switch.</sub>
+</p>
+
+## Install
+
+1. Download **`LabWidge-Setup-<version>.exe`** (about 7 MB) from the [latest release](https://github.com/Karalumpas/labwidge-releases/releases/latest).
+2. Run it and choose your **language** and **country** – the country decides which electricity prices you see.
+3. A short setup guide helps with the electricity price, notifications and the look. Everything else can wait until you want it.
+
+The installer adds Microsoft's .NET 8 Desktop Runtime if it is missing (with your permission) and installs LabWidge for your user
+only. Uninstall it like any other app under **Settings → Apps**.
+
+> **"Windows protected your PC"?** LabWidge is not code-signed yet (a free certificate from the SignPath Foundation is on its way),
+> so SmartScreen may warn about it. Choose **More info → Run anyway**. Every release is built by GitHub Actions from this source code.
+
+## Electricity prices in 14 countries
+
+Choose your country in the installer or under **Settings → Electricity**. All sources are free, need no account and are only
+contacted for the country you choose. "Other country" hides the electricity price.
+
+| Country | Price areas | Source | Shown in |
 |---|---|---|---|
-| Denmark | DK1, DK2 | [Energi Data Service](https://www.energidataservice.dk/) – plus grid tariffs and taxes from Datahub | øre/kWh |
-| Sweden | SE1–SE4 | [elprisetjustnu.se](https://www.elprisetjustnu.se/) | öre/kWh |
-| Norway | NO1–NO5 | [hvakosterstrommen.no](https://www.hvakosterstrommen.no/) | øre/kWh |
-| Finland, Estonia, Latvia, Lithuania | FI, EE, LV, LT | [Elering](https://dashboard.elering.ee/) | ct/kWh |
-| Germany, Luxembourg, Austria | DE-LU, AT | [aWATTar](https://www.awattar.de/) | ct/kWh |
-| Netherlands | NL | [EnergyZero](https://www.energyzero.nl/) | ct/kWh |
-| Poland | PL | [PSE](https://raporty.pse.pl/) (RCE) | gr/kWh |
-| Spain, Portugal | ES, PT | [OMIE](https://www.omie.es/) | ct/kWh |
+| 🇩🇰 Denmark | DK1, DK2 | [Energi Data Service](https://www.energidataservice.dk/) + grid tariffs from Datahub | øre/kWh |
+| 🇸🇪 Sweden | SE1–SE4 | [elprisetjustnu.se](https://www.elprisetjustnu.se/) | öre/kWh |
+| 🇳🇴 Norway | NO1–NO5 | [hvakosterstrommen.no](https://www.hvakosterstrommen.no/) | øre/kWh |
+| 🇫🇮 Finland · 🇪🇪 Estonia · 🇱🇻 Latvia · 🇱🇹 Lithuania | FI, EE, LV, LT | [Elering](https://dashboard.elering.ee/) | ct/kWh |
+| 🇩🇪 Germany · 🇱🇺 Luxembourg · 🇦🇹 Austria | DE-LU, AT | [aWATTar](https://www.awattar.de/) | ct/kWh |
+| 🇳🇱 Netherlands | NL | [EnergyZero](https://www.energyzero.nl/) | ct/kWh |
+| 🇵🇱 Poland | PL | [PSE](https://raporty.pse.pl/) | gr/kWh |
+| 🇪🇸 Spain · 🇵🇹 Portugal | ES, PT | [OMIE](https://www.omie.es/) | ct/kWh |
 
-Prices are shown in the PC's local time. VAT follows the country's usual rate for household electricity and can be changed in the settings.
-`dotnet Tests/bin/Debug/<tfm>/LabWidge.Tests.dll --live` fetches every price area from the real sources, to check that they still work.
+More European countries are coming. Prices are shown in your PC's local time; VAT follows your country's usual rate for
+household electricity and can be changed.
 
-## Usage
-- **Left-click** the tray icon to show or hide the widget. **Right-click** opens the menu.
-- **Click a header or its arrow** to collapse the section (a summary is shown in the header).
-- **Drag the handle by a header** to change the section order. Moving happens within the same area: top, middle or bottom.
-- **Right-click a header** to pin the section to the top or bottom, or to unpin it. Only the middle scrolls;
-  the pinned areas cover the content beneath them, and hidden buttons cannot be clicked.
-- **Pin the summary only** gives a compact pinned section; click to expand it temporarily and click again to return to the summary.
-  If pinned sections take up too much room, they are shown compactly for a while so the middle still has space. Your choices are kept.
-- **Drag an edge or corner** to change the widget's width and height. The size is remembered; automatic size can be restored
-  in the section menu or under Settings → Widget, where all sections can also be unpinned at once.
-- Each section's status distinguishes **Updated**, **Outdated data**, **Fetching** and **No connection**.
-  Hover over the header for the time and the error description; the last known electricity price and IP can still be shown with a warning.
-- **Double-click** the widget for a compact one-line view – click to expand again.
-- Drag the widget to move it.
-- **Settings...** gathers electricity price, audio, notifications, widget (language, theme, opacity, sections, startup), Home Assistant, Cloudflare and Proxmox.
+## Tips
 
-## Home Assistant
-The widget can show and control up to 20 entities through Home Assistant's REST API.
+- **Left-click** the bolt by the clock to show or hide the widget; **right-click** for the menu and **Settings…**.
+- **Click a header** to collapse a section – a summary stays in the header.
+- **Drag the handle** (⋮⋮) by a header to reorder sections. **Click the pin** to keep a section at the top or bottom while the rest scrolls;
+  right-click the header for more options, such as pinning only the summary.
+- **Drag an edge or corner** to resize the widget, and **drag anywhere else** to move it.
+- **Hover** over almost anything – prices, bars, addresses – for details. The status in each header tells you whether data is fresh.
 
-1. Create a token in Home Assistant under **your profile → Security → Long-lived access tokens**.
-2. Enter the address (e.g. `http://192.168.0.10:8123`) and the token under **Settings → Home Assistant**.
-3. Click **Load entities** and tick the ones the widget should show.
+## Home lab setup
 
-In the widget, Home Assistant takes up a single line with a summary (e.g. "5 on"). Click the line to open the panel,
-so the widget does not grow with the number of entities.
+<details>
+<summary><b>Home Assistant</b></summary>
 
-The panel can show two things, controlled by the **Dashboard** field in the settings:
+1. In Home Assistant, create a token under **your profile → Security → Long-lived access tokens**.
+2. Under **Settings → Home Assistant** in LabWidge, enter the address (e.g. `http://192.168.0.10:8123`) and the token.
+3. Click **Load entities** and tick up to 20 lights, switches and sensors.
 
-- **A real Home Assistant dashboard** – type its path, e.g. `/test-panel` or `/lovelace/0`. The dashboard is embedded
-  with Microsoft Edge WebView2. You sign in to the panel the first time; the session is stored in
-  `%LOCALAPPDATA%\LabWidgeData\webview`, so it is remembered afterwards. The window can be moved and resized, and its size is remembered.
-- **The list of switches** (empty field) – lights, switches, fans and `input_boolean` get a switch that can be
-  clicked; the rest is shown as readings. The panel closes when you click outside it, press Esc or click the line again.
+The widget shows a one-line summary (e.g. "5 on"); click it to open the panel. Type a dashboard path such as `/lovelace/0` in the
+**Dashboard** field to show a real Home Assistant dashboard in the panel (uses Microsoft Edge WebView2, included in Windows 11),
+or leave it empty for a simple list of switches. Only the entities you chose are fetched.
+</details>
 
-After a click on a switch the state is read back from Home Assistant at once. The answer to a service call
-does not always contain the new state – especially not for lights with a transition time – and without reading it back
-the row would stay unchanged until the next refresh. Otherwise the state is fetched every 15 seconds while the widget or
-the panel is showing.
+<details>
+<summary><b>Proxmox VE</b></summary>
 
-The dashboard view requires **Microsoft Edge WebView2 Runtime**, which ships with Windows 11 and with Edge on Windows 10.
-If it is missing, the panel says so and the list can be used instead. The token is stored in Windows Credential Manager,
-and only the entities you chose are fetched – not all of `/api/states`.
+Create an API token in Proxmox under **Datacenter → Permissions → API Tokens** and give it the role **PVEAuditor** on `/` to see
+the status – add **PVEVMUser** to start, shut down and reboot machines from the widget. Enter the address, token ID and secret
+under **Settings → Proxmox**. Self-signed certificates can be trusted from the settings page.
+</details>
 
-## Updates
-The app looks for new versions on GitHub Releases – at start, once a day and when the PC wakes from sleep
-(if at least 6 hours have passed since the last check). When a newer version exists, it is
-downloaded in the background and installed when the mouse and keyboard have not been touched for 10 minutes (this can be turned off –
-then a notification is shown instead, and nothing is downloaded until you agree). The installer is only downloaded from `github.com`, and its
-SHA-256 checksum is verified against the `digest` GitHub states for the file. It then runs with `--silent`: the app closes,
-the files are swapped, and the app starts again with its settings kept. The first time the new version starts, a
-notification shows what's new – the text comes from `CHANGELOG.md`, which is built into the app.
+<details>
+<summary><b>Cloudflare DNS and tunnels</b></summary>
 
-The check can be turned off under **Settings → Widget → Startup and updates**, and you can always check manually with
-**Check for updates...** in the menu by the clock.
+Create a token under **My Profile → API Tokens** with **Zone → DNS → Edit**, and enter it with your zone ID under
+**Settings → Cloudflare**. To see your tunnels too, add **Account → Cloudflare Tunnel → Read** and the account ID.
+LabWidge updates all A records in the zone – or only the hosts you pick – when your external IP changes, and retries failed updates.
+CNAME records are never changed.
+</details>
 
-Releases live in [Karalumpas/labwidge-releases](https://github.com/Karalumpas/labwidge-releases/releases), which only contains the installer.
-The app checks that repository without signing in.
+## FAQ
 
-### Publishing a new version
-With Claude Code: type `/release` (skill in `.claude/skills/release`), and the steps below are done for you. Manually:
+**Is it really free?** Yes. LabWidge is open source under the MIT license, with no ads, no paid tier and no account.
 
-1. Raise `<Version>` in **both** `LabWidge/LabWidge.csproj` (also `AssemblyVersion`/`FileVersion`) and `Setup/LabWidge.Setup.csproj`.
-2. Describe what's new under a `## <version>` heading at the top of `CHANGELOG.md`. The text is shown in the update dialog.
-3. Open a pull request – `.github/workflows/build.yml` builds it, runs the tests and checks the versions. Merge to `main`.
-   `.github/workflows/release.yml` builds Setup on Windows and publishes `v<version>` in the releases repository. If the version already exists, nothing happens.
+**Does it collect any data?** No. It has no telemetry or analytics and only contacts the services needed for what it shows –
+see [PRIVACY.md](PRIVACY.md) for the full list. Tokens are stored in Windows Credential Manager.
 
-The workflow needs the secret `RELEASES_TOKEN` in this repository: a fine-grained personal access token with access to
-only `Karalumpas/labwidge-releases` and the permission **Contents: Read and write**.
+**Will it slow down my PC?** No. It is a small native Windows app that refreshes once a second while visible and almost nothing
+when hidden.
 
-## Installation
-Download **`LabWidge-Setup-<version>.exe`** (about 7 MB) from [the latest release](https://github.com/Karalumpas/labwidge-releases/releases/latest) and run it. The installer:
+**My country is not on the list.** Choose "Other country" and use everything else. Support for the rest of Europe is on its way –
+[open an issue](https://github.com/Karalumpas/LabWidge/issues) if you would like your country next.
 
-1. Asks which language (English or Danish) and which country to use, preselecting what Windows is set to or what is already in use.
-   The country decides which electricity prices are shown.
-2. Checks whether Microsoft .NET 8 Desktop Runtime (or newer) is installed.
-3. If it is missing, asks for permission, downloads it from Microsoft (about 56 MB), verifies that the file is signed by Microsoft
-   and installs it (Windows asks for administrator rights).
-4. Installs the app for the current user in `%LOCALAPPDATA%\LabWidge` and registers it under Settings → Apps,
-   where it can also be uninstalled. An older version is closed and updated; settings are kept.
+**How do updates work?** LabWidge checks for new versions once a day and installs them when you have not used the PC for
+10 minutes – your settings are kept. This can be turned off under **Settings → Widget**.
 
-The installer itself runs on .NET Framework 4.8, which is part of Windows 10/11.
-The app is framework-dependent (no bundled runtime) and also runs on newer .NET versions (`RollForward=Major`).
+## Contributing
 
-Build `dist\LabWidge-Setup.exe` from source and start the installation:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-Build only (e.g. to share Setup): add `-BuildOnly`.
-
-The old installation is kept as a backup until the whole new program folder is in place.
-On an error the old version is restored; after an interrupted installation Setup can restore it on the next run.
-Setup uses a temporary working directory, so it can also update older widgets that start it from the program folder.
-Uninstalling waits for the widget process to exit before the program files are deleted.
-
-The files are not code-signed yet (see [Code signing](#code-signing)), so SmartScreen may show "Windows protected your PC" –
-choose "More info" → "Run anyway".
-The app is deliberately shipped as a small exe with DLLs next to it: Smart App Control blocks an unsigned single-file exe.
-
-The first time a user starts the app, a **setup guide** is shown:
-postal code → price area, grid company → the tariff is found automatically, the supplier's add-on, notifications,
-Cloudflare (can be skipped) and the widget's appearance. The guide can be run again from the menu or with `LabWidge.exe --setup`.
-
-## Build & run (development)
-
-```powershell
-cd LabWidge
-dotnet build
-dotnet run
-```
-
-Regression tests run from the repository root with `dotnet run --project Tests/LabWidge.Tests.csproj`, and UI integration
-tests (which also render preview images to `dist\ui-preview`) with `dotnet run --project Tests/Ui/LabWidge.UiTests.csproj`.
-They use simulated network answers and temporary folders and do not change your installation, DNS or settings.
-GitHub also runs them on pull requests together with the build of the app and Setup.
-
-The icon (`Assets\app.ico`) is drawn by the app itself and can be recreated with `LabWidge.exe --write-icon Assets\app.ico`.
-
-### Translations
-Every user-facing text is written as `L.T("English", "Danish")` where it is used (see `LabWidge/Localization.cs`),
-so both languages sit side by side and a missing translation cannot happen. Logs and code comments are in English.
-
-## Data and settings
-- Settings: `%APPDATA%\LabWidge\settings.json`. The file is written atomically – it is written
-  to `settings.json.tmp`, which is swapped in, while the previous version is kept as `settings.json.bak` and used automatically
-  if the main file is damaged. Cloudflare, Home Assistant and Proxmox tokens are kept in Windows Credential Manager.
-- Spot prices: see `LabWidge/SpotPriceSources.cs` (Denmark: `DayAheadPrices`). Danish tariffs: `DatahubPricelist` – the household tariff is found from the grid company's "Nettarif C" including any discounts.
-- Price area from the postal code: 1000–4999 = DK2, the rest = DK1.
-
-## Notes
-- The app updates all A records in the zone to the current IP, or only the chosen hosts. When "all" is turned off,
-  an empty host list means no records are changed. CNAMEs are not changed.
-- Failed DNS updates are retried at the next IP check (normally after 5 minutes), also when the IP address has not changed.
+Bug reports, ideas and pull requests are welcome in [Issues](https://github.com/Karalumpas/LabWidge/issues).
+How to build, test and release is described in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Code signing
+
 Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)
 (the application is pending). Only files built by GitHub Actions from this source code are signed – see
 [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
 
-## Privacy
-The app sends no usage data or personal data to the author or anyone else. Which services it contacts and
-why is described in [PRIVACY.md](PRIVACY.md).
-
 ## License
+
 [MIT](LICENSE) © 2026 Karalumpas
