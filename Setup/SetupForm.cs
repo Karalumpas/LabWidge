@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Drawing;
 using System.Reflection;
 using System.Threading;
@@ -20,7 +21,11 @@ namespace LabWidgeSetup
         private readonly Label _tagline = new Label { ForeColor = Color.FromArgb(145, 154, 164), AutoSize = true, Location = new Point(90, 54) };
         private readonly Label _languageLabel = new Label { AutoSize = true, Padding = new Padding(0, 6, 6, 0) };
         private readonly ComboBox _language = new ComboBox { Width = 120, DropDownStyle = ComboBoxStyle.DropDownList };
-        private readonly FlowLayoutPanel _languageRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 12) };
+        private readonly FlowLayoutPanel _languageRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 4) };
+        private readonly Label _countryLabel = new Label { AutoSize = true, Padding = new Padding(0, 6, 6, 0) };
+        private readonly ComboBox _country = new ComboBox { Width = 300, DropDownStyle = ComboBoxStyle.DropDownList, MaxDropDownItems = 16 };
+        private readonly FlowLayoutPanel _countryRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 12) };
+        private string _countryCode = AppInstaller.CurrentCountry();
         private readonly Label _title = new Label { AutoSize = true, Font = new Font("Segoe UI Semibold", 14F), Margin = new Padding(0, 0, 0, 6) };
         private readonly Label _intro = new Label { AutoSize = true, MaximumSize = new Size(470, 0), ForeColor = Muted, Margin = new Padding(0, 0, 0, 14) };
         private readonly Label _runtimeIcon = StatusIcon();
@@ -46,7 +51,7 @@ namespace LabWidgeSetup
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(560, 470);
+            ClientSize = new Size(560, 510);
             BackColor = Color.White;
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 
@@ -72,9 +77,15 @@ namespace LabWidgeSetup
             _languageRow.Controls.Add(_languageLabel);
             _languageRow.Controls.Add(_language);
 
+            // The country decides which electricity prices the app shows; "Other country" hides them
+            _country.SelectedIndexChanged += (_, __) => _countryCode = (_country.SelectedItem as Country)?.Code ?? Countries.Other;
+            _countryRow.Controls.Add(_countryLabel);
+            _countryRow.Controls.Add(_country);
+
             // Content
             var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(28, 16, 24, 8) };
             body.Controls.Add(_languageRow);
+            body.Controls.Add(_countryRow);
             body.Controls.Add(_title);
             body.Controls.Add(_intro);
             body.Controls.Add(Row(_runtimeIcon, _runtimeText));
@@ -147,6 +158,8 @@ namespace LabWidgeSetup
             _tagline.Text = L.T($"Version {AppInstaller.PackagedVersion}  ·  Power price, system and homelab by the clock",
                                 $"Version {AppInstaller.PackagedVersion}  ·  Elpris, system og hjemmelab ved uret");
             _languageLabel.Text = L.T("Language", "Sprog");
+            _countryLabel.Text = L.T("Country", "Land");
+            FillCountries();
             _manualLink.Text = L.T("Download .NET 8 Desktop Runtime manually from Microsoft", "Hent .NET 8 Desktop Runtime manuelt hos Microsoft");
             _startApp.Text = L.T("Start LabWidge", "Start LabWidge");
             _cancel.Text = L.T("Cancel", "Annuller");
@@ -170,6 +183,19 @@ namespace LabWidgeSetup
             _primary.Text = installed == null ? L.T("Install", "Installér") : L.T("Update", "Opdatér");
         }
 
+        /// <summary>The countries in the chosen language, sorted by name, with "Other country" last.</summary>
+        private void FillCountries()
+        {
+            var code = _countryCode;
+            _country.BeginUpdate();
+            _country.Items.Clear();
+            foreach (var c in Countries.All.OrderBy(c => c.DisplayName, StringComparer.CurrentCultureIgnoreCase)) _country.Items.Add(c);
+            var other = L.T("Other country (no electricity price)", "Andet land (ingen elpris)");
+            _country.Items.Add(other);
+            _country.EndUpdate();
+            _country.SelectedItem = (object)Countries.Find(code) ?? other;
+        }
+
         private void CancelOrClose()
         {
             if (_busy) _cts?.Cancel();
@@ -188,6 +214,7 @@ namespace LabWidgeSetup
             _busy = true;
             _primary.Enabled = false;
             _language.Enabled = false;
+            _country.Enabled = false;
             _manualLink.Visible = false;
             _cts = new CancellationTokenSource();
             try
@@ -199,9 +226,11 @@ namespace LabWidgeSetup
                 await Task.Run(() => AppInstaller.Install());
                 // The app takes the language over into its settings when it starts
                 L.RememberInstallerChoice(L.Current);
+                Countries.RememberInstallerChoice(_countryCode);
                 SetStatus(_appIcon, _appText, "✓", Ok, L.T($"LabWidge {AppInstaller.PackagedVersion} is installed", $"LabWidge {AppInstaller.PackagedVersion} er installeret"));
 
                 _languageRow.Visible = false;
+                _countryRow.Visible = false;
                 _title.Text = L.T("LabWidge is ready", "LabWidge er klar");
                 _intro.Text = AppInstaller.SettingsExist
                     ? L.T("Your settings are kept. Click the bolt by the clock to show the widget.", "Dine indstillinger er bevaret. Klik på lynet ved uret for at vise widgetten.")
@@ -229,7 +258,7 @@ namespace LabWidgeSetup
             {
                 _busy = false;
                 _primary.Enabled = true;
-                if (!_done) _language.Enabled = true;
+                if (!_done) _language.Enabled = _country.Enabled = true;
             }
         }
 

@@ -48,7 +48,7 @@ internal sealed partial class DashboardForm
     {
         var all = new Dictionary<string, (bool Show, Func<Graphics, float, float, float, float> Draw)>
         {
-            ["price"] = (_settings.ShowPrice, DrawPrice),
+            ["price"] = (_settings.PriceEnabled, DrawPrice),
             ["ha"] = (_settings.ShowHomeAssistant && _settings.HasHomeAssistant, DrawHomeAssistant),
             ["cloudflare"] = (ShowsCloudflare, DrawCloudflare),
             ["proxmox"] = (_settings.ShowProxmox && _settings.HasProxmox, DrawProxmox),

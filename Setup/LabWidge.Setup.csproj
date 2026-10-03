@@ -15,7 +15,7 @@
     <RootNamespace>LabWidgeSetup</RootNamespace>
     <ApplicationIcon>..\LabWidge\Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.14.0</Version>
+    <Version>1.15.0</Version>
     <Product>LabWidge</Product>
     <AssemblyTitle>LabWidge Setup</AssemblyTitle>
     <DebugType>none</DebugType>
@@ -25,6 +25,8 @@
     <Reference Include="System.IO.Compression" />
     <!-- The same English/Danish texts helper as the app -->
     <Compile Include="..\LabWidge\Localization.cs" Link="Localization.cs" />
+    <!-- The country list, so the installer can ask for the country -->
+    <Compile Include="..\LabWidge\Countries.cs" Link="Countries.cs" />
     <EmbeddedResource Include="..\LabWidge\Assets\app.ico" LogicalName="app.ico" />
     <EmbeddedResource Include="$(AppPackagePath)" LogicalName="app.zip" Condition="Exists('$(AppPackagePath)')" />
   </ItemGroup>

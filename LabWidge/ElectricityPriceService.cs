@@ -2,8 +2,8 @@ using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
 
-/// <summary>A quarter-hour's spot price in Danish local time. Spot is øre/kWh excluding VAT.</summary>
-internal sealed record PricePoint(DateTime Time, double SpotOre);
+/// <summary>A spot price period in local time. Spot is in the country's price unit per kWh (e.g. øre or ct) excluding VAT.</summary>
+internal sealed record PricePoint(DateTime Time, double Spot);
 
 /// <summary>One tariff/tax line from Datahub. Prices are øre/kWh excluding VAT, per hour (index 0-23).</summary>
 internal sealed record TariffRow(string Code, string Note, DateTime ValidFrom, DateTime? ValidTo, double[] HourlyOre)
@@ -14,18 +14,18 @@ internal sealed record TariffRow(string Code, string Note, DateTime ValidFrom, D
 internal enum PriceLevel { Cheap, Medium, Expensive }
 
 /// <summary>
-/// Fetches Danish spot prices (DayAheadPrices) and tariffs (DatahubPricelist) from Energi Data Service.
+/// Fetches spot prices for the chosen country (see <see cref="SpotPriceSources"/>) and, in Denmark,
+/// tariffs (DatahubPricelist) from Energi Data Service.
 /// </summary>
 internal sealed class ElectricityPriceService
 {
     private const string Api = "https://api.energidataservice.dk/dataset/";
     private const string EnerginetGln = "5790000432752";
     private static readonly string[] EnerginetCodes = { "40000", "41000", "EA-001" }; // Transmission, system tariff, electricity tax
-    private const double Vat = 1.25;
 
     private readonly HttpClient _http;
     private readonly SemaphoreSlim _lock = new(1, 1);
-    private sealed record FetchRequest(string Area, string Owner, string[] Codes, bool HasNetTariff);
+    private sealed record FetchRequest(Country? Country, string Area, string Owner, string[] Codes, bool HasNetTariff);
     private FetchRequest? _pendingRefresh;
 
     public IReadOnlyList<PricePoint> Prices { get; private set; } = Array.Empty<PricePoint>();
@@ -45,8 +45,9 @@ internal sealed class ElectricityPriceService
     public bool HasTomorrow => Prices.Count > 0 && Prices[^1].Time.Date > DateTime.Today;
 
     /// <summary>Decides whether data should be fetched again (new day, tomorrow's prices published, an error or old data).</summary>
-    public bool NeedsRefresh(string area)
+    public bool NeedsRefresh(AppSettings settings)
     {
+        var area = AreaKey(settings);
         var now = DateTime.Now;
         var ageMin = (now - LastFetch).TotalMinutes;
         return area != FetchedArea
@@ -61,7 +62,7 @@ internal sealed class ElectricityPriceService
     {
         // Remember the latest change instead of losing it during a fetch in progress.
         // Take a copy before the first await, so area and tariff always belong to the same request.
-        _pendingRefresh = new FetchRequest(settings.PriceArea, settings.NetTariffOwner,
+        _pendingRefresh = new FetchRequest(Countries.Find(settings.Country), AreaKey(settings), settings.NetTariffOwner,
             settings.NetTariffCodes.ToArray(), settings.HasNetTariff);
         if (!await _lock.WaitAsync(0)) return;
         try
@@ -79,12 +80,28 @@ internal sealed class ElectricityPriceService
         }
     }
 
+    /// <summary>"DK:DK1" – the country and area the prices belong to. Empty when the country has no prices.</summary>
+    private static string AreaKey(AppSettings s) =>
+        Countries.Find(s.Country) is { } c ? $"{c.Code}:{c.AreaOrDefault(s.PriceArea).Code}" : "";
+
     private async Task RefreshOneAsync(FetchRequest request)
     {
         var area = request.Area;
+        if (request.Country is not { } country)
+        {
+            Prices = Array.Empty<PricePoint>();
+            NetTariffs = StateCharges = Array.Empty<TariffRow>();
+            FetchedArea = area;
+            FetchDay = DateTime.Today;
+            LastError = TariffError = null;
+            LastFetch = DateTime.Now;
+            return;
+        }
         try
         {
-            Prices = await FetchSpotAsync(area);
+            var samples = await SpotPriceSources.FetchAsync(_http, country.AreaOrDefault(area.Split(':').Last()), DateTime.Today);
+            if (samples.Count == 0) throw new InvalidOperationException("The price source returned no prices.");
+            Prices = samples.Select(p => new PricePoint(p.StartUtc.ToLocalTime(), p.PerKwh * country.Unit.PerMajor)).ToList();
             FetchedArea = area;
             FetchDay = DateTime.Today;
             LastError = null;
@@ -96,6 +113,14 @@ internal sealed class ElectricityPriceService
             Logger.Error($"Fetching electricity prices failed: {ex.Message}");
         }
 
+        if (country.Code != "DK")
+        {
+            // Grid tariffs and taxes from Datahub exist only in Denmark
+            NetTariffs = StateCharges = Array.Empty<TariffRow>();
+            TariffError = null;
+            LastFetch = DateTime.Now;
+            return;
+        }
         try
         {
             NetTariffs = !request.HasNetTariff
@@ -111,30 +136,6 @@ internal sealed class ElectricityPriceService
         }
 
         LastFetch = DateTime.Now;
-    }
-
-    private async Task<IReadOnlyList<PricePoint>> FetchSpotAsync(string area)
-    {
-        var start = DateTime.Today.ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture);
-        var filter = Uri.EscapeDataString($"{{\"PriceArea\":[\"{area}\"]}}");
-        var url = $"{Api}DayAheadPrices?start={start}&filter={filter}&sort=TimeDK%20asc&limit=1000";
-
-        using var doc = JsonDocument.Parse(await _http.GetStringAsync(url));
-        var list = new List<PricePoint>();
-        foreach (var rec in doc.RootElement.GetProperty("records").EnumerateArray())
-        {
-            var time = DateTime.ParseExact(rec.GetProperty("TimeDK").GetString()!, "yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
-            double dkkPerMwh;
-            if (rec.TryGetProperty("DayAheadPriceDKK", out var dkk) && dkk.ValueKind == JsonValueKind.Number)
-                dkkPerMwh = dkk.GetDouble();
-            else if (rec.TryGetProperty("DayAheadPriceEUR", out var eur) && eur.ValueKind == JsonValueKind.Number)
-                dkkPerMwh = eur.GetDouble() * 7.46;
-            else
-                continue;
-            list.Add(new PricePoint(time, dkkPerMwh / 10.0));
-        }
-        list.Sort((a, b) => a.Time.CompareTo(b.Time));
-        return list;
     }
 
     private async Task<IReadOnlyList<TariffRow>> FetchTariffsAsync(string ownerFilter, string[] codes, int limit)
@@ -191,17 +192,17 @@ internal sealed class ElectricityPriceService
         return sum;
     }
 
-    public PriceBreakdown Breakdown(DateTime t, double spotOre, AppSettings s)
+    public PriceBreakdown Breakdown(DateTime t, double spot, AppSettings s)
     {
         var total = s.PriceShowTotal;
         var net = total ? SumCharges(NetTariffs, t) : 0;
         var state = total ? SumCharges(StateCharges, t) : 0;
         var supplier = total ? s.SupplierAddOnOre : 0;
-        var vat = s.PriceInclVat ? Vat : 1.0;
-        return new PriceBreakdown(spotOre * vat, net * vat, state * vat, supplier * vat);
+        var vat = s.PriceInclVat ? 1 + s.EffectiveVatPercent / 100 : 1.0;
+        return new PriceBreakdown(spot * vat, net * vat, state * vat, supplier * vat);
     }
 
-    public double Consumer(DateTime t, double spotOre, AppSettings s) => Breakdown(t, spotOre, s).Total;
+    public double Consumer(DateTime t, double spot, AppSettings s) => Breakdown(t, spot, s).Total;
 
     public PricePoint? Current(DateTime now)
     {
@@ -219,7 +220,7 @@ internal sealed class ElectricityPriceService
     /// <summary>Hourly average of the consumer price (for the chart).</summary>
     public IReadOnlyList<(DateTime Hour, double Value)> HourlyConsumer(AppSettings s) =>
         Prices.GroupBy(p => p.Time.Date.AddHours(p.Time.Hour))
-              .Select(g => (g.Key, g.Average(p => Consumer(p.Time, p.SpotOre, s))))
+              .Select(g => (g.Key, g.Average(p => Consumer(p.Time, p.Spot, s))))
               .OrderBy(x => x.Key)
               .ToList();
 

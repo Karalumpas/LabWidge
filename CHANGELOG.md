@@ -2,6 +2,12 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.15.0
+- Electricity prices for 14 European countries: Denmark, Sweden, Norway, Finland, Estonia, Latvia, Lithuania, Germany, Luxembourg, Austria, the Netherlands, Poland, Spain and Portugal
+- The installer asks for your country as well as your language – choose "Other country" to hide the electricity price
+- Choose country, price area, VAT and your own add-on per kWh under Settings → Electricity
+- Prices are shown in your country's unit (øre, öre, ct or gr)
+
 ## 1.14.0
 - Clicking the pin now keeps a section where you are looking: it goes back to the side it was last pinned to, or the nearest edge of the widget
 - The pin's hover text tells you beforehand whether the section will be pinned to the top or the bottom

@@ -14,6 +14,32 @@ if (args.Length == 3 && args[0] is "--cwd-held" or "--cwd-released")
     return;
 }
 
+// "--live" fetches every price area from the real sources – run it by hand when a source may have changed.
+if (args.Length == 1 && args[0] == "--live")
+{
+    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+    http.DefaultRequestHeaders.UserAgent.ParseAdd("LabWidge-tests");
+    var failed = 0;
+    foreach (var country in Countries.All)
+        foreach (var area in country.Areas)
+        {
+            try
+            {
+                var prices = await SpotPriceSources.FetchAsync(http, area, DateTime.Today);
+                var first = prices.FirstOrDefault();
+                Console.WriteLine($"{country.Code} {area.Code,-6} {prices.Count,4} prices, first {first.StartUtc.ToLocalTime():dd/MM HH:mm} "
+                                  + $"{first.PerKwh * country.Unit.PerMajor:0.0} {country.Unit.PerKwh}");
+                if (prices.Count == 0) failed++;
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                Console.WriteLine($"{country.Code} {area.Code,-6} FAILED: {ex.Message}");
+            }
+        }
+    Environment.Exit(failed);
+}
+
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("DNS: empty and whitespace-only host lists make no requests", EmptyHosts),
@@ -21,6 +47,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("DNS: failed updates are retried and successful updates stop retrying", RetryDns),
     ("DNS: settings changed during a request remain pending", ChangedDnsSettings),
     ("Prices: concurrent settings changes are coalesced and applied", ChangedTariff),
+    ("Prices: each source's format is parsed into UTC and price per kWh", SourceFormats),
+    ("Prices: OMIE periods count quarter-hours from Spanish midnight", OmieQuarterHours),
+    ("Countries: the catalog is complete and Other hides the price", CountryCatalog),
+    ("Prices: other countries use their own source, unit and VAT", CountryPrices),
     ("Installer: a complete directory replaces the previous version and keeps login", InstallSuccess),
     ("Installer: a failed switch restores all original files", InstallRollback),
     ("Installer: rollback keeps the prepared package available for retry", InstallRetry),
@@ -197,7 +227,7 @@ static async Task ChangedTariff()
         if (url.Contains("DayAheadPrices"))
         {
             if (first) { first = false; entered.SetResult(); await resume.Task; }
-            return Json(new { records = new[] { new { TimeDK = DateTime.Today.ToString("yyyy-MM-dd'T'HH:mm:ss"), DayAheadPriceDKK = 1000 } } });
+            return Json(new { records = new[] { new { TimeUTC = DateTime.Today.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss"), DayAheadPriceDKK = 1000 } } });
         }
         return Json(new { records = new[] { new
         {
@@ -206,7 +236,7 @@ static async Task ChangedTariff()
         } } });
     }));
     var service = new ElectricityPriceService(http);
-    var settings = new AppSettings { PriceArea = "DK1", NetTariffOwner = "Old", NetTariffCodes = new[] { "C" } };
+    var settings = new AppSettings { Country = "DK", PriceArea = "DK1", NetTariffOwner = "Old", NetTariffCodes = new[] { "C" } };
     var running = service.RefreshAsync(settings);
     await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
     // Mutating the original object must not mix the old area with the new tariff.
@@ -215,10 +245,115 @@ static async Task ChangedTariff()
     for (var i = 0; i < 5; i++) await service.RefreshAsync(settings);
     resume.SetResult();
     await running;
-    Check(service.FetchedArea == "DK2", "Area change was lost.");
+    Check(service.FetchedArea == "DK:DK2", "Area change was lost.");
     Check(service.NetTariffs.Single().HourlyOre[0] == 100, "Tariff change was lost.");
     Check(requests.Count(r => r.Contains("DayAheadPrices")) == 2, "Repeated refreshes were not coalesced.");
     Check(requests.First(r => r.Contains("ChargeOwner")).Contains("Old"), "In-flight settings were not snapshotted.");
+}
+
+static Task SourceFormats()
+{
+    var utc = (string s) => DateTime.SpecifyKind(DateTime.Parse(s, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
+
+    var eds = SpotPriceSources.ParseEnergiDataService(
+        """{"records":[{"TimeUTC":"2026-10-03T10:00:00","TimeDK":"2026-10-03T12:00:00","PriceArea":"DK1","DayAheadPriceEUR":100,"DayAheadPriceDKK":746}]}""");
+    Check(eds.Single() == new SpotSample(utc("2026-10-03T10:00:00"), 0.746), "Energi Data Service: UTC time or DKK/MWh → DKK/kWh is wrong.");
+
+    var se = SpotPriceSources.ParseNordicDaily(
+        """[{"SEK_per_kWh":0.80081,"EUR_per_kWh":0.07087,"EXR":11.3,"time_start":"2026-10-03T00:00:00+02:00","time_end":"2026-10-03T00:15:00+02:00"}]""", "SEK_per_kWh");
+    Check(se.Single() == new SpotSample(utc("2026-10-02T22:00:00"), 0.80081), "elprisetjustnu: the offset or the SEK price is wrong.");
+
+    var no = SpotPriceSources.ParseNordicDaily(
+        """[{"NOK_per_kWh":1.51913,"EUR_per_kWh":0.13969,"EXR":10.875,"time_start":"2026-10-03T00:00:00+02:00","time_end":"2026-10-03T01:00:00+02:00"}]""", "NOK_per_kWh");
+    Check(no.Single().PerKwh == 1.51913, "hvakosterstrommen: the NOK price is wrong.");
+
+    var elering = """{"success":true,"data":{"ee":[{"timestamp":1790985600,"price":31.37}],"fi":[{"timestamp":1790985600,"price":20}]}}""";
+    Check(SpotPriceSources.ParseElering(elering, "fi").Single() == new SpotSample(DateTimeOffset.FromUnixTimeSeconds(1790985600).UtcDateTime, 0.02),
+          "Elering: the zone or EUR/MWh → EUR/kWh is wrong.");
+    Check(SpotPriceSources.ParseElering(elering, "lv").Count == 0, "Elering: a missing zone must give no prices.");
+
+    var awattar = SpotPriceSources.ParseAwattar(
+        """{"object":"list","data":[{"start_timestamp":1791050400000,"end_timestamp":1791054000000,"marketprice":223.22,"unit":"Eur/MWh"}]}""");
+    Check(awattar.Single().StartUtc == DateTimeOffset.FromUnixTimeMilliseconds(1791050400000).UtcDateTime && Math.Abs(awattar[0].PerKwh - 0.22322) < 1e-9, "aWATTar: time or price is wrong.");
+
+    var nl = SpotPriceSources.ParseEnergyZero("""{"Prices":[{"readingDate":"2026-10-03T00:00:00Z","price":0.173512504}]}""");
+    Check(nl.Single() == new SpotSample(utc("2026-10-03T00:00:00"), 0.173512504), "EnergyZero: time or price is wrong.");
+
+    var pl = SpotPriceSources.ParsePse("""{"value":[{"rce_pln":695.73,"dtime_utc":"2026-10-02 22:15:00"}]}""");
+    Check(pl.Single().StartUtc == utc("2026-10-02T22:00:00") && Math.Abs(pl[0].PerKwh - 0.69573) < 1e-9, "PSE: dtime_utc is the end of the quarter-hour.");
+    return Task.CompletedTask;
+}
+
+static Task OmieQuarterHours()
+{
+    var day = string.Join("\n", Enumerable.Range(1, 96).Select(p => $"2026;10;03;{p};{p}.5;{p + 100}.5;"));
+    var text = "MARGINALPDBC;\n" + day + "\n*\n";
+    var es = SpotPriceSources.ParseOmie(text, 5);
+    var pt = SpotPriceSources.ParseOmie(text, 4);
+    Check(es.Count == 96 && pt.Count == 96, "OMIE: all 96 quarter-hours must be read.");
+    // Midnight in Madrid (CEST, UTC+2) is 22:00 UTC the day before
+    Check(es[0].StartUtc == new DateTime(2026, 10, 2, 22, 0, 0, DateTimeKind.Utc), "OMIE: periods must count from Spanish midnight.");
+    Check(es[1].StartUtc - es[0].StartUtc == TimeSpan.FromMinutes(15), "OMIE: 96 periods are quarter-hours.");
+    Check(Math.Abs(es[0].PerKwh - 0.1015) < 1e-9 && Math.Abs(pt[0].PerKwh - 0.0015) < 1e-9, "OMIE: Spain and Portugal columns are mixed up.");
+
+    var hourly = SpotPriceSources.ParseOmie(string.Join("\n", Enumerable.Range(1, 24).Select(p => $"2026;01;15;{p};50;60;")), 5);
+    Check(hourly[1].StartUtc - hourly[0].StartUtc == TimeSpan.FromHours(1), "OMIE: 24 periods are hours.");
+    return Task.CompletedTask;
+}
+
+static Task CountryCatalog()
+{
+    Check(Countries.All.Select(c => c.Code).Distinct().Count() == Countries.All.Count, "Country codes must be unique.");
+    foreach (var c in Countries.All)
+    {
+        Check(c.Areas.Count > 0 && c.Unit.PerMajor > 0 && c.VatPercent > 0 && c.VatPercent < 30, $"{c.Code}: areas, unit or VAT is missing.");
+        Check(c.AreaOrDefault("nonsense") == c.DefaultArea, $"{c.Code}: an unknown area must fall back to the first.");
+    }
+    Check(Countries.Find("dk")?.Code == "DK", "Country lookup must ignore case.");
+    Check(Countries.Normalize("XX") == Countries.Other && Countries.Find(Countries.Other) == null, "Unknown countries must become Other.");
+
+    var other = new AppSettings { Country = Countries.Other, ShowPrice = true };
+    Check(!other.PriceEnabled, "Other country must hide the electricity price.");
+    var finland = new AppSettings { Country = "FI" };
+    Check(finland.PriceUnit.Symbol == "ct" && finland.EffectiveVatPercent == 25.5, "Finland must use cent and its own VAT.");
+    finland.VatPercent = 10;
+    Check(finland.EffectiveVatPercent == 10, "A VAT chosen by the user must win.");
+    Check(Countries.Find("SE")!.Unit.Format(80.6, System.Globalization.CultureInfo.InvariantCulture) == "81"
+          && Countries.Find("FI")!.Unit.Format(7.06, System.Globalization.CultureInfo.InvariantCulture) == "7.1",
+          "Units must round to their decimals.");
+    return Task.CompletedTask;
+}
+
+static async Task CountryPrices()
+{
+    var requests = new List<string>();
+    var now = DateTime.UtcNow;
+    var start = DateTime.Today.ToUniversalTime();
+    using var http = new HttpClient(new Handler(request =>
+    {
+        var url = Uri.UnescapeDataString(request.RequestUri!.ToString());
+        requests.Add(url);
+        return Task.FromResult(Json(new
+        {
+            success = true,
+            data = new { fi = new[] { new { timestamp = new DateTimeOffset(start).ToUnixTimeSeconds(), price = 50.0 } } }
+        }));
+    }));
+    var service = new ElectricityPriceService(http);
+
+    var settings = new AppSettings { Country = "FI", PriceArea = "DK1", PriceInclVat = true, PriceShowTotal = true, SupplierAddOnOre = 1 };
+    await service.RefreshAsync(settings);
+    Check(service.LastError == null && service.Prices.Count == 1, "Finland: prices were not fetched from Elering.");
+    Check(Math.Abs(service.Prices[0].Spot - 5) < 1e-9, "Finland: 50 EUR/MWh must be 5 ct/kWh.");
+    Check(requests.All(r => r.Contains("elering")), "Finland must not fetch Danish tariffs.");
+    Check(Math.Abs(service.Consumer(service.Prices[0].Time, service.Prices[0].Spot, settings) - 6 * 1.255) < 1e-9,
+          "Finland: spot + add-on with 25.5 % VAT is wrong.");
+
+    requests.Clear();
+    settings.Country = Countries.Other;
+    Check(service.NeedsRefresh(settings), "Changing the country must trigger a refresh.");
+    await service.RefreshAsync(settings);
+    Check(service.Prices.Count == 0 && requests.Count == 0, "Other country must clear prices without any request.");
 }
 
 static Task InstallSuccess() => InSandbox(root =>

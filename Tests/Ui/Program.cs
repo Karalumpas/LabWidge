@@ -158,7 +158,7 @@ internal static class UiChecks
         private readonly ContextMenuStrip Menu = new();
         public AppSettings Settings { get; } = new()
         {
-            Theme = WidgetTheme.Dark, WidgetWidth = 344, WidgetHeight = 600,
+            Theme = WidgetTheme.Dark, WidgetWidth = 344, WidgetHeight = 600, Country = "DK",
             SectionPins = new() { ["price"] = SectionPin.Top, ["audio"] = SectionPin.Bottom },
             SectionPinSummaries = new[] { "price" }, HomeAssistantEnabled = true,
             HomeAssistantUrl = "http://example.test", HomeAssistantEntities = new[] { "light.room" },

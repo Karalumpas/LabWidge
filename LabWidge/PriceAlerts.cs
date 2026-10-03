@@ -15,6 +15,8 @@ internal static class PriceAlerts
     public static IEnumerable<PriceAlert> Evaluate(ElectricityPriceService el, AppSettings s, DateTime now)
     {
         var alerts = new List<PriceAlert>();
+        var u = s.PriceUnit.PerKwh;
+        string Ore(double v) => s.PriceUnit.Format(v, Da);
         if (!s.AlertCheap && !s.AlertExpensive) return alerts;
         if (s.AlertQuietNight && (now.Hour >= 23 || now.Hour < 7)) return alerts;
 
@@ -26,7 +28,7 @@ internal static class PriceAlerts
         var values = hours.Select(h => h.Value).ToList();
         var lead = TimeSpan.FromMinutes(Math.Clamp(s.AlertLeadMinutes, 5, 240));
         var curHour = now.Date.AddHours(now.Hour);
-        var nowPrice = el.Consumer(cur.Time, cur.SpotOre, s);
+        var nowPrice = el.Consumer(cur.Time, cur.Spot, s);
 
         if (s.AlertCheap)
         {
@@ -46,8 +48,8 @@ internal static class PriceAlerts
                 {
                     alerts.Add(new PriceAlert(PriceAlertKind.Cheap, start,
                         L.T($"Cheap power in {Minutes(until)} min", $"Billig strøm om {Minutes(until)} min"),
-                        L.T($"{start:HH}–{start.AddHours(3):HH} costs {Ore(bestAvg)} øre/kWh on average", $"Kl. {start:HH}–{start.AddHours(3):HH} koster i gennemsnit {Ore(bestAvg)} øre/kWh"),
-                        L.T($"Right now: {Ore(nowPrice)} øre/kWh", $"Lige nu: {Ore(nowPrice)} øre/kWh")));
+                        L.T($"{start:HH}–{start.AddHours(3):HH} costs {Ore(bestAvg)} {u} on average", $"Kl. {start:HH}–{start.AddHours(3):HH} koster i gennemsnit {Ore(bestAvg)} {u}"),
+                        L.T($"Right now: {Ore(nowPrice)} {u}", $"Lige nu: {Ore(nowPrice)} {u}")));
                 }
             }
         }
@@ -74,8 +76,8 @@ internal static class PriceAlerts
                     {
                         alerts.Add(new PriceAlert(PriceAlertKind.Expensive, start,
                             L.T($"Power gets more expensive in {Minutes(until)} min", $"Strømmen bliver dyrere om {Minutes(until)} min"),
-                            L.T($"From {start:HH}:00 the price rises to {Ore(hours[i].Value)} øre/kWh (up to {Ore(peak)})", $"Fra kl. {start:HH} stiger prisen til {Ore(hours[i].Value)} øre/kWh (op til {Ore(peak)})"),
-                            L.T($"Expensive until about {hours[end].Hour.AddHours(1):HH}:00 · now {Ore(nowPrice)} øre/kWh", $"Dyr periode til ca. kl. {hours[end].Hour.AddHours(1):HH} · nu {Ore(nowPrice)} øre/kWh")));
+                            L.T($"From {start:HH}:00 the price rises to {Ore(hours[i].Value)} {u} (up to {Ore(peak)})", $"Fra kl. {start:HH} stiger prisen til {Ore(hours[i].Value)} {u} (op til {Ore(peak)})"),
+                            L.T($"Expensive until about {hours[end].Hour.AddHours(1):HH}:00 · now {Ore(nowPrice)} {u}", $"Dyr periode til ca. kl. {hours[end].Hour.AddHours(1):HH} · nu {Ore(nowPrice)} {u}")));
                     }
                     break;
                 }
@@ -85,5 +87,4 @@ internal static class PriceAlerts
     }
 
     private static int Minutes(TimeSpan t) => Math.Max(1, (int)Math.Ceiling(t.TotalMinutes));
-    private static string Ore(double v) => v.ToString("0", Da);
 }

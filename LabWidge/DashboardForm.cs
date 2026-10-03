@@ -597,13 +597,13 @@ internal sealed partial class DashboardForm : Form
             first = false;
         }
 
-        if (_settings.ShowPrice && CurrentPrice() is var (price, level) && price != null)
+        if (_settings.PriceEnabled && CurrentPrice() is var (price, level) && price != null)
         {
             Separator();
             var c = _p.Level(level);
             x += DrawText(g, "", _f.Icon, c, x, ty + U(1)) + U(4);
             x += DrawText(g, Ore(price.Value), _f.BodyBold, c, x, ty) + U(3);
-            x += DrawText(g, "øre", _f.Small, _p.TextSecondary, x, ty + U(1));
+            x += DrawText(g, _settings.PriceUnit.Symbol, _f.Small, _p.TextSecondary, x, ty + U(1));
         }
         if (_settings.ShowSystem)
         {
@@ -647,7 +647,7 @@ internal sealed partial class DashboardForm : Form
         var cur = _el.Current(DateTime.Now);
         if (cur == null) return (null, PriceLevel.Medium);
         var values = _el.HourlyConsumer(_settings).Select(h => h.Value).ToList();
-        var total = _el.Consumer(cur.Time, cur.SpotOre, _settings);
+        var total = _el.Consumer(cur.Time, cur.Spot, _settings);
         return (total, ElectricityPriceService.Level(total, values));
     }
 
@@ -656,8 +656,10 @@ internal sealed partial class DashboardForm : Form
         var s = _settings;
         var now = DateTime.Now;
         var cur = _el.Current(now);
-        var region = s.PriceArea == "DK2" ? L.T("East", "Øst") : L.T("West", "Vest");
-        var title = L.T("ELECTRICITY", "ELPRIS") + $"  ·  {s.PriceArea} {region}";
+        var country = s.PriceCountry;
+        var area = country?.AreaOrDefault(s.PriceArea);
+        var title = L.T("ELECTRICITY", "ELPRIS") + "  ·  " + (country == null ? ""
+            : country.Areas.Count > 1 ? $"{area!.Code} {area.ShortName}" : country.Name);
 
         if (cur == null)
         {
@@ -672,14 +674,14 @@ internal sealed partial class DashboardForm : Form
         var hours = _el.HourlyConsumer(s);
         var hourValues = hours.Select(h => h.Value).ToList();
         double lo = hourValues.Min(), hi = hourValues.Max();
-        var bd = _el.Breakdown(cur.Time, cur.SpotOre, s);
+        var bd = _el.Breakdown(cur.Time, cur.Spot, s);
         var level = ElectricityPriceService.Level(bd.Total, hourValues);
         var levelColor = _p.Level(level);
         var levelText = level switch { PriceLevel.Cheap => L.T("Cheap", "Billig"), PriceLevel.Medium => L.T("Medium", "Middel"), _ => L.T("Expensive", "Dyr") };
 
         string status;
         Color? statusColor = null;
-        if (s.CollapsedPrice) { status = $"{Ore(bd.Total)} øre · {levelText}"; statusColor = levelColor; }
+        if (s.CollapsedPrice) { status = $"{Ore(bd.Total)} {Unit} · {levelText}"; statusColor = levelColor; }
         else if (_el.LastError != null) { status = L.T("⚠ update failed", "⚠ opdatering fejlede"); statusColor = _p.Amber; }
         else status = L.T("updated ", "opdateret ") + _el.LastFetch.ToString("HH:mm");
 
@@ -694,12 +696,23 @@ internal sealed partial class DashboardForm : Form
         var pill = new RectangleF(px, y + U(2), ls.Width + U(12), ls.Height + U(4));
         FillRound(g, pill, Color.FromArgb(_p.IsDark ? 48 : 36, levelColor), pill.Height / 2);
         DrawText(g, levelText, _f.SmallBold, levelColor, pill.X + U(6), pill.Y + U(2));
-        DrawText(g, "øre/kWh", _f.Small, _p.TextSecondary, px, y + U(23));
+        DrawText(g, s.PriceUnit.PerKwh, _f.Small, _p.TextSecondary, px, y + U(23));
         var what = s.PriceShowTotal ? L.T("total price", "samlet pris") : L.T("spot price", "spotpris");
         DrawText(g, $"{what}, " + (s.PriceInclVat ? L.T("incl. VAT", "inkl. moms") : L.T("excl. VAT", "ekskl. moms")), _f.Tiny, _p.TextDim, px, y + U(38));
 
-        var tipLines = $"Spot {Ore(bd.Spot)} øre";
-        if (s.PriceShowTotal)
+        var tipLines = $"Spot {Ore(bd.Spot)} {Unit}";
+        var danish = country?.Code == "DK";
+        if (s.PriceShowTotal && !danish && s.SupplierAddOnOre != 0)
+        {
+            // Outside Denmark there are no Datahub tariffs: spot plus the user's own add-on
+            DrawText(g, Ore(bd.Spot), _f.Tiny, _p.TextSecondary, x + w, y + U(1), right: true);
+            DrawText(g, "Spot", _f.Tiny, _p.TextDim, x + w - U(30), y + U(1), right: true);
+            DrawText(g, Ore(bd.Supplier), _f.Tiny, _p.TextSecondary, x + w, y + U(17), right: true);
+            DrawText(g, L.T("Add-on", "Tillæg"), _f.Tiny, _p.TextDim, x + w - U(30), y + U(17), right: true);
+            tipLines = L.T($"Spot {Ore(bd.Spot)} + add-on {Ore(bd.Supplier)}", $"Spot {Ore(bd.Spot)} + tillæg {Ore(bd.Supplier)}")
+                       + $"\n= {Ore(bd.Total)} {s.PriceUnit.PerKwh}";
+        }
+        else if (s.PriceShowTotal && danish)
         {
             var rows = new List<(string Label, double Value)>
             {
@@ -717,7 +730,7 @@ internal sealed partial class DashboardForm : Form
             tipLines = L.T($"Spot {Ore(bd.Spot)} + grid tariff {Ore(bd.NetTariff)} + taxes {Ore(bd.StateCharges)}",
                            $"Spot {Ore(bd.Spot)} + nettarif {Ore(bd.NetTariff)} + afgifter {Ore(bd.StateCharges)}")
                        + (s.SupplierAddOnOre != 0 ? L.T($" + supplier {Ore(bd.Supplier)}", $" + elselskab {Ore(bd.Supplier)}") : "")
-                       + $"\n= {Ore(bd.Total)} øre/kWh"
+                       + $"\n= {Ore(bd.Total)} {s.PriceUnit.PerKwh}"
                        + (s.HasNetTariff ? "" : L.T("\nNo grid company chosen – the grid tariff is not included", "\nNetselskab ikke valgt – nettarif er ikke med"));
         }
         _hits.Add(new Hit(new RectangleF(x, y - U(4), w, U(54)), tipLines, null));
@@ -725,12 +738,15 @@ internal sealed partial class DashboardForm : Form
 
         // This quarter-hour and the next
         var next = _el.Next(now);
-        var sub = L.T("", "kl. ") + $"{cur.Time:HH:mm}–{cur.Time.AddMinutes(15):HH:mm}";
+        var length = next != null && next.Time > cur.Time ? next.Time - cur.Time : TimeSpan.FromMinutes(15);
+        if (length > TimeSpan.FromHours(1)) length = TimeSpan.FromHours(1);
+        var (period, periodDa) = length >= TimeSpan.FromHours(1) ? ("hour", "time") : ("quarter", "kvarter");
+        var sub = L.T("", "kl. ") + $"{cur.Time:HH:mm}–{cur.Time.Add(length):HH:mm}";
         if (next != null)
         {
-            var nv = _el.Consumer(next.Time, next.SpotOre, s);
+            var nv = _el.Consumer(next.Time, next.Spot, s);
             var arrow = nv > bd.Total + 0.5 ? "↑" : nv < bd.Total - 0.5 ? "↓" : "→";
-            sub += L.T($"    ·    next quarter {arrow} {Ore(nv)} øre", $"    ·    næste kvarter {arrow} {Ore(nv)} øre");
+            sub += L.T($"    ·    next {period} {arrow} {Ore(nv)} {Unit}", $"    ·    næste {periodDa} {arrow} {Ore(nv)} {Unit}");
         }
         DrawText(g, sub, _f.Small, _p.TextSecondary, x, y);
         y += U(24);
@@ -757,7 +773,7 @@ internal sealed partial class DashboardForm : Form
             FillRound(g, rect, c, Math.Min(U(1.5f), rect.Width / 2));
 
             var hitRect = new RectangleF(x + i * slot, y - U(4), slot, chartH + U(6));
-            _hits.Add(new Hit(hitRect, hour.ToString(L.T("dddd d MMM", "dddd d. MMM"), Fmt) + L.T(" ", " kl. ") + $"{hour:HH}–{hour.AddHours(1):HH}\n{Ore(value)} øre/kWh", null));
+            _hits.Add(new Hit(hitRect, hour.ToString(L.T("dddd d MMM", "dddd d. MMM"), Fmt) + L.T(" ", " kl. ") + $"{hour:HH}–{hour.AddHours(1):HH}\n{Ore(value)} {s.PriceUnit.PerKwh}", null));
 
             if (hour.Hour % 6 == 0)
             {
@@ -803,13 +819,15 @@ internal sealed partial class DashboardForm : Form
             var start = future[best].Hour;
             var day = start.Date == now.Date ? L.T("today", "i dag") : L.T("tomorrow", "i morgen");
             var lw = DrawText(g, L.T("Cheapest 3 hours  ", "Billigste 3 timer  "), _f.Small, _p.TextSecondary, x, y);
-            DrawText(g, L.T($"{day} {start:HH}–{start.AddHours(3):HH}  ·  avg {Ore(bestAvg)} øre", $"{day} kl. {start:HH}–{start.AddHours(3):HH}  ·  gns. {Ore(bestAvg)} øre"), _f.SmallBold, _p.Green, x + lw, y);
+            DrawText(g, L.T($"{day} {start:HH}–{start.AddHours(3):HH}  ·  avg {Ore(bestAvg)} {Unit}", $"{day} kl. {start:HH}–{start.AddHours(3):HH}  ·  gns. {Ore(bestAvg)} {Unit}"), _f.SmallBold, _p.Green, x + lw, y);
             y += U(19);
         }
 
         if (!_el.HasTomorrow)
         {
-            DrawText(g, L.T("Tomorrow's prices arrive around 13:00", "Morgendagens priser kommer ca. kl. 13"), _f.Small, _p.TextDim, x, y);
+            DrawText(g, danish ? L.T("Tomorrow's prices arrive around 13:00", "Morgendagens priser kommer ca. kl. 13")
+                               : L.T("Tomorrow's prices arrive in the early afternoon", "Morgendagens priser kommer først på eftermiddagen"),
+                _f.Small, _p.TextDim, x, y);
             y += U(19);
         }
         if (s.PriceShowTotal && _el.TariffError != null)
@@ -1659,7 +1677,8 @@ internal sealed partial class DashboardForm : Form
 
     // ---------- Formatting ----------
 
-    private static string Ore(double v) => v.ToString("0", Fmt);
+    private string Ore(double v) => _settings.PriceUnit.Format(v, Fmt);
+    private string Unit => _settings.PriceUnit.Symbol;
 
     private static string Gb(double bytes)
     {
