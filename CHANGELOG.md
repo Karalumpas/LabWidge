@@ -2,6 +2,10 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.13.0
+- Every section header now has a pin you can click: one click pins the section to the top, another click unpins it
+- More space between the icons on the section headers
+
 ## 1.12.0
 - Hover texts now appear beside the widget instead of on top of it, so they never cover what you're looking at
 - The hover box uses the widget's own colours and follows the light/dark theme

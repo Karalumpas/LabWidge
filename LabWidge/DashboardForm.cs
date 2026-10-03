@@ -1534,19 +1534,19 @@ internal sealed partial class DashboardForm : Form
             rightColor = FreshnessColor(status);
         }
         _hits.Add(new Hit(rect, (collapsed ? L.T("Click the arrow to expand", "Klik på pilen for at folde ud") : L.T("Click the arrow to collapse", "Klik på pilen for at folde sammen"))
-            + L.T(" · drag the handle · right-click to pin", " · træk i grebet · højreklik for pinning")
+            + L.T(" · drag the handle · right-click for more options", " · træk i grebet · højreklik for flere valg")
             + (key != null && PinOf(key) != SectionPin.None
                 ? (PinOf(key) == SectionPin.Top ? L.T("\nPinned to the top", "\nFastgjort øverst") : L.T("\nPinned to the bottom", "\nFastgjort nederst"))
                 : "")
             + (freshness is { } detail ? "\n" + detail.Detail : ""), key == null ? toggle : () => ToggleHeader(key, toggle)));
         DrawHeaderGrip(g, x, y, key);
-        DrawText(g, glyph, _f.Icon, _p.TextSecondary, x + U(18), y + U(1));
-        var titleWidth = Math.Min(Measure(g, title, _f.SmallBold).Width, w * 0.53f - U(39));
-        DrawText(g, Fit(g, title, _f.SmallBold, Math.Max(U(28), titleWidth)), _f.SmallBold, _p.TextSecondary, x + U(39), y);
+        DrawText(g, glyph, _f.Icon, _p.TextSecondary, x + U(29), y + U(1));
+        var titleWidth = Math.Min(Measure(g, title, _f.SmallBold).Width, w * 0.53f - U(50));
+        DrawText(g, Fit(g, title, _f.SmallBold, Math.Max(U(28), titleWidth)), _f.SmallBold, _p.TextSecondary, x + U(50), y);
         DrawText(g, collapsed ? "" : "", _f.IconSmall, _p.TextDim, x + w - U(10), y + U(3));
         if (right != null)
         {
-            DrawText(g, Fit(g, right, _f.Small, Math.Max(U(25), w - U(63) - titleWidth)), _f.Small,
+            DrawText(g, Fit(g, right, _f.Small, Math.Max(U(25), w - U(74) - titleWidth)), _f.Small,
                 rightColor ?? _p.TextDim, x + w - U(18), y, right: true);
         }
         return y + U(24);
