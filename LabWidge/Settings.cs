@@ -70,6 +70,8 @@ internal sealed class AppSettings
     public int? WidgetWidth { get; set; }
     public int? WidgetHeight { get; set; }
     public Dictionary<string, SectionPin> SectionPins { get; set; } = new();
+    /// <summary>The side each section was last pinned to – a click on the pin uses it again.</summary>
+    public Dictionary<string, SectionPin> SectionLastPins { get; set; } = new();
     public string[] SectionPinSummaries { get; set; } = Array.Empty<string>();
 
     // Audio
@@ -221,6 +223,7 @@ internal static class SettingsStore
             loaded.HomeAssistantEntities ??= Array.Empty<string>();
             loaded.NetTariffOwner ??= "";
             loaded.SectionPins ??= new();
+            loaded.SectionLastPins ??= new();
             loaded.SectionPinSummaries ??= Array.Empty<string>();
 
             settings = loaded;
