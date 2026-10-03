@@ -88,7 +88,7 @@ internal sealed partial class DashboardForm
         : _sectionBounds.FirstOrDefault(b => p.Y >= b.Top - U(4) && p.Y <= b.Top + U(20)
             && (PinOf(b.Key) != SectionPin.None || (p.Y >= _layout.MiddleTop && p.Y < _layout.BottomTop)))?.Key;
 
-    private string? SectionHeaderAt(Point p) => p.X >= U(Pad) - U(6) && p.X <= U(Pad) + U(14)
+    private string? SectionHeaderAt(Point p) => p.X >= U(Pad) - U(6) && p.X <= U(Pad) + U(6)
         ? SectionAtHeader(p) : null;
 
     // ---------- Drag ----------

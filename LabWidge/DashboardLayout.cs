@@ -21,8 +21,28 @@ internal sealed partial class DashboardForm
         for (var col = 0; col < 2; col++)
             for (var row = 0; row < 3; row++)
                 g.FillEllipse(brush, x - U(2) + U(col * 4), y + U(4 + row * 4), U(2), U(2));
-        if (key != null && PinOf(key) != SectionPin.None)
-            DrawText(g, "", _f.IconSmall, _p.Blue, x + U(7), y + U(2));
+        if (key == null) return;
+
+        // The pin is always shown: click to pin the section to the top, click again to unpin
+        var pinned = PinOf(key) != SectionPin.None;
+        var rect = new RectangleF(x + U(7), y - U(2), U(16), U(20));
+        var hovered = rect.Contains(_mouse);
+        if (hovered) FillRound(g, rect, _p.Track, U(4));
+        DrawText(g, pinned ? "" : "", _f.IconSmall, pinned ? _p.Blue : hovered ? _p.TextSecondary : _p.TextDim, x + U(10), y + U(3));
+        _hits.Add(new Hit(rect, pinned
+                ? (PinOf(key) == SectionPin.Top ? L.T("Pinned to the top", "Fastgjort øverst") : L.T("Pinned to the bottom", "Fastgjort nederst"))
+                  + L.T("\nClick to unpin", "\nKlik for at frigøre")
+                : L.T("Click to pin to the top\nRight-click for more options", "Klik for at fastgøre øverst\nHøjreklik for flere valg"),
+            () => SetSectionPin(key, pinned ? SectionPin.None : SectionPin.Top)));
+    }
+
+    private void SetSectionPin(string key, SectionPin pin)
+    {
+        if (pin == SectionPin.None) _settings.SectionPins.Remove(key);
+        else _settings.SectionPins[key] = pin;
+        _expandedSummaries.Remove(key); _scroll = 0;
+        _hoverKey = null;
+        _saveSettings(); FitSize(); Invalidate();
     }
 
     private DataFreshness? StatusFor(string? key) => key switch
@@ -257,13 +277,7 @@ internal sealed partial class DashboardForm
                  })
         {
             var item = new ToolStripMenuItem(label) { Checked = PinOf(key) == pin };
-            item.Click += (_, _) =>
-            {
-                if (pin == SectionPin.None) _settings.SectionPins.Remove(key);
-                else _settings.SectionPins[key] = pin;
-                _expandedSummaries.Remove(key); _scroll = 0;
-                _saveSettings(); FitSize(); Invalidate();
-            };
+            item.Click += (_, _) => SetSectionPin(key, pin);
             menu.Items.Add(item);
         }
         menu.Items.Add(new ToolStripSeparator());
