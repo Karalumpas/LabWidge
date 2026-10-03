@@ -14,6 +14,8 @@
     <!-- Test the same source files without starting the tray app's Windows integrations. -->
     <Compile Include="..\LabWidge\CloudflareDnsSync.cs" Link="CloudflareDnsSync.cs" />
     <Compile Include="..\LabWidge\ElectricityPriceService.cs" Link="ElectricityPriceService.cs" />
+    <Compile Include="..\LabWidge\SpotPriceSources.cs" Link="SpotPriceSources.cs" />
+    <Compile Include="..\LabWidge\Countries.cs" Link="Countries.cs" />
     <Compile Include="..\LabWidge\NetworkClients.cs" Link="NetworkClients.cs" />
     <Compile Include="..\LabWidge\Settings.cs" Link="Settings.cs" />
     <Compile Include="..\LabWidge\UninstallCleanup.cs" Link="UninstallCleanup.cs" />

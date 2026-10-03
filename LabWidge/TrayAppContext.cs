@@ -70,6 +70,14 @@ internal sealed class TrayAppContext : ApplicationContext
             _settings.Language = language;
             SettingsStore.Save(_settings);
         }
+        // The same for the country of the electricity price: the installer's choice, the stored one or Windows' region
+        var country = Countries.TakeInstallerChoice() ?? _settings.Country ?? Countries.FromWindows();
+        if (_settings.Country != country)
+        {
+            _settings.Country = country;
+            _settings.PriceArea = Countries.Find(country)?.AreaOrDefault(_settings.PriceArea).Code ?? _settings.PriceArea;
+            SettingsStore.Save(_settings);
+        }
         L.Use(_settings.Language);
         ToastHelper.EnsureToastRegistration();
 
@@ -164,7 +172,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _priceTimer = new System.Windows.Forms.Timer { Interval = 30_000 };
         _priceTimer.Tick += async (_, _) =>
         {
-            if (_prices.NeedsRefresh(_settings.PriceArea))
+            if (_prices.NeedsRefresh(_settings))
             {
                 await _prices.RefreshAsync(_settings);
             }
@@ -504,7 +512,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _dashboard.ApplySettings(_settings);
         StartupRegistration.Apply(_settings.StartWithWindows);
 
-        var priceChanged = old.PriceArea != updated.PriceArea
+        var priceChanged = old.Country != updated.Country || old.PriceArea != updated.PriceArea
                            || old.NetTariffOwner != updated.NetTariffOwner
                            || !old.NetTariffCodes.SequenceEqual(updated.NetTariffCodes);
         if (priceChanged) _ = _prices.RefreshAsync(_settings);
@@ -603,10 +611,10 @@ internal sealed class TrayAppContext : ApplicationContext
     {
         PriceLevel? level = null;
         var cur = _prices.Current(DateTime.Now);
-        if (cur != null && _settings.ShowPrice)
+        if (cur != null && _settings.PriceEnabled)
         {
             var values = _prices.HourlyConsumer(_settings).Select(h => h.Value).ToList();
-            level = ElectricityPriceService.Level(_prices.Consumer(cur.Time, cur.SpotOre, _settings), values);
+            level = ElectricityPriceService.Level(_prices.Consumer(cur.Time, cur.Spot, _settings), values);
         }
 
         if (_iconInitialized && level == _iconLevel) return;
@@ -625,18 +633,18 @@ internal sealed class TrayAppContext : ApplicationContext
         var lines = new List<string>();
         var now = DateTime.Now;
         var cur = _prices.Current(now);
-        if (cur != null && _settings.ShowPrice)
+        if (cur != null && _settings.PriceEnabled)
         {
             var hours = _prices.HourlyConsumer(_settings);
             var values = hours.Select(h => h.Value).ToList();
-            var price = _prices.Consumer(cur.Time, cur.SpotOre, _settings);
+            var price = _prices.Consumer(cur.Time, cur.Spot, _settings);
             var level = ElectricityPriceService.Level(price, values) switch
             {
                 PriceLevel.Cheap => L.T("cheap", "billig"),
                 PriceLevel.Medium => L.T("medium", "middel"),
                 _ => L.T("expensive", "dyr")
             };
-            lines.Add($"⚡ {price.ToString("0", Fmt)} øre/kWh ({level})");
+            lines.Add($"⚡ {_settings.PriceUnit.Format(price, Fmt)} {_settings.PriceUnit.PerKwh} ({level})");
 
             var curHour = now.Date.AddHours(now.Hour);
             var future = hours.Where(h => h.Hour >= curHour).ToList();

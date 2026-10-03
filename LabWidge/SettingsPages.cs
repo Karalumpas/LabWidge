@@ -133,13 +133,13 @@ internal sealed class WelcomePage : SettingsPage
         Add(logo,
             Ui.Heading(L.T("Welcome to LabWidge", "Velkommen til LabWidge")),
             Ui.Help(L.T("A small widget by the clock that keeps you up to date on:", "En lille widget ved uret, der holder dig opdateret om:")),
-            Ui.Help(L.T("•  The Danish electricity price right now – incl. grid tariff, taxes and VAT – with a chart and the cheapest hours\n" +
+            Ui.Help(L.T("•  The electricity price right now in 14 European countries – with a chart and the cheapest hours\n" +
                         "•  A heads-up before power gets cheap or expensive\n" +
                         "•  CPU, RAM and disks\n" +
                         "•  Local and external IP address, ping and traffic\n" +
                         "•  Optional: control lights and switches through Home Assistant\n" +
                         "•  Optional: automatic Cloudflare DNS updates",
-                        "•  Elprisen lige nu – inkl. nettarif, afgifter og moms – med graf og de billigste timer\n" +
+                        "•  Elprisen lige nu i 14 europæiske lande – med graf og de billigste timer\n" +
                         "•  Besked før strømmen bliver billig eller dyr\n" +
                         "•  CPU, RAM og diske\n" +
                         "•  Intern og ekstern IP-adresse, ping og trafik\n" +
@@ -160,7 +160,11 @@ internal sealed class PricePage : SettingsPage
     private static readonly HttpClient Http = HttpClientFactory.Create(TimeSpan.FromSeconds(30));
     private static IReadOnlyList<string>? _companyCache;
     private static CultureInfo Fmt => L.Culture;
+    private static readonly string OtherCountry = L.T("Other country (no electricity price)", "Andet land (ingen elpris)");
 
+    private readonly ComboBox _country = new() { Width = 290, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly Label _intro = Ui.Help("");
+    private readonly ComboBox _area = new() { Width = 290, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _postal = new() { Width = 70, MaxLength = 4 };
     private readonly Label _postalHint = Ui.Inline("");
     private readonly RadioButton _dk1 = new() { Text = L.T("DK1 – Jutland and Funen", "DK1 – Jylland og Fyn"), AutoSize = true };
@@ -172,28 +176,32 @@ internal sealed class PricePage : SettingsPage
     private readonly Label _tariffPreview = Ui.Help("", Ui.ContentWidth);
     private readonly TextBox _supplierName = new() { Width = 200, PlaceholderText = L.T("e.g. Aura Energi", "fx Aura Energi") };
     private readonly NumericUpDown _supplierAddOn = new() { Width = 80, DecimalPlaces = 2, Increment = 0.5m, Minimum = -100, Maximum = 500 };
+    private readonly Label _addOnUnit = Ui.Inline("");
+    private readonly Label _addOnHelp = Ui.Help("");
+    private readonly NumericUpDown _vatPercent = new() { Width = 80, DecimalPlaces = 1, Increment = 0.5m, Minimum = 0, Maximum = 40 };
     private readonly CheckBox _showPrice = Ui.Check(L.T("Show the electricity price in the widget", "Vis elprisen i widgetten"));
     private readonly CheckBox _vat = Ui.Check(L.T("Show prices including VAT", "Vis priser inkl. moms"));
     private readonly Panel _totalPanel;
+    private readonly Control _gridPanel, _areaRow, _postalRow, _dk1Row, _dk2Row, _displaySection, _vatRow;
 
     private TariffDetection? _detection;
     private string _loadedOwner = "";
     private string[] _loadedCodes = Array.Empty<string>();
     private int _detectVersion;
+    private bool _companiesRequested;
 
     public override string Title => L.T("Electricity", "Elpris");
 
+    private sealed record AreaItem(PriceArea Area)
+    {
+        public override string ToString() => Area.ShortName.Length > 0 ? $"{Area.Code} – {Area.ShortName}" : Area.Code;
+    }
+
+    private Country? SelectedCountry => _country.SelectedItem as Country;
+
     public PricePage()
     {
-        _totalPanel = new FlowLayoutPanel
-        {
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoSize = true,
-            Margin = new Padding(0)
-        };
-        _totalPanel.Controls.AddRange(new Control[]
-        {
+        _gridPanel = Stack(
             Ui.Section(L.T("Grid company", "Netselskab")),
             Ui.Help(L.T("The grid company owns the wires to your home – it is not necessarily your electricity supplier. " +
                         "You'll find it on your electricity bill under grid tariff (nettarif) or grid subscription.",
@@ -202,26 +210,43 @@ internal sealed class PricePage : SettingsPage
             Ui.Row(L.T("Grid company", "Netselskab"), _company),
             Ui.Row("", _companyStatus),
             Ui.Row(L.T("Tariff", "Tarif"), _tariff),
-            _tariffPreview,
+            _tariffPreview);
+        _totalPanel = Stack(
+            _gridPanel,
             Ui.Section(L.T("Electricity supplier", "Elselskab")),
-            Ui.Help(L.T("The supplier's add-on per kWh is in your contract or on the bill (typically 0–10 øre excl. VAT).",
-                        "Elselskabets tillæg pr. kWh står i din elaftale eller på regningen (typisk 0–10 øre ekskl. moms).")),
+            _addOnHelp,
             Ui.Row(L.T("Supplier (optional)", "Elselskab (valgfrit)"), _supplierName),
-            Ui.Row(L.T("Add-on (øre/kWh excl. VAT)", "Tillæg (øre/kWh ekskl. moms)"), _supplierAddOn)
-        });
+            Ui.Row(L.T("Add-on excl. VAT", "Tillæg ekskl. moms"), _supplierAddOn, _addOnUnit));
+
+        _areaRow = Ui.Row(L.T("Price area", "Prisområde"), _area);
+        _postalRow = Ui.Row(L.T("Postal code", "Postnummer"), _postal, _postalHint);
+        _dk1Row = Ui.Row(L.T("Price area", "Prisområde"), _dk1);
+        _dk2Row = Ui.Row("", _dk2);
+        _vatRow = Ui.Row(L.T("VAT", "Moms"), _vatPercent, Ui.Inline("%"));
+        _displaySection = Stack(Ui.Section(L.T("Display", "Visning")), _showPrice, _vat, _vatRow, _spotOnly, _totalPanel);
+
+        _country.Items.AddRange(Countries.All.Cast<object>().ToArray());
+        _country.Items.Add(OtherCountry);
 
         Add(Ui.Heading(L.T("Electricity price", "Elpris")),
-            Ui.Help(L.T("Your Danish postal code tells us the price area, and Energinet's public data is used to calculate your price.",
-                        "Vi bruger dit postnummer til at finde prisområdet og Energinets offentlige data til at beregne din pris.")),
-            Ui.Row(L.T("Postal code", "Postnummer"), _postal, _postalHint),
-            Ui.Row(L.T("Price area", "Prisområde"), _dk1),
-            Ui.Row("", _dk2),
-            Ui.Section(L.T("Display", "Visning")),
-            _showPrice,
-            _vat,
-            _spotOnly,
-            _totalPanel);
+            Ui.Row(L.T("Country", "Land"), _country),
+            _intro,
+            _areaRow,
+            _postalRow,
+            _dk1Row,
+            _dk2Row,
+            _displaySection);
 
+        _country.SelectedIndexChanged += async (_, _) =>
+        {
+            var previous = _vatCountry;
+            ApplyCountry();
+            // A new country brings its usual VAT, unless the user had changed it
+            if (SelectedCountry is { } c && previous != null && (double)_vatPercent.Value == previous.VatPercent)
+                _vatPercent.Value = (decimal)c.VatPercent;
+            _vatCountry = SelectedCountry;
+            if (SelectedCountry?.Code == "DK") await EnsureCompaniesAsync();
+        };
         _postal.TextChanged += (_, _) =>
         {
             var area = TariffCatalog.AreaFromPostalCode(_postal.Text);
@@ -243,10 +268,67 @@ internal sealed class PricePage : SettingsPage
         _tariff.SelectedIndexChanged += (_, _) => UpdatePreview();
     }
 
+    private Country? _vatCountry;
+
+    private static Panel Stack(params Control[] controls)
+    {
+        var panel = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
+        panel.Controls.AddRange(controls);
+        return panel;
+    }
+
+    /// <summary>Shows the fields that fit the chosen country: Denmark has postal code, grid company and tariffs.</summary>
+    private void ApplyCountry()
+    {
+        var country = SelectedCountry;
+        var danish = country?.Code == "DK";
+        _postalRow.Visible = _dk1Row.Visible = _dk2Row.Visible = _gridPanel.Visible = danish;
+        _areaRow.Visible = country != null && !danish && country.Areas.Count > 1;
+        _displaySection.Visible = country != null;
+        _spotOnly.Text = danish
+            ? L.T("Show the spot price only (without grid tariff and taxes)", "Vis kun spotpris (uden nettarif og afgifter)")
+            : L.T("Show the spot price only (without add-on)", "Vis kun spotpris (uden tillæg)");
+
+        if (country == null)
+        {
+            _intro.Text = L.T("Electricity prices are not available for your country, so the electricity section is hidden in the widget.",
+                              "Elpriser findes ikke for dit land, så elpris-sektionen er skjult i widgetten.");
+            return;
+        }
+
+        _intro.Text = danish
+            ? L.T("Your Danish postal code tells us the price area, and Energinet's public data is used to calculate your price.",
+                  "Vi bruger dit postnummer til at finde prisområdet og Energinets offentlige data til at beregne din pris.")
+            : L.T("The widget shows the day-ahead spot price for your price area from free public sources. " +
+                  "Add your supplier's add-on and other charges per kWh to see what you pay.",
+                  "Widgetten viser day-ahead-spotprisen for dit prisområde fra gratis, offentlige kilder. " +
+                  "Læg dit elselskabs tillæg og andre gebyrer pr. kWh til for at se, hvad du betaler.");
+        _addOnUnit.Text = country.Unit.PerKwh;
+        _addOnHelp.Text = danish
+            ? L.T("The supplier's add-on per kWh is in your contract or on the bill (typically 0–10 øre excl. VAT).",
+                  "Elselskabets tillæg pr. kWh står i din elaftale eller på regningen (typisk 0–10 øre ekskl. moms).")
+            : L.T($"Everything you pay per kWh on top of the spot price – the supplier's margin, grid fees and taxes – in {country.Unit.Symbol} excl. VAT. Leave it at 0 to see the spot price.",
+                  $"Alt, du betaler pr. kWh oven i spotprisen – elselskabets tillæg, netgebyrer og afgifter – i {country.Unit.Symbol} ekskl. moms. Lad det stå på 0 for at se spotprisen.");
+
+        var selected = (_area.SelectedItem as AreaItem)?.Area.Code;
+        _area.BeginUpdate();
+        _area.Items.Clear();
+        _area.Items.AddRange(country.Areas.Select(a => (object)new AreaItem(a)).ToArray());
+        _area.EndUpdate();
+        _area.SelectedItem = _area.Items.Cast<AreaItem>().FirstOrDefault(i => i.Area.Code == (selected ?? _loadedArea))
+                             ?? _area.Items[0];
+    }
+
     private string _lastDetectedOwner = "";
+    private string? _loadedArea;
 
     public override void LoadFrom(AppSettings s)
     {
+        var country = s.PriceCountry;
+        _loadedArea = s.PriceArea;
+        _country.SelectedItem = (object?)country ?? OtherCountry;
+        _vatCountry = country;
+        ApplyCountry();
         _postal.Text = s.PostalCode ?? "";
         (s.PriceArea == "DK2" ? _dk2 : _dk1).Checked = true;
         _spotOnly.Checked = !s.PriceShowTotal;
@@ -256,12 +338,21 @@ internal sealed class PricePage : SettingsPage
         _loadedCodes = s.NetTariffCodes;
         _supplierName.Text = s.SupplierName ?? "";
         _supplierAddOn.Value = (decimal)Math.Clamp(s.SupplierAddOnOre, -100, 500);
+        _vatPercent.Value = (decimal)Math.Clamp(s.EffectiveVatPercent, 0, 40);
         _vat.Checked = s.PriceInclVat;
         _showPrice.Checked = s.ShowPrice;
     }
 
     public override async Task OnFirstShownAsync()
     {
+        if (SelectedCountry?.Code == "DK") await EnsureCompaniesAsync();
+    }
+
+    /// <summary>Fetches the Danish grid companies the first time Denmark is shown.</summary>
+    private async Task EnsureCompaniesAsync()
+    {
+        if (_companiesRequested) return;
+        _companiesRequested = true;
         _companyStatus.Text = L.T("Fetching grid companies from Energinet…", "Henter netselskaber fra Energinet…");
         _companyStatus.ForeColor = Ui.Muted;
         try
@@ -279,6 +370,7 @@ internal sealed class PricePage : SettingsPage
         }
         catch (Exception ex)
         {
+            _companiesRequested = false;
             _companyStatus.Text = L.T("Could not fetch grid companies – check the internet connection", "Kunne ikke hente netselskaber – tjek internetforbindelsen");
             _companyStatus.ForeColor = Ui.Error;
             Logger.Error($"Grid companies could not be fetched: {ex.Message}");
@@ -343,17 +435,29 @@ internal sealed class PricePage : SettingsPage
 
     public override string? SaveTo(AppSettings s)
     {
+        var country = SelectedCountry;
+        s.Country = country?.Code ?? Countries.Other;
+        if (country == null) return null; // the price is hidden; keep the rest for when a country is chosen again
+
+        s.ShowPrice = _showPrice.Checked;
+        s.PriceShowTotal = !_spotOnly.Checked;
+        s.PriceInclVat = _vat.Checked;
+        s.VatPercent = (double)_vatPercent.Value == country.VatPercent ? null : (double)_vatPercent.Value;
+        s.SupplierName = string.IsNullOrWhiteSpace(_supplierName.Text) ? null : _supplierName.Text.Trim();
+        s.SupplierAddOnOre = (double)_supplierAddOn.Value;
+
+        if (country.Code != "DK")
+        {
+            s.PriceArea = (_area.SelectedItem as AreaItem)?.Area.Code ?? country.DefaultArea.Code;
+            return null;
+        }
+
         var postal = _postal.Text.Trim();
         if (postal.Length > 0 && TariffCatalog.AreaFromPostalCode(postal) == null)
             return L.T("The postal code must be four digits.", "Postnummeret skal være fire cifre.");
 
         s.PostalCode = postal.Length > 0 ? postal : null;
         s.PriceArea = _dk2.Checked ? "DK2" : "DK1";
-        s.PriceShowTotal = !_spotOnly.Checked;
-        s.PriceInclVat = _vat.Checked;
-        s.ShowPrice = _showPrice.Checked;
-        s.SupplierName = string.IsNullOrWhiteSpace(_supplierName.Text) ? null : _supplierName.Text.Trim();
-        s.SupplierAddOnOre = (double)_supplierAddOn.Value;
 
         if (_spotOnly.Checked) return null;
 

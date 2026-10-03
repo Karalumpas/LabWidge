@@ -9,11 +9,16 @@ The program only contacts the network services below, and only for the purpose d
 
 | Service | Purpose | Data sent |
 |---|---|---|
-| [Energi Data Service](https://www.energidataservice.dk/) (`api.energidataservice.dk`) | Electricity spot prices and grid tariffs | Price area and grid company chosen in the settings |
+| The electricity price source for your country (see below) | Electricity spot prices, and in Denmark grid tariffs | The price area and, in Denmark, the grid company chosen in the settings |
 | `api.ipify.org`, `ipv4.icanhazip.com`, `ifconfig.me` | Show your external IP address | A normal web request (your IP address is visible to the service, as with any website) |
 | [GitHub](https://github.com/) (`api.github.com`, `github.com`) | Check for and download updates | A normal web request; can be turned off under Settings → Widget |
 
 The network section also pings a public DNS server to measure latency.
+
+Electricity price sources – only the one for the country chosen in the settings is contacted, and none if you choose "Other country":
+Denmark `api.energidataservice.dk`, Sweden `www.elprisetjustnu.se`, Norway `www.hvakosterstrommen.no`,
+Finland and the Baltics `dashboard.elering.ee`, Germany, Luxembourg and Austria `api.awattar.de` / `api.awattar.at`,
+the Netherlands `api.energyzero.nl`, Poland `api.raporty.pse.pl`, Spain and Portugal `www.omie.es`.
 
 ## Only if you set it up
 

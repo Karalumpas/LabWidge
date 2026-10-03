@@ -1,9 +1,11 @@
 # LabWidge
 
-A Windows tray app with a desktop widget that brings together the things a home-lab owner in Denmark keeps an eye on:
+A Windows tray app with a desktop widget that brings together the things a home-lab owner keeps an eye on:
 
-- **Electricity price** – the current quarter-hour price from Energi Data Service (DK1/DK2), a chart for today/tomorrow and the cheapest 3 hours.
-  The total price includes the grid tariff (fetched automatically from Datahub for your grid company), Energinet's tariffs, electricity tax, your supplier's add-on and VAT.
+- **Electricity price** – the current day-ahead spot price for your price area, a chart for today/tomorrow and the cheapest 3 hours,
+  in 14 European countries (see [Electricity prices by country](#electricity-prices-by-country)).
+  In Denmark the total price includes the grid tariff (fetched automatically from Datahub for your grid company), Energinet's tariffs,
+  electricity tax, your supplier's add-on and VAT. In the other countries it is the spot price plus your own add-on per kWh and VAT.
 - **Price alerts** – a notification a set number of minutes before the cheapest 3 hours start, and before power gets expensive.
 - **System** – CPU (with a chart), RAM, graphics card and fixed disks. Click a drive to open it. The graphics card shows load and VRAM; NVIDIA cards also show temperature, power draw and fan speed.
 - **Network** – external IP, local IP per adapter, gateway, DNS, ping and up/down traffic. Click an address to copy it.
@@ -17,6 +19,25 @@ The tray icon's bolt changes colour with the electricity price (green/yellow/red
 
 LabWidge is available in **English and Danish**. The installer asks which language to use, and it can be changed later under
 **Settings → Widget → Language**.
+
+## Electricity prices by country
+
+The installer asks which country you live in (it suggests the one Windows is set to), and it can be changed later under
+**Settings → Electricity**. Choose "Other country" to hide the electricity price. All sources are free and need no account.
+
+| Country | Price areas | Source | Unit |
+|---|---|---|---|
+| Denmark | DK1, DK2 | [Energi Data Service](https://www.energidataservice.dk/) – plus grid tariffs and taxes from Datahub | øre/kWh |
+| Sweden | SE1–SE4 | [elprisetjustnu.se](https://www.elprisetjustnu.se/) | öre/kWh |
+| Norway | NO1–NO5 | [hvakosterstrommen.no](https://www.hvakosterstrommen.no/) | øre/kWh |
+| Finland, Estonia, Latvia, Lithuania | FI, EE, LV, LT | [Elering](https://dashboard.elering.ee/) | ct/kWh |
+| Germany, Luxembourg, Austria | DE-LU, AT | [aWATTar](https://www.awattar.de/) | ct/kWh |
+| Netherlands | NL | [EnergyZero](https://www.energyzero.nl/) | ct/kWh |
+| Poland | PL | [PSE](https://raporty.pse.pl/) (RCE) | gr/kWh |
+| Spain, Portugal | ES, PT | [OMIE](https://www.omie.es/) | ct/kWh |
+
+Prices are shown in the PC's local time. VAT follows the country's usual rate for household electricity and can be changed in the settings.
+`dotnet Tests/bin/Debug/<tfm>/LabWidge.Tests.dll --live` fetches every price area from the real sources, to check that they still work.
 
 ## Usage
 - **Left-click** the tray icon to show or hide the widget. **Right-click** opens the menu.
@@ -90,7 +111,8 @@ only `Karalumpas/labwidge-releases` and the permission **Contents: Read and writ
 ## Installation
 Download **`LabWidge-Setup-<version>.exe`** (about 7 MB) from [the latest release](https://github.com/Karalumpas/labwidge-releases/releases/latest) and run it. The installer:
 
-1. Asks which language to use (English or Danish), preselecting the Windows display language or the one already in use.
+1. Asks which language (English or Danish) and which country to use, preselecting what Windows is set to or what is already in use.
+   The country decides which electricity prices are shown.
 2. Checks whether Microsoft .NET 8 Desktop Runtime (or newer) is installed.
 3. If it is missing, asks for permission, downloads it from Microsoft (about 56 MB), verifies that the file is signed by Microsoft
    and installs it (Windows asks for administrator rights).
@@ -144,7 +166,7 @@ so both languages sit side by side and a missing translation cannot happen. Logs
 - Settings: `%APPDATA%\LabWidge\settings.json`. The file is written atomically – it is written
   to `settings.json.tmp`, which is swapped in, while the previous version is kept as `settings.json.bak` and used automatically
   if the main file is damaged. Cloudflare, Home Assistant and Proxmox tokens are kept in Windows Credential Manager.
-- Spot prices: `DayAheadPrices`. Tariffs: `DatahubPricelist` – the household tariff is found from the grid company's "Nettarif C" including any discounts.
+- Spot prices: see `LabWidge/SpotPriceSources.cs` (Denmark: `DayAheadPrices`). Danish tariffs: `DatahubPricelist` – the household tariff is found from the grid company's "Nettarif C" including any discounts.
 - Price area from the postal code: 1000–4999 = DK2, the rest = DK1.
 
 ## Notes

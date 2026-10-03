@@ -143,6 +143,27 @@ namespace LabWidgeSetup
             return L.FromWindows();
         }
 
+        /// <summary>
+        /// The country of an existing installation; settings from before countries were supported are Danish.
+        /// A new installation suggests the country Windows is set to.
+        /// </summary>
+        public static string CurrentCountry()
+        {
+            try
+            {
+                if (File.Exists(SettingsPath))
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(SettingsPath), "\"Country\"\\s*:\\s*\"(\\w+)\"");
+                    return match.Success ? Countries.Normalize(match.Groups[1].Value) : "DK";
+                }
+            }
+            catch
+            {
+                // An unreadable file just means we suggest from Windows
+            }
+            return Countries.FromWindows();
+        }
+
         public static bool SettingsExist => File.Exists(SettingsPath);
     }
 }

@@ -107,11 +107,17 @@ internal sealed class AppSettings
 
     // Electricity price
     public string? PostalCode { get; set; }
+    /// <summary>ISO code of the country the electricity price is for (see <see cref="Countries"/>), or "OTHER" to hide it.
+    /// Null until the app has started once; older settings without it are Danish.</summary>
+    public string? Country { get; set; }
     public string PriceArea { get; set; } = "DK1";
+    /// <summary>VAT on electricity in percent; null uses the country's usual rate.</summary>
+    public double? VatPercent { get; set; }
     public bool PriceInclVat { get; set; } = true;
     public bool PriceShowTotal { get; set; } = true;
     public string? SupplierName { get; set; }
-    /// <summary>The electricity supplier's add-on in øre/kWh excluding VAT.</summary>
+    /// <summary>The electricity supplier's add-on (or other fixed charges) per kWh excluding VAT, in the country's price unit.
+    /// The name is kept from when only Danish øre were supported.</summary>
     public double SupplierAddOnOre { get; set; }
     /// <summary>The grid company as ChargeOwner in Energinet's Datahub.</summary>
     public string NetTariffOwner { get; set; } = "";
@@ -160,6 +166,19 @@ internal sealed class AppSettings
     [JsonIgnore]
     public bool HasProxmox =>
         ProxmoxEnabled && !string.IsNullOrWhiteSpace(ProxmoxUrl) && !string.IsNullOrWhiteSpace(ProxmoxTokenId);
+
+    [JsonIgnore]
+    public Country? PriceCountry => Countries.Find(Country);
+
+    /// <summary>Whether the electricity price is shown: turned on and the country has prices.</summary>
+    [JsonIgnore]
+    public bool PriceEnabled => ShowPrice && PriceCountry != null;
+
+    [JsonIgnore]
+    public double EffectiveVatPercent => VatPercent ?? PriceCountry?.VatPercent ?? 0;
+
+    [JsonIgnore]
+    public PriceUnit PriceUnit => PriceCountry?.Unit ?? Countries.All[0].Unit;
 
     [JsonIgnore]
     public bool HasNetTariff => !string.IsNullOrWhiteSpace(NetTariffOwner) && NetTariffCodes.Length > 0;
@@ -222,6 +241,7 @@ internal static class SettingsStore
             loaded.NetTariffCodes ??= Array.Empty<string>();
             loaded.HomeAssistantEntities ??= Array.Empty<string>();
             loaded.NetTariffOwner ??= "";
+            loaded.Country ??= "DK"; // settings from before countries were supported
             loaded.SectionPins ??= new();
             loaded.SectionLastPins ??= new();
             loaded.SectionPinSummaries ??= Array.Empty<string>();
