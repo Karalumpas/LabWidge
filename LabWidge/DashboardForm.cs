@@ -658,8 +658,7 @@ internal sealed partial class DashboardForm : Form
         var cur = _el.Current(now);
         var country = s.PriceCountry;
         var area = country?.AreaOrDefault(s.PriceArea);
-        var title = L.T("ELECTRICITY", "ELPRIS") + "  ·  " + (country == null ? ""
-            : country.Areas.Count > 1 ? $"{area!.Code} {area.ShortName}" : country.Name);
+        var title = L.T("ELECTRICITY", "ELPRIS") + (area == null ? "" : "  ·  " + area.Code);
 
         if (cur == null)
         {

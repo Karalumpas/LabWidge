@@ -142,6 +142,34 @@ internal static class UiChecks
         s.WidgetWidth = 344;
         s.WidgetHeight = null;
 
+        // A PC that is doing something, and a Danish total price with grid tariff and taxes
+        s.PriceShowTotal = true;
+        s.NetTariffOwner = "Example Net";
+        s.NetTariffCodes = new[] { "C" };
+        var price = Get<ElectricityPriceService>(widget, "_el");
+        var net = Enumerable.Range(0, 24).Select(h => h is >= 17 and < 21 ? 110.0 : h is >= 6 and < 17 or >= 21 ? 45.0 : 20.0).ToArray();
+        Set(price, "NetTariffs", new List<TariffRow> { new("C", "Nettarif C", DateTime.Today.AddYears(-1), null, net) });
+        Set(price, "StateCharges", new List<TariffRow> { new("40000", "Transmission", DateTime.Today.AddYears(-1), null, Enumerable.Repeat(15.0, 24).ToArray()) });
+        var sys = Get<SystemMonitor>(widget, "_sys");
+        Set(sys, "CpuPercent", 23.0);
+        for (var i = 0; i < 60; i++) sys.CpuHistory.Add(18 + 14 * Math.Abs(Math.Sin(i / 5.0)) + (i % 7 == 0 ? 25 : 0));
+        Set(sys, "RamUsed", 13_400UL << 20);
+        Set(sys, "RamTotal", 32UL << 30);
+        Set(sys, "Disks", new List<DiskInfo> { new("C:", "System", 412L << 30, 931L << 30), new("D:", "Data", 1_210L << 30, 3_725L << 30) });
+        Set(sys.Gpu, "Available", true);
+        Set(sys.Gpu, "Name", "GeForce RTX 4070");
+        Set(sys.Gpu, "Percent", 38.0);
+        Set(sys.Gpu, "VramUsed", 4_300UL << 20);
+        Set(sys.Gpu, "VramTotal", 12UL << 30);
+        Set(sys.Gpu, "TempC", (int?)54);
+        Set(sys.Gpu, "PowerW", (double?)96);
+        Set(sys.Gpu, "PowerLimitW", (double?)200);
+        Set(sys.Gpu, "FanPercent", (int?)32);
+        var net2 = Get<NetworkMonitor>(widget, "_net");
+        Set(net2, "PingMs", (long?)12);
+        Set(net2, "DownBps", 4_200_000.0);
+        Set(net2, "UpBps", 650_000.0);
+
         var shots = new List<Bitmap>();
         foreach (var theme in new[] { WidgetTheme.Dark, WidgetTheme.Light })
         {
