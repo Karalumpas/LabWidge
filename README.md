@@ -16,7 +16,7 @@ A Windows tray app with a desktop widget that brings together the things a home-
 The tray icon's bolt changes colour with the electricity price (green/yellow/red), and its tooltip shows the price, the next cheap period and the IP.
 
 LabWidge is available in **English and Danish**. The installer asks which language to use, and it can be changed later under
-**Settings → Widget → Language**. LabWidge was called IpTrayWidget before version 1.11; existing installations move their settings over automatically.
+**Settings → Widget → Language**.
 
 ## Usage
 - **Left-click** the tray icon to show or hide the widget. **Right-click** opens the menu.
@@ -88,7 +88,7 @@ The workflow needs the secret `RELEASES_TOKEN` in this repository: a fine-graine
 only `Karalumpas/labwidge-releases` and the permission **Contents: Read and write**.
 
 ## Installation
-Run **`LabWidge-Setup.exe`** (about 7 MB). The installer:
+Download **`LabWidge-Setup-<version>.exe`** (about 7 MB) from [the latest release](https://github.com/Karalumpas/labwidge-releases/releases/latest) and run it. The installer:
 
 1. Asks which language to use (English or Danish), preselecting the Windows display language or the one already in use.
 2. Checks whether Microsoft .NET 8 Desktop Runtime (or newer) is installed.
@@ -100,7 +100,7 @@ Run **`LabWidge-Setup.exe`** (about 7 MB). The installer:
 The installer itself runs on .NET Framework 4.8, which is part of Windows 10/11.
 The app is framework-dependent (no bundled runtime) and also runs on newer .NET versions (`RollForward=Major`).
 
-Build `dist\LabWidge-Setup.exe` and start the installation:
+Build `dist\LabWidge-Setup.exe` from source and start the installation:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1

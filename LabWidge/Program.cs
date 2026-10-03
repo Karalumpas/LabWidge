@@ -46,9 +46,7 @@ internal static class Program
             return; // Already running
         }
 
-        LegacyMigration.Run();
         SelfInstaller.RegisterUninstallEntry();
-        WebViewProfile.MigrateFromInstallDir();
         ApplicationConfiguration.Initialize();
         Application.Run(new TrayAppContext(forceSetup: args.Contains("--setup")));
     }
@@ -415,29 +413,6 @@ internal static class CredentialStore
     public static void WriteProxmoxSecret(string secret) => Write(ProxmoxTarget, secret);
     public static string? ReadProxmoxSecret() => Read(ProxmoxTarget);
     public static void DeleteProxmoxSecret() => Delete(ProxmoxTarget);
-
-    /// <summary>
-    /// Moves tokens stored by IpTrayWidget (before 1.11) to the LabWidge names. A token that already exists
-    /// under the new name is not overwritten. The old one is only deleted once the new one is written.
-    /// </summary>
-    public static void MigrateFromIpTrayWidget()
-    {
-        foreach (var target in new[] { CloudflareTarget, HomeAssistantTarget, ProxmoxTarget })
-        {
-            var legacy = "IpTrayWidget." + target["LabWidge.".Length..];
-            try
-            {
-                if (Read(legacy) is not { } value) continue;
-                if (Read(target) == null) Write(target, value);
-                Delete(legacy);
-                Logger.Info($"Token moved from {legacy} to {target}.");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Token {legacy} could not be moved: {ex.Message}");
-            }
-        }
-    }
 
     private static void Write(string targetName, string token)
     {

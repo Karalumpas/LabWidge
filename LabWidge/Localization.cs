@@ -34,12 +34,7 @@ internal static class L
         _ => null
     };
 
-    /// <summary>
-    /// The language for settings that have none yet and no installer choice. Users who already set up the app
-    /// (it was Danish-only before 1.11) keep Danish; a new installation uses the Windows display language.
-    /// </summary>
-    public static string Initial(bool existingUser) => existingUser ? Danish : FromWindows();
-
+    /// <summary>The language when nothing else is chosen: Danish on a Danish Windows, otherwise English.</summary>
     public static string FromWindows() =>
         CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "da" ? Danish : English;
 
