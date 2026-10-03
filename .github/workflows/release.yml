@@ -28,7 +28,7 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Read version
         id: version
@@ -50,7 +50,7 @@ jobs:
           if ($found) { Write-Host "v${{ steps.version.outputs.version }} is already released – nothing to do." }
           exit 0
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         if: steps.exists.outputs.found == 'false'
         with:
           dotnet-version: 8.0.x
