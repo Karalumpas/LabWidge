@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
+    <AssemblyName>LabWidge.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Ui\**\*.cs" />
+    <Compile Include="..\LabWidge\WidgetLayout.cs" Link="WidgetLayout.cs" />
+    <!-- Test the same source files without starting the tray app's Windows integrations. -->
+    <Compile Include="..\LabWidge\CloudflareDnsSync.cs" Link="CloudflareDnsSync.cs" />
+    <Compile Include="..\LabWidge\ElectricityPriceService.cs" Link="ElectricityPriceService.cs" />
+    <Compile Include="..\LabWidge\NetworkClients.cs" Link="NetworkClients.cs" />
+    <Compile Include="..\LabWidge\Settings.cs" Link="Settings.cs" />
+    <Compile Include="..\LabWidge\UninstallCleanup.cs" Link="UninstallCleanup.cs" />
+    <Compile Include="..\LabWidge\DirectoryMerge.cs" Link="DirectoryMerge.cs" />
+    <Compile Include="..\LabWidge\Localization.cs" Link="Localization.cs" />
+    <Compile Include="..\Setup\InstallTransaction.cs" Link="InstallTransaction.cs" />
+    <Compile Include="..\Setup\InstallerEnvironment.cs" Link="InstallerEnvironment.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,26 @@
+# Build outputs
+LabWidge/bin/
+LabWidge/obj/
+Setup/bin/
+Setup/obj/
+Tests/bin/
+Tests/obj/
+Tests/Ui/bin/
+Tests/Ui/obj/
+
+# VS / user files
+.vs/
+*.user
+*.suo
+*.userprefs
+*.cache
+
+# Temp
+*.tmp
+
+# App data (local)
+settings.json
+app.log
+
+# Build output (installer)
+dist/

@@ -1,0 +1,53 @@
+# Builds the app and Setup on every pull request, so a build error is caught before merging – not at release time.
+name: Build
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Versions match
+        run: |
+          $app = [xml](Get-Content LabWidge/LabWidge.csproj)
+          $version = $app.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $assembly = $app.Project.PropertyGroup.AssemblyVersion | Where-Object { $_ } | Select-Object -First 1
+          $file = $app.Project.PropertyGroup.FileVersion | Where-Object { $_ } | Select-Object -First 1
+          $setup = ([xml](Get-Content Setup/LabWidge.Setup.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ($setup -ne $version -or $assembly -ne "$version.0" -or $file -ne "$version.0") {
+            throw "The versions do not match: Version $version, AssemblyVersion $assembly, FileVersion $file, Setup $setup"
+          }
+          Write-Host "Version $version"
+
+      - name: Build app and Setup
+        run: ./install.ps1 -BuildOnly
+
+      - name: Regression tests
+        run: dotnet run --project Tests/LabWidge.Tests.csproj
+
+      - name: UI integration tests and previews
+        run: dotnet run --project Tests/Ui/LabWidge.UiTests.csproj
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: widget-ui-preview
+          path: dist/ui-preview/*.png

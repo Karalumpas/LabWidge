@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <Version>1.10.2</Version>
+    <AssemblyVersion>1.10.2.0</AssemblyVersion>
+    <FileVersion>1.10.2.0</FileVersion>
+    <Product>LabWidge</Product>
+    <Description>Electricity price, system, network and homelab by the clock</Description>
+    <!-- Also run on newer .NET runtimes (9, 10 …) if 8 is not installed -->
+    <RollForward>Major</RollForward>
+    <!--
+      The WebView2 package contains both a WinForms and a WPF wrapper. We only use WinForms,
+      but the WPF assembly drags in another WindowsBase version and triggers MSB3277. It is harmless,
+      because the WPF part is never loaded.
+    -->
+    <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+  <!--
+    dotnet publish -c Release: a framework-dependent folder without a bundled runtime (needs .NET 8 Desktop Runtime – installed by Setup).
+    Not single-file: Windows Smart App Control blocks an unsigned single-file exe, but allows the small apphost.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <DebugType>none</DebugType>
+    <SatelliteResourceLanguages>da;en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="LabWidge.UiTests" />
+    <Content Include="Assets\app.ico">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Shown as "What's new" the first time the app starts after an update -->
+    <EmbeddedResource Include="..\CHANGELOG.md" LogicalName="CHANGELOG.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+  </ItemGroup>
+</Project>
