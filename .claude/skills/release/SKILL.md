@@ -109,8 +109,7 @@ Finally check what the app itself sees (without signing in):
 curl -s https://api.github.com/repos/Karalumpas/labwidge-releases/releases/latest | grep -E '"tag_name"|browser_download_url'
 ```
 
-`tag_name` must be `v<version>`, and both `LabWidge-Setup.exe` and `IpTrayWidget-Setup.exe` must be attached
-(installations from before the rename to LabWidge look for the old name).
+`tag_name` must be `v<version>`, and `LabWidge-Setup-<version>.exe` must be attached.
 
 ## When the workflow fails
 
@@ -127,20 +126,17 @@ If the user needs the release right away and the token cannot be sorted out, you
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -BuildOnly
-Copy-Item dist\LabWidge-Setup.exe dist\IpTrayWidget-Setup.exe
-gh release create v<version> dist\LabWidge-Setup.exe dist\IpTrayWidget-Setup.exe -R Karalumpas/labwidge-releases --title "LabWidge <version>" --notes-file <notes.md>
+Move-Item dist\LabWidge-Setup.exe dist\LabWidge-Setup-<version>.exe
+gh release create v<version> dist\LabWidge-Setup-<version>.exe -R Karalumpas/labwidge-releases --title "LabWidge <version>" --notes-file <notes.md>
 git tag v<version>; git push origin v<version>
 ```
 
 The notes must have the same shape as the workflow's: `## What's new`, the changelog points and finally the line
-``Run `LabWidge-Setup.exe`. SmartScreen: "More info" → "Run anyway".``
+``Run `LabWidge-Setup-<version>.exe`. SmartScreen: "More info" → "Run anyway".``
 
 ## Rules
 
 - Never reuse a version number that has been released, and never delete releases. Fix mistakes with a new version.
 - Only release from `main`.
-- Installations older than 1.5.1 check a repository they can no longer reach and never see updates. Mention this if the user
-  wonders why someone is not offered the version: they need to install manually once from
-  https://github.com/Karalumpas/labwidge-releases/releases/latest
 - Windows Smart App Control can block new unsigned builds until code signing through SignPath is in place.
   If a release is blocked on the user's PC, a new build (new version) is the workaround.

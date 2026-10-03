@@ -20,7 +20,8 @@ internal static class UpdateService
 {
     private const string LatestReleaseApi = "https://api.github.com/repos/Karalumpas/labwidge-releases/releases/latest";
     public const string ReleasesPage = "https://github.com/Karalumpas/labwidge-releases/releases";
-    private const string AssetName = "LabWidge-Setup.exe";
+    /// <summary>The installer is attached as LabWidge-Setup-&lt;version&gt;.exe.</summary>
+    private const string AssetPrefix = "LabWidge-Setup";
 
     /// <summary>Only GitHub's own hosts may deliver the installer.</summary>
     private static readonly string[] AllowedHosts =
@@ -73,7 +74,8 @@ internal static class UpdateService
 
         foreach (var asset in assets.EnumerateArray())
         {
-            if (!string.Equals(Text(asset, "name"), AssetName, StringComparison.OrdinalIgnoreCase)) continue;
+            var name = Text(asset, "name");
+            if (!name.StartsWith(AssetPrefix, StringComparison.OrdinalIgnoreCase) || !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) continue;
 
             var url = Text(asset, "browser_download_url");
             if (url.Length == 0) continue;

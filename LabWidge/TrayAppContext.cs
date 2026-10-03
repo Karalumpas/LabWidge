@@ -64,7 +64,7 @@ internal sealed class TrayAppContext : ApplicationContext
     {
         _settings = SettingsStore.Load();
         // A language chosen in the installer wins; otherwise existing settings keep theirs
-        var language = L.TakeInstallerChoice() ?? L.Normalize(_settings.Language) ?? L.Initial(existingUser: _settings.OnboardingCompleted);
+        var language = L.TakeInstallerChoice() ?? L.Normalize(_settings.Language) ?? L.FromWindows();
         if (_settings.Language != language)
         {
             _settings.Language = language;

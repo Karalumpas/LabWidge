@@ -30,10 +30,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Installer: an inherited working directory is released before switching folders", InstallerWorkingDirectory),
     ("Widget: pinned bands reserve the middle viewport and clamp scroll", LayoutBands),
     ("Widget: status distinguishes fresh, stale and failed data", FreshnessStates),
-    ("Widget: size and pin preferences survive settings cloning", LayoutSettings),
-    ("Rename: IpTrayWidget data moves to an empty LabWidge folder", MergeIntoMissing),
-    ("Rename: existing LabWidge files win and missing ones are moved", MergeIntoExisting),
-    ("Rename: a locked file is left for the next start", MergeLocked)
+    ("Widget: size and pin preferences survive settings cloning", LayoutSettings)
 };
 foreach (var test in tests)
 {
@@ -326,53 +323,6 @@ static async Task UninstallWait()
     }
     finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }
-
-static Task MergeIntoMissing() => InSandbox(root =>
-{
-    var old = Path.Combine(root, "IpTrayWidget");
-    var renamed = Path.Combine(root, "LabWidge");
-    Directory.CreateDirectory(Path.Combine(old, "sub"));
-    File.WriteAllText(Path.Combine(old, "settings.json"), "old settings");
-    File.WriteAllText(Path.Combine(old, "sub", "cookie"), "login");
-    Check(DirectoryMerge.Merge(old, renamed), "Merge into a missing folder did not finish.");
-    Check(!Directory.Exists(old), "Old folder was left behind.");
-    Check(File.ReadAllText(Path.Combine(renamed, "settings.json")) == "old settings"
-          && File.ReadAllText(Path.Combine(renamed, "sub", "cookie")) == "login", "Files were not moved intact.");
-});
-
-static Task MergeIntoExisting() => InSandbox(root =>
-{
-    // The log may have created the LabWidge folder before the settings were moved
-    var old = Path.Combine(root, "IpTrayWidget");
-    var renamed = Path.Combine(root, "LabWidge");
-    Directory.CreateDirectory(old);
-    Directory.CreateDirectory(renamed);
-    File.WriteAllText(Path.Combine(old, "settings.json"), "old settings");
-    File.WriteAllText(Path.Combine(old, "app.log"), "old log");
-    File.WriteAllText(Path.Combine(renamed, "app.log"), "new log");
-    Check(DirectoryMerge.Merge(old, renamed), "Merge into an existing folder did not finish.");
-    Check(File.ReadAllText(Path.Combine(renamed, "settings.json")) == "old settings", "Missing settings were not moved.");
-    Check(File.ReadAllText(Path.Combine(renamed, "app.log")) == "new log", "An existing LabWidge file was overwritten.");
-    Check(!Directory.Exists(old), "Old folder was left behind.");
-});
-
-static Task MergeLocked() => InSandbox(root =>
-{
-    var old = Path.Combine(root, "IpTrayWidget");
-    var renamed = Path.Combine(root, "LabWidge");
-    Directory.CreateDirectory(old);
-    Directory.CreateDirectory(renamed);
-    File.WriteAllText(Path.Combine(old, "settings.json"), "old settings");
-    File.WriteAllText(Path.Combine(old, "locked.log"), "busy");
-    using (new FileStream(Path.Combine(old, "locked.log"), FileMode.Open, FileAccess.Read, FileShare.None))
-    {
-        Check(!DirectoryMerge.Merge(old, renamed), "Merge reported success with a locked file left behind.");
-        Check(File.Exists(Path.Combine(renamed, "settings.json")), "Unlocked files were not moved.");
-        Check(File.Exists(Path.Combine(old, "locked.log")), "The locked file disappeared.");
-    }
-    Check(DirectoryMerge.Merge(old, renamed), "The retry did not finish once the file was released.");
-    Check(File.ReadAllText(Path.Combine(renamed, "locked.log")) == "busy" && !Directory.Exists(old), "The retry did not move the released file.");
-});
 
 static Task InSandbox(Action<string> run)
 {

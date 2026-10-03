@@ -8,7 +8,7 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 
 Only binaries built from the source code in this repository are signed:
 
-- `LabWidge-Setup.exe` – the installer
+- `LabWidge-Setup-<version>.exe` – the installer
 - `LabWidge.exe` and `LabWidge.dll` – the application
 
 Third-party libraries shipped with the application (Microsoft WebView2 SDK, the Windows SDK projection and the WinRT runtime)

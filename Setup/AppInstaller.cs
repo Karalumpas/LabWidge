@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Reflection;
 using System.Threading;
 
@@ -25,11 +24,8 @@ namespace LabWidgeSetup
             }
         }
 
-        /// <summary>The installed version – also an IpTrayWidget from before the rename, which this installation replaces.</summary>
         public static string InstalledVersion =>
-            File.Exists(InstalledExe) ? FileVersionInfo.GetVersionInfo(InstalledExe).ProductVersion?.Split('+')[0]
-            : File.Exists(LegacyExe) ? FileVersionInfo.GetVersionInfo(LegacyExe).ProductVersion?.Split('+')[0]
-            : null;
+            File.Exists(InstalledExe) ? FileVersionInfo.GetVersionInfo(InstalledExe).ProductVersion?.Split('+')[0] : null;
 
         public static void Install()
         {
@@ -102,19 +98,14 @@ namespace LabWidgeSetup
             });
         }
 
-        /// <summary>The app was called IpTrayWidget before 1.11 and lived in its own folder. That version is closed too, so LabWidge can take over.</summary>
-        private static readonly string LegacyExe =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IpTrayWidget", "IpTrayWidget.exe");
-
         private static void StopRunningInstance()
         {
-            foreach (var p in Process.GetProcessesByName("LabWidge").Concat(Process.GetProcessesByName("IpTrayWidget")))
+            foreach (var p in Process.GetProcessesByName("LabWidge"))
             {
                 try
                 {
                     var path = p.MainModule?.FileName;
-                    if (path != null && (string.Equals(Path.GetFullPath(path), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase)
-                                         || string.Equals(Path.GetFullPath(path), Path.GetFullPath(LegacyExe), StringComparison.OrdinalIgnoreCase)))
+                    if (path != null && string.Equals(Path.GetFullPath(path), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase))
                     {
                         p.Kill();
                         p.WaitForExit(5000);
@@ -131,32 +122,27 @@ namespace LabWidgeSetup
             }
         }
 
-        /// <summary>
-        /// The language of an existing installation (from settings.json), Danish for installations from before 1.11
-        /// (the app was Danish-only then), otherwise the Windows display language.
-        /// </summary>
+        private static string SettingsPath =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LabWidge", "settings.json");
+
+        /// <summary>The language of an existing installation (from settings.json), otherwise the Windows display language.</summary>
         public static string CurrentLanguage()
         {
-            foreach (var name in new[] { "LabWidge", "IpTrayWidget" })
+            try
             {
-                var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), name, "settings.json");
-                if (!File.Exists(path)) continue;
-                try
+                if (File.Exists(SettingsPath))
                 {
-                    var match = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(path), "\"Language\"\\s*:\\s*\"(\\w+)\"");
-                    return (match.Success ? L.Normalize(match.Groups[1].Value) : null) ?? L.Danish;
+                    var match = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(SettingsPath), "\"Language\"\\s*:\\s*\"(\\w+)\"");
+                    if (match.Success && L.Normalize(match.Groups[1].Value) is string language) return language;
                 }
-                catch
-                {
-                    return L.Danish;
-                }
+            }
+            catch
+            {
+                // An unreadable file just means we ask in the Windows language
             }
             return L.FromWindows();
         }
 
-        /// <summary>Settings from IpTrayWidget count too – the app moves them itself at its first start.</summary>
-        public static bool SettingsExist =>
-            File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LabWidge", "settings.json"))
-            || File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "IpTrayWidget", "settings.json"));
+        public static bool SettingsExist => File.Exists(SettingsPath);
     }
 }

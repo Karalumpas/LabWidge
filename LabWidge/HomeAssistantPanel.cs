@@ -566,30 +566,4 @@ internal static class WebViewProfile
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LabWidgeData");
 
     public static string Path { get; } = System.IO.Path.Combine(DataDir, "webview");
-
-    /// <summary>Moves the profile from the installation folder (before 1.6.1) to its new place. Called at start.</summary>
-    public static void MigrateFromInstallDir()
-    {
-        try
-        {
-            var old = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LabWidge", "webview");
-            if (!Directory.Exists(old)) return;
-            if (Directory.Exists(Path))
-            {
-                // The profile was already moved; what is left is an obsolete leftover. The installer
-                // leaves "webview" alone, so it has to be removed here.
-                Directory.Delete(old, recursive: true);
-                Logger.Info("Obsolete browser profile in the installation folder removed.");
-                return;
-            }
-            Directory.CreateDirectory(DataDir);
-            Directory.Move(old, Path);
-            Logger.Info("The Home Assistant panel's browser profile was moved out of the installation folder.");
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"The browser profile could not be moved: {ex.Message}");
-        }
-    }
 }

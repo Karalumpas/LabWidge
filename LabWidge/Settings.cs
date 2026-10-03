@@ -19,7 +19,7 @@ internal sealed class AppSettings
     public int SettingsVersion { get; set; } = CurrentVersion;
     public bool OnboardingCompleted { get; set; }
     public bool StartWithWindows { get; set; } = true;
-    /// <summary>"en" or "da". Null until chosen – see <see cref="L.Initial"/>.</summary>
+    /// <summary>"en" or "da". Null until chosen in the installer or the settings; then the Windows language is used.</summary>
     public string? Language { get; set; }
 
     // Cloudflare (optional)
@@ -223,15 +223,6 @@ internal static class SettingsStore
             loaded.SectionPins ??= new();
             loaded.SectionPinSummaries ??= Array.Empty<string>();
 
-            using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty(nameof(AppSettings.SettingsVersion), out _))
-            {
-                MigrateFromV1(loaded, doc.RootElement);
-                settings = loaded;
-                Save(loaded);
-                return true;
-            }
-
             settings = loaded;
             return true;
         }
@@ -240,26 +231,6 @@ internal static class SettingsStore
             Logger.Error($"Could not read {Path.GetFileName(path)}: {ex.Message}");
             return false;
         }
-    }
-
-    /// <summary>v1.0/1.1 required Cloudflare and had no setup guide.</summary>
-    private static void MigrateFromV1(AppSettings s, JsonElement root)
-    {
-        s.SettingsVersion = AppSettings.CurrentVersion;
-        s.OnboardingCompleted = true;
-        s.CloudflareEnabled = !string.IsNullOrWhiteSpace(s.ZoneId);
-        s.CloudflareAutoUpdate = root.TryGetProperty(nameof(AppSettings.CloudflareAutoUpdate), out var auto) && auto.ValueKind == JsonValueKind.True;
-
-        using var run = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-        s.StartWithWindows = run?.GetValue("IpTrayWidget") is string; // v1 was called IpTrayWidget
-
-        // v1.1 defaulted to Konstant Net without storing it
-        if (!root.TryGetProperty(nameof(AppSettings.NetTariffOwner), out _))
-        {
-            s.NetTariffOwner = "Konstant Net A/S - 151";
-            s.NetTariffCodes = new[] { "C_FBTNTR_B", "C_FBTNTR_R" };
-        }
-        Logger.Info("Settings migrated to v2.");
     }
 
     /// <summary>

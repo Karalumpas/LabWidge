@@ -17,7 +17,6 @@
     <Compile Include="..\LabWidge\NetworkClients.cs" Link="NetworkClients.cs" />
     <Compile Include="..\LabWidge\Settings.cs" Link="Settings.cs" />
     <Compile Include="..\LabWidge\UninstallCleanup.cs" Link="UninstallCleanup.cs" />
-    <Compile Include="..\LabWidge\DirectoryMerge.cs" Link="DirectoryMerge.cs" />
     <Compile Include="..\LabWidge\Localization.cs" Link="Localization.cs" />
     <Compile Include="..\Setup\InstallTransaction.cs" Link="InstallTransaction.cs" />
     <Compile Include="..\Setup\InstallerEnvironment.cs" Link="InstallerEnvironment.cs" />

@@ -70,7 +70,7 @@ jobs:
             for ($i = $start + 1; $i -lt $lines.Count -and -not $lines[$i].StartsWith('## '); $i++) { $notes += $lines[$i] }
           }
           $body = if ($notes -join '' -match '\S') { "## What's new`n" + (($notes -join "`n").Trim()) } else { "Version $version." }
-          $body += "`n`nRun ``LabWidge-Setup.exe``. SmartScreen: `"More info`" → `"Run anyway`"."
+          $body += "`n`nRun ``LabWidge-Setup-$version.exe``. SmartScreen: `"More info`" → `"Run anyway`"."
           Set-Content notes.md $body -Encoding utf8
 
       - name: Publish
@@ -80,10 +80,9 @@ jobs:
         run: |
           if (-not $env:GH_TOKEN) { throw 'The secret RELEASES_TOKEN is missing (Settings → Secrets and variables → Actions).' }
           $version = '${{ steps.version.outputs.version }}'
-          # The app was called IpTrayWidget before 1.11, and those installations look for IpTrayWidget-Setup.exe.
-          # The same file is therefore also attached under the old name, so they can update to LabWidge.
-          Copy-Item dist/LabWidge-Setup.exe dist/IpTrayWidget-Setup.exe
-          gh release create "v$version" dist/LabWidge-Setup.exe dist/IpTrayWidget-Setup.exe -R $env:RELEASES_REPO --title "LabWidge $version" --notes-file notes.md
+          # The file name carries the version, e.g. LabWidge-Setup-1.11.0.exe; the app finds any LabWidge-Setup*.exe
+          Move-Item dist/LabWidge-Setup.exe "dist/LabWidge-Setup-$version.exe"
+          gh release create "v$version" "dist/LabWidge-Setup-$version.exe" -R $env:RELEASES_REPO --title "LabWidge $version" --notes-file notes.md
           if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
 
       - name: Tag the source
