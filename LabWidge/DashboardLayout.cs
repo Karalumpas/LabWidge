@@ -232,8 +232,7 @@ internal sealed partial class DashboardForm
     {
         if (_autoSummaries.Contains(key))
         {
-            _tip.Show(L.T("Make the widget taller or pin fewer sections to show the details.", "Gør widgetten højere eller fastgør færre sektioner for at vise detaljerne."), this,
-                (int)U(Pad), (int)U(28), 4000);
+            ShowTip(L.T("Make the widget taller or pin fewer sections to show the details.", "Gør widgetten højere eller fastgør færre sektioner for at vise detaljerne."), 4000);
             return;
         }
         if (PinOf(key) != SectionPin.None && _settings.SectionPinSummaries.Contains(key))
