@@ -2,6 +2,9 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.15.1
+- The electricity price header now shows the full price area (e.g. "DK1" or "SE3") instead of cutting it off
+
 ## 1.15.0
 - Electricity prices for 14 European countries: Denmark, Sweden, Norway, Finland, Estonia, Latvia, Lithuania, Germany, Luxembourg, Austria, the Netherlands, Poland, Spain and Portugal
 - The installer asks for your country as well as your language – choose "Other country" to hide the electricity price
