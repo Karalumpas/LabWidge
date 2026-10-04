@@ -6,7 +6,8 @@ description: Publish a new version of LabWidge so installed apps (including frie
 # Publish a new version
 
 The app checks the public repository `Karalumpas/labwidge-releases` for updates; the source is in `Karalumpas/LabWidge`.
-The workflow `.github/workflows/release.yml` builds Setup and publishes it there when the version in a `.csproj` changes on `main`.
+The workflow `.github/workflows/release.yml` signs the app, builds Setup with that signed app, signs Setup and publishes it there
+when the version in a `.csproj` changes on `main`. Signing setup is documented in `docs/CODE_SIGNING.md`.
 Your job is to make the version bump correct and see it all the way through.
 
 Talk to the user in their own language. Everything that ends up on GitHub – changelog, commit messages, PR texts – is in English.
@@ -122,21 +123,13 @@ Read the error with `gh run view <run-id> --log-failed`.
 - **"The versions do not match"**: fix the `.csproj` files in a new PR.
 - **Build errors**: fix them in a new PR. The version was not released, so the same version number can be reused.
 
-If the user needs the release right away and the token cannot be sorted out, you can publish manually from `main`:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -BuildOnly
-Move-Item dist\LabWidge-Setup.exe dist\LabWidge-Setup-<version>.exe
-gh release create v<version> dist\LabWidge-Setup-<version>.exe -R Karalumpas/labwidge-releases --title "LabWidge <version>" --notes-file <notes.md>
-git tag v<version>; git push origin v<version>
-```
-
-The notes must have the same shape as the workflow's: `## What's new`, the changelog points and finally the line
-``Run `LabWidge-Setup-<version>.exe`. SmartScreen: "More info" → "Run anyway".``
+If SignPath configuration is missing or a signing request fails, follow `docs/CODE_SIGNING.md`. Never substitute an unsigned
+local installer or bypass the signing gates. Foundation signing requires a GitHub-hosted build and manual approval of each request.
+The first signed version must be newer than the existing unsigned release; do not replace an existing release's asset.
 
 ## Rules
 
 - Never reuse a version number that has been released, and never delete releases. Fix mistakes with a new version.
 - Only release from `main`.
-- Windows Smart App Control can block new unsigned builds until code signing through SignPath is in place.
-  If a release is blocked on the user's PC, a new build (new version) is the workaround.
+- Windows Smart App Control can block unsigned builds. Raising the version is not a reliable fix: public releases require trusted
+  signatures on the app EXE, app DLL and installer. Never disable Windows protection as part of publishing.

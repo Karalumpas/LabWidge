@@ -97,7 +97,7 @@ It is small, fast and private – no account, no ads and no telemetry.
 The installer adds Microsoft's .NET 8 Desktop Runtime if it is missing (with your permission) and installs LabWidge for your user
 only. Uninstall it like any other app under **Settings → Apps**.
 
-> **"Windows protected your PC"?** LabWidge is not code-signed yet (a free certificate from the SignPath Foundation is on its way),
+> **"Windows protected your PC"?** Existing LabWidge releases through 1.18.0 are not code-signed yet (SignPath Foundation approval is required),
 > so SmartScreen may warn about it. Choose **More info → Run anyway**. Every release is built by GitHub Actions from this source code.
 
 ## Electricity prices in 14 countries
@@ -185,7 +185,7 @@ How to build, test and release is described in [docs/DEVELOPMENT.md](docs/DEVELO
 ## Code signing
 
 Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)
-(the application is pending). Only files built by GitHub Actions from this source code are signed – see
+(approval and account setup are still required). The release pipeline signs only files built by GitHub Actions from this source code – see
 [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
 
 ## License
