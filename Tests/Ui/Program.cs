@@ -305,7 +305,9 @@ internal static class UiChecks
         }
         Console.WriteLine("PASS UI: every section window opens, draws and closes");
 
-        // Data that arrives after a window closed (e.g. Proxmox answering late) must not touch the closed window
+        // Data that arrives after a window closed (e.g. Proxmox answering late) must not touch the closed window.
+        // A window just closed cannot be reopened for 250 ms (the click that closed it must not open it again).
+        Thread.Sleep(300);
         SectionWindows.Toggle("proxmox", widget.Bounds);
         Application.DoEvents();
         var closed = OpenWindow("proxmox");
