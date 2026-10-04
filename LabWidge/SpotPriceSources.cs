@@ -15,7 +15,7 @@ internal static class SpotPriceSources
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     /// <summary>Prices from the start of <paramref name="today"/> (local date) and as far ahead as published.</summary>
-    public static async Task<List<SpotSample>> FetchAsync(HttpClient http, PriceArea area, DateTime today)
+    public static async Task<List<SpotSample>> FetchAsync(HttpClient http, PriceArea area, DateTime today, CancellationToken cancel = default)
     {
         var fromUtc = today.Date.ToUniversalTime();
         var toUtc = today.Date.AddDays(2).ToUniversalTime();
@@ -23,23 +23,23 @@ internal static class SpotPriceSources
         {
             PriceSource.EnergiDataService => ParseEnergiDataService(await http.GetStringAsync(
                 "https://api.energidataservice.dk/dataset/DayAheadPrices?start=" + today.ToString("yyyy-MM-dd'T'HH:mm", Inv)
-                + "&filter=" + Uri.EscapeDataString($"{{\"PriceArea\":[\"{area.Code}\"]}}") + "&sort=TimeUTC%20asc&limit=1000")),
+                + "&filter=" + Uri.EscapeDataString($"{{\"PriceArea\":[\"{area.Code}\"]}}") + "&sort=TimeUTC%20asc&limit=1000", cancel)),
             PriceSource.Elprisetjustnu => await PerDayAsync(http, today,
-                d => $"https://www.elprisetjustnu.se/api/v1/prices/{d:yyyy}/{d:MM-dd}_{area.Code}.json", json => ParseNordicDaily(json, "SEK_per_kWh")),
+                d => $"https://www.elprisetjustnu.se/api/v1/prices/{d:yyyy}/{d:MM-dd}_{area.Code}.json", json => ParseNordicDaily(json, "SEK_per_kWh"), cancel),
             PriceSource.Hvakosterstrommen => await PerDayAsync(http, today,
-                d => $"https://www.hvakosterstrommen.no/api/v1/prices/{d:yyyy}/{d:MM-dd}_{area.Code}.json", json => ParseNordicDaily(json, "NOK_per_kWh")),
+                d => $"https://www.hvakosterstrommen.no/api/v1/prices/{d:yyyy}/{d:MM-dd}_{area.Code}.json", json => ParseNordicDaily(json, "NOK_per_kWh"), cancel),
             PriceSource.Elering => ParseElering(await http.GetStringAsync(
-                $"https://dashboard.elering.ee/api/nps/price?start={Iso(fromUtc)}&end={Iso(toUtc)}"), area.Code.ToLowerInvariant()),
+                $"https://dashboard.elering.ee/api/nps/price?start={Iso(fromUtc)}&end={Iso(toUtc)}", cancel), area.Code.ToLowerInvariant()),
             PriceSource.Awattar => ParseAwattar(await http.GetStringAsync(
-                $"https://api.awattar.{(area.Code == "AT" ? "at" : "de")}/v1/marketdata?start={UnixMs(fromUtc)}&end={UnixMs(toUtc)}")),
+                $"https://api.awattar.{(area.Code == "AT" ? "at" : "de")}/v1/marketdata?start={UnixMs(fromUtc)}&end={UnixMs(toUtc)}", cancel)),
             PriceSource.EnergyZero => ParseEnergyZero(await http.GetStringAsync(
-                $"https://api.energyzero.nl/v1/energyprices?fromDate={Iso(fromUtc)}&tillDate={Iso(toUtc)}&interval=4&usageType=1&inclBtw=false")),
+                $"https://api.energyzero.nl/v1/energyprices?fromDate={Iso(fromUtc)}&tillDate={Iso(toUtc)}&interval=4&usageType=1&inclBtw=false", cancel)),
             PriceSource.Pse => ParsePse(await http.GetStringAsync(
                 "https://api.raporty.pse.pl/api/rce-pln?$filter=" + Uri.EscapeDataString($"business_date ge '{today:yyyy-MM-dd}'")
-                + "&$select=dtime_utc,rce_pln&$first=400")),
+                + "&$select=dtime_utc,rce_pln&$first=400", cancel)),
             PriceSource.Omie => await PerDayAsync(http, today,
                 d => $"https://www.omie.es/es/file-download?parents=marginalpdbc&filename=marginalpdbc_{d:yyyyMMdd}.1",
-                text => ParseOmie(text, area.Code == "PT" ? 4 : 5)),
+                text => ParseOmie(text, area.Code == "PT" ? 4 : 5), cancel),
             _ => throw new NotSupportedException($"No source for {area.Code}")
         };
         list.Sort((a, b) => a.StartUtc.CompareTo(b.StartUtc));
@@ -49,15 +49,16 @@ internal static class SpotPriceSources
 
     /// <summary>Sources with one file per day: today must exist, tomorrow is added when it has been published.</summary>
     private static async Task<List<SpotSample>> PerDayAsync(HttpClient http, DateTime today, Func<DateTime, string> url,
-                                                           Func<string, List<SpotSample>> parse)
+                                                           Func<string, List<SpotSample>> parse, CancellationToken cancel)
     {
-        var list = parse(await http.GetStringAsync(url(today.Date)));
+        var list = parse(await http.GetStringAsync(url(today.Date), cancel));
         try
         {
-            using var response = await http.GetAsync(url(today.Date.AddDays(1)));
-            if (response.IsSuccessStatusCode) list.AddRange(parse(await response.Content.ReadAsStringAsync()));
+            using var response = await http.GetAsync(url(today.Date.AddDays(1)), cancel);
+            if (response.IsSuccessStatusCode) list.AddRange(parse(await response.Content.ReadAsStringAsync(cancel)));
             else if (response.StatusCode != HttpStatusCode.NotFound) Logger.Info($"Tomorrow's prices: HTTP {(int)response.StatusCode}.");
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
         catch (Exception)
         {
             // Tomorrow's prices are optional; the next refresh tries again

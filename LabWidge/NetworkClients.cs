@@ -13,12 +13,12 @@ internal static class CloudflareClient
         return await ExternalIpProvider.FetchAsync(Client).ConfigureAwait(true);
     }
 
-    public static async Task<CloudflareRecord[]> GetRecordsAsync(string zoneId, string token, string type = "A", HttpClient? http = null)
+    public static async Task<CloudflareRecord[]> GetRecordsAsync(string zoneId, string token, string type = "A", HttpClient? http = null, CancellationToken cancel = default)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.cloudflare.com/client/v4/zones/{zoneId}/dns_records?type={type}&per_page=100");
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
-        using var response = await (http ?? Client).SendAsync(request).ConfigureAwait(true);
+        using var response = await (http ?? Client).SendAsync(request, cancel).ConfigureAwait(true);
         response.EnsureSuccessStatusCode();
         var json = await response.Content.ReadAsStringAsync().ConfigureAwait(true);
         var list = JsonSerializer.Deserialize<CloudflareListResponse>(json);
@@ -41,7 +41,7 @@ internal static class CloudflareClient
         return doc.RootElement.GetProperty("result").GetArrayLength();
     }
 
-    public static async Task UpdateRecordAsync(string zoneId, string token, string recordId, CloudflareRecord recordInfo, string newIp, HttpClient? http = null)
+    public static async Task UpdateRecordAsync(string zoneId, string token, string recordId, CloudflareRecord recordInfo, string newIp, HttpClient? http = null, CancellationToken cancel = default)
     {
         var update = new CloudflareUpdateRequest
         {
@@ -57,7 +57,7 @@ internal static class CloudflareClient
         put.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         put.Content = new StringContent(updateJson, System.Text.Encoding.UTF8, "application/json");
 
-        using var putResp = await (http ?? Client).SendAsync(put).ConfigureAwait(true);
+        using var putResp = await (http ?? Client).SendAsync(put, cancel).ConfigureAwait(true);
         if (!putResp.IsSuccessStatusCode)
         {
             var errorJson = await putResp.Content.ReadAsStringAsync();
@@ -88,12 +88,12 @@ internal static class CloudflareClient
         }
     }
 
-    public static async Task<int> UpdateAllARecordsAsync(string zoneId, string token, string ip, string[]? allowedHosts, HttpClient? http = null)
+    public static async Task<int> UpdateAllARecordsAsync(string zoneId, string token, string ip, string[]? allowedHosts, HttpClient? http = null, CancellationToken cancel = default)
     {
         var allowed = NormalizeHosts(allowedHosts);
         if (allowed is { Length: 0 }) return 0;
 
-        var records = await GetRecordsAsync(zoneId, token, "A", http);
+        var records = await GetRecordsAsync(zoneId, token, "A", http, cancel);
         if (records.Length == 0) return 0;
 
         var updated = 0;
@@ -110,7 +110,7 @@ internal static class CloudflareClient
                 continue;
             }
 
-            await UpdateRecordAsync(zoneId, token, record.Id, record, ip, http);
+            await UpdateRecordAsync(zoneId, token, record.Id, record, ip, http, cancel);
             updated++;
         }
 
@@ -167,14 +167,14 @@ internal static class ExternalIpProvider
         "http://api.ipify.org"
     };
 
-    public static async Task<string> FetchAsync(HttpClient client)
+    public static async Task<string> FetchAsync(HttpClient client, CancellationToken cancel = default)
     {
         Exception? lastError = null;
         foreach (var endpoint in Endpoints)
         {
             try
             {
-                var response = await client.GetStringAsync(endpoint).ConfigureAwait(true);
+                var response = await client.GetStringAsync(endpoint, cancel).ConfigureAwait(true);
                 var ip = response.Trim();
 
                 if (!IPAddress.TryParse(ip, out var parsed) || parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
@@ -184,6 +184,7 @@ internal static class ExternalIpProvider
 
                 return ip;
             }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 lastError = ex;

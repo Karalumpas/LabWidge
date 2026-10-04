@@ -53,7 +53,7 @@ internal sealed class CloudflareService
 
     public CloudflareService(HttpClient http) => _http = http;
 
-    public async Task RefreshAsync(AppSettings settings)
+    public async Task RefreshAsync(AppSettings settings, CancellationToken cancel = default)
     {
         if (!settings.HasCloudflare)
         {
@@ -62,7 +62,7 @@ internal sealed class CloudflareService
                 Tunnels = Array.Empty<CfTunnel>();
                 ARecords = Array.Empty<CloudflareRecord>();
                 DnsError = TunnelError = null;
-                Updated?.Invoke();
+                if (!cancel.IsCancellationRequested) Updated?.Invoke();
             }
             return;
         }
@@ -78,17 +78,18 @@ internal sealed class CloudflareService
             }
 
             var zoneId = settings.ZoneId!.Trim();
-            await LoadZoneAsync(zoneId, token);
+            await LoadZoneAsync(zoneId, token, cancel);
             AccountId = settings.CloudflareAccountId is { Length: > 0 } acc ? acc.Trim() : _zoneAccountId;
 
             CloudflareRecord[] cnames = Array.Empty<CloudflareRecord>();
             try
             {
-                ARecords = await CloudflareClient.GetRecordsAsync(zoneId, token, "A");
-                cnames = await CloudflareClient.GetRecordsAsync(zoneId, token, "CNAME");
+                ARecords = await CloudflareClient.GetRecordsAsync(zoneId, token, "A", cancel: cancel);
+                cnames = await CloudflareClient.GetRecordsAsync(zoneId, token, "CNAME", cancel: cancel);
                 DnsError = null;
                 LastSuccessfulDnsFetch = DateTime.Now;
             }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 var error = Describe(ex);
@@ -104,9 +105,10 @@ internal sealed class CloudflareService
             {
                 try
                 {
-                    Tunnels = await LoadTunnelsAsync(AccountId, token, cnames);
+                    Tunnels = await LoadTunnelsAsync(AccountId, token, cnames, cancel);
                     TunnelError = null;
                 }
+                catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
                 catch (Exception ex)
                 {
                     var error = ex is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized }
@@ -123,24 +125,25 @@ internal sealed class CloudflareService
         finally
         {
             _lock.Release();
-            Updated?.Invoke();
+            if (!cancel.IsCancellationRequested) Updated?.Invoke();
         }
     }
 
     /// <summary>The zone's name and account are used for links to the dashboard. Requires Zone → Read; without it we do without.</summary>
-    private async Task LoadZoneAsync(string zoneId, string token)
+    private async Task LoadZoneAsync(string zoneId, string token, CancellationToken cancel)
     {
         if (_zoneLookedUp == zoneId) return;
         ZoneName = null;
         _zoneAccountId = null;
         try
         {
-            using var doc = await GetAsync($"zones/{zoneId}", token);
+            using var doc = await GetAsync($"zones/{zoneId}", token, cancel);
             var result = doc.RootElement.GetProperty("result");
             ZoneName = Str(result, "name");
             if (result.TryGetProperty("account", out var account)) _zoneAccountId = Str(account, "id");
             _zoneLookedUp = zoneId;
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             if (_zoneErrorLogged != ex.Message) Logger.Info($"The Cloudflare zone could not be looked up ({ex.Message}) – links go to the front page.");
@@ -148,9 +151,9 @@ internal sealed class CloudflareService
         }
     }
 
-    private async Task<IReadOnlyList<CfTunnel>> LoadTunnelsAsync(string accountId, string token, CloudflareRecord[] cnames)
+    private async Task<IReadOnlyList<CfTunnel>> LoadTunnelsAsync(string accountId, string token, CloudflareRecord[] cnames, CancellationToken cancel)
     {
-        using var doc = await GetAsync($"accounts/{accountId}/cfd_tunnel?is_deleted=false&per_page=50", token);
+        using var doc = await GetAsync($"accounts/{accountId}/cfd_tunnel?is_deleted=false&per_page=50", token, cancel);
         var list = new List<CfTunnel>();
         foreach (var t in doc.RootElement.GetProperty("result").EnumerateArray())
         {
@@ -163,7 +166,7 @@ internal sealed class CloudflareService
             var routes = new List<CfRoute>();
             if (t.TryGetProperty("remote_config", out var rc) && rc.ValueKind == JsonValueKind.True)
             {
-                routes.AddRange(await LoadIngressAsync(accountId, id, token));
+                routes.AddRange(await LoadIngressAsync(accountId, id, token, cancel));
             }
             foreach (var cname in cnames.Where(r => r.Content.Equals($"{id}.cfargotunnel.com", StringComparison.OrdinalIgnoreCase)))
             {
@@ -188,11 +191,11 @@ internal sealed class CloudflareService
         return list.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private async Task<IEnumerable<CfRoute>> LoadIngressAsync(string accountId, string tunnelId, string token)
+    private async Task<IEnumerable<CfRoute>> LoadIngressAsync(string accountId, string tunnelId, string token, CancellationToken cancel)
     {
         try
         {
-            using var doc = await GetAsync($"accounts/{accountId}/cfd_tunnel/{tunnelId}/configurations", token);
+            using var doc = await GetAsync($"accounts/{accountId}/cfd_tunnel/{tunnelId}/configurations", token, cancel);
             if (!doc.RootElement.GetProperty("result").TryGetProperty("config", out var config)
                 || config.ValueKind != JsonValueKind.Object
                 || !config.TryGetProperty("ingress", out var ingress))
@@ -207,6 +210,7 @@ internal sealed class CloudflareService
                 .Select(r => new CfRoute(r.Path is { Length: > 0 } p ? $"{r.Host}/{p.TrimStart('/')}" : r.Host!, r.Service))
                 .ToList();
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             Logger.Info($"Tunnel configuration for {tunnelId} could not be fetched: {ex.Message}");
@@ -231,12 +235,12 @@ internal sealed class CloudflareService
     public string TunnelsUrl() =>
         AccountId == null ? "https://one.dash.cloudflare.com/" : $"https://one.dash.cloudflare.com/{AccountId}/networks/tunnels";
 
-    private async Task<JsonDocument> GetAsync(string path, string token)
+    private async Task<JsonDocument> GetAsync(string path, string token, CancellationToken cancel)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.cloudflare.com/client/v4/" + path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        using var response = await _http.SendAsync(request).ConfigureAwait(true);
-        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(true);
+        using var response = await _http.SendAsync(request, cancel).ConfigureAwait(true);
+        var json = await response.Content.ReadAsStringAsync(cancel).ConfigureAwait(true);
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException(FirstError(json) ?? $"HTTP {(int)response.StatusCode}", null, response.StatusCode);

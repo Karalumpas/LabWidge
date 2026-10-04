@@ -62,8 +62,9 @@ internal sealed class SystemMonitor
 
     private ulong _prevIdle, _prevKernel, _prevUser;
     private DateTime _lastDiskRead = DateTime.MinValue;
+    public void Suspend() { _prevIdle = _prevKernel = _prevUser = 0; Gpu.Suspend(); }
 
-    public void Sample()
+    public void Sample(bool includeGpu = true)
     {
         if (GetSystemTimes(out var idle, out var kernel, out var user))
         {
@@ -86,7 +87,8 @@ internal sealed class SystemMonitor
             RamHistory.Add(RamTotal == 0 ? 0 : RamUsed * 100.0 / RamTotal);
         }
 
-        Gpu.Sample();
+        if (includeGpu) Gpu.Sample();
+        else Gpu.Suspend();
 
         if ((DateTime.Now - _lastDiskRead).TotalSeconds >= 30)
         {
@@ -176,13 +178,25 @@ internal sealed class NetworkMonitor
     private DateTime _lastPing = DateTime.MinValue;
     private bool _pinging;
 
-    public NetworkMonitor()
+    private bool _subscribed;
+    private void OnNetworkChanged(object? sender, EventArgs e) => _lastAdapterRead = DateTime.MinValue;
+
+    public void Suspend()
     {
-        NetworkChange.NetworkAddressChanged += (_, _) => _lastAdapterRead = DateTime.MinValue;
+        if (_subscribed) NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
+        _subscribed = false;
+        _prevSample = DateTime.MinValue;
+        _lastPing = _lastAdapterRead = DateTime.MinValue;
     }
 
-    public void Sample()
+    public void Sample(CancellationToken cancel = default)
     {
+        cancel.ThrowIfCancellationRequested();
+        if (!_subscribed)
+        {
+            NetworkChange.NetworkAddressChanged += OnNetworkChanged;
+            _subscribed = true;
+        }
         var now = DateTime.Now;
         NetworkInterface[] nics;
         try
@@ -231,26 +245,27 @@ internal sealed class NetworkMonitor
         if (!_pinging && (now - _lastPing).TotalSeconds >= 5)
         {
             _lastPing = now;
-            _ = PingAsync();
+            _ = PingAsync(cancel);
         }
     }
 
-    private async Task PingAsync()
+    private async Task PingAsync(CancellationToken cancel)
     {
         _pinging = true;
         try
         {
             using var ping = new Ping();
-            var reply = await ping.SendPingAsync(PingTarget, 2000);
+            var reply = await ping.SendPingAsync(PingTarget, TimeSpan.FromSeconds(2), cancellationToken: cancel);
             PingMs = reply.Status == IPStatus.Success ? reply.RoundtripTime : null;
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
         catch
         {
             PingMs = null;
         }
         finally
         {
-            PingHistory.Add(PingMs ?? -1);
+            if (!cancel.IsCancellationRequested) PingHistory.Add(PingMs ?? -1);
             _pinging = false;
         }
     }

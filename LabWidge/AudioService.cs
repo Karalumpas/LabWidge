@@ -23,13 +23,14 @@ internal sealed class AudioService
     private int _batteryBusy;
 
     /// <summary>Reads the headset batteries in the background – the HID calls can wait up to a second for an answer.</summary>
-    public async Task RefreshBatteriesAsync()
+    public async Task RefreshBatteriesAsync(CancellationToken cancel = default)
     {
         if (Interlocked.Exchange(ref _batteryBusy, 1) == 1) return;
         try
         {
             var headsets = Devices.Where(d => d.ContainerId != null && d.Kind is AudioKind.Headset or AudioKind.Headphones).ToList();
-            var byContainer = await Task.Run(() => HeadsetBattery.Read(headsets.Select(d => d.ContainerId!.Value).ToHashSet()));
+            var byContainer = await Task.Run(() => HeadsetBattery.Read(headsets.Select(d => d.ContainerId!.Value).ToHashSet()), cancel);
+            cancel.ThrowIfCancellationRequested();
             Batteries = headsets.Where(d => byContainer.ContainsKey(d.ContainerId!.Value))
                                 .ToDictionary(d => d.Id, d => byContainer[d.ContainerId!.Value]);
         }

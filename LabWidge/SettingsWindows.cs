@@ -8,7 +8,11 @@ using System.Windows.Forms;
 /// </summary>
 internal sealed class SettingsWindow : Form
 {
-    private readonly SettingsPage[] _pages;
+    private SettingsPage[] _pages = Array.Empty<SettingsPage>();
+    private readonly Dictionary<string, SettingsPage> _pluginPages = new();
+    private readonly SettingsPage[] _commonPages;
+    private readonly PluginsPage _pluginsPage;
+    private readonly AboutPage _aboutPage = new();
     private readonly HashSet<SettingsPage> _shown = new();
     private readonly Panel _host = new() { Dock = DockStyle.Fill };
     private readonly NavMenu _menu;
@@ -24,20 +28,11 @@ internal sealed class SettingsWindow : Form
         _p = Palette.For(settings.Theme);
         Ui.Palette = _p; // before the pages are created, so they pick up the theme's colours
 
-        _pages = new SettingsPage[]
-        {
-            new GeneralPage(), new WidgetPage(), new WindowsPage(), new NotificationsPage(),
-            new PricePage(), new SystemNetworkPage(), new AudioPage(),
-            new HomeAssistantPage(), new CloudflarePage(), new ProxmoxPage(),
-            new AboutPage()
-        };
-        var groups = new Dictionary<int, string>
-        {
-            [0] = L.T("GENERAL", "GENERELT"),
-            [4] = "DATA",
-            [7] = L.T("HOME LAB", "HJEMMELAB"),
-            [10] = ""
-        };
+        _pluginsPage = new PluginsPage();
+        _commonPages = new SettingsPage[] { new GeneralPage(), new WidgetPage(), new WindowsPage(), new NotificationsPage(), _pluginsPage };
+        foreach (var page in _commonPages.Append(_aboutPage)) page.LoadFrom(Settings);
+        _pluginsPage.ActivationChanged += RebuildPages;
+        _pluginsPage.ConfigureRequested += key => { if (_pluginPages.TryGetValue(key, out var page)) _ = ShowPageAsync(Array.IndexOf(_pages, page)); };
 
         Text = L.T("LabWidge – Settings", "LabWidge – Indstillinger");
         Icon = AppIconProvider.GetIcon();
@@ -52,7 +47,7 @@ internal sealed class SettingsWindow : Form
         BackColor = SettingsTheme.PageColor(_p);
         ForeColor = _p.TextPrimary;
 
-        _menu = new NavMenu(_p, _pages.Select(pg => (pg.Glyph, pg.Title)).ToArray(), groups) { Dock = DockStyle.Left, Width = 230 };
+        _menu = new NavMenu(_p, Array.Empty<(string Glyph, string Title)>(), new Dictionary<int, string>()) { Dock = DockStyle.Left, Width = 230 };
         _menu.Selected += async index => await ShowPageAsync(index);
 
         // Bottom bar
@@ -86,11 +81,7 @@ internal sealed class SettingsWindow : Form
             Close();
         };
 
-        foreach (var page in _pages)
-        {
-            page.LoadFrom(Settings);
-            SettingsTheme.Apply(page, _p);
-        }
+        RebuildPages();
         SettingsTheme.Apply(bottom, _p);
 
         Controls.Add(_host);
@@ -103,6 +94,39 @@ internal sealed class SettingsWindow : Form
         Shown += async (_, _) => await ShowPageAsync(0);
     }
 
+    private void RebuildPages()
+    {
+        var current = _index >= 0 && _index < _pages.Length ? _pages[_index] : null;
+        var active = new List<SettingsPage>();
+        foreach (var plugin in WidgetPlugins.All.Where(p => Settings.IsPluginEnabled(p.Key)))
+        {
+            if (!_pluginPages.TryGetValue(plugin.Key, out var page))
+            {
+                page = plugin.CreateSettingsPage();
+                page.LoadFrom(Settings);
+                page.UsePluginActivation();
+                _pluginPages.Add(plugin.Key, page);
+            }
+            active.Add(page);
+        }
+        _pages = _commonPages.Concat(active).Append(_aboutPage).ToArray();
+        foreach (var page in _pages)
+        {
+            if (page.Parent != _host)
+            {
+                page.Visible = false;
+                page.Dock = DockStyle.Fill;
+                _host.Controls.Add(page);
+            }
+            SettingsTheme.Apply(page, _p);
+        }
+        var groups = new Dictionary<int, string> { [0] = L.T("GENERAL", "GENERELT"), [_commonPages.Length] = "PLUGINS" };
+        _menu.SetItems(_pages.Select(p => (p.Glyph, p.Title)).ToArray(), groups);
+        var index = current == null ? 0 : Array.IndexOf(_pages, current);
+        _index = -1;
+        _ = ShowPageAsync(index < 0 ? Array.IndexOf(_pages, _pluginsPage) : index);
+    }
+
     private async Task ShowPageAsync(int index)
     {
         if (index < 0 || index >= _pages.Length || index == _index) return;
@@ -110,13 +134,13 @@ internal sealed class SettingsWindow : Form
         _menu.SelectedIndex = index;
         var page = _pages[index];
         _host.SuspendLayout();
-        _host.Controls.Clear();
-        page.Dock = DockStyle.Fill;
-        _host.Controls.Add(page);
+        foreach (Control child in _host.Controls) child.Visible = ReferenceEquals(child, page);
+        page.BringToFront();
         _host.ResumeLayout();
         if (_shown.Add(page))
         {
             await page.OnFirstShownAsync();
+            if (IsDisposed || page.IsDisposed) return;
             SettingsTheme.Apply(page, _p); // controls created while loading (e.g. lists) get the theme too
         }
     }
@@ -143,8 +167,10 @@ internal sealed class NavMenu : Control
 {
     private const int ItemHeight = 36;
     private readonly Palette _p;
-    private readonly (string Glyph, string Title)[] _items;
-    private readonly Dictionary<int, string> _groups;
+    private (string Glyph, string Title)[] _items;
+    private Dictionary<int, string> _groups;
+    private float _scroll;
+    private float _contentHeight;
     private readonly Font _icon;
     private readonly Font _title = new("Segoe UI Semibold", 12.5F);
     private readonly Font _group = new("Segoe UI Semibold", 7.5F);
@@ -163,6 +189,18 @@ internal sealed class NavMenu : Control
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         BackColor = p.IsDark ? Color.FromArgb(14, 17, 23) : Color.FromArgb(233, 237, 242);
         Cursor = Cursors.Hand;
+    }
+
+    public void SetItems((string Glyph, string Title)[] items, Dictionary<int, string> groups)
+    {
+        _items = items; _groups = groups; _scroll = 0; Invalidate();
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        _scroll = Math.Clamp(_scroll - e.Delta / 120f * S(76), 0, Math.Max(0, _contentHeight - Height));
+        Invalidate();
     }
 
     public int SelectedIndex
@@ -186,7 +224,9 @@ internal sealed class NavMenu : Control
         TextRenderer.DrawText(g, "LabWidge", _title, new Point((int)S(64), (int)S(22)), _p.TextPrimary, TextFormatFlags.NoPadding);
         TextRenderer.DrawText(g, L.T("Settings", "Indstillinger"), Font, new Point((int)S(64), (int)S(42)), _p.TextSecondary, TextFormatFlags.NoPadding);
 
-        var y = S(80);
+        var y = S(80) - _scroll;
+        var clip = g.Save();
+        g.SetClip(new RectangleF(0, S(76), Width, Math.Max(0, Height - S(76))));
         for (var i = 0; i < _items.Length; i++)
         {
             if (_groups.TryGetValue(i, out var group))
@@ -225,6 +265,16 @@ internal sealed class NavMenu : Control
             y += S(ItemHeight + 2);
         }
 
+        _contentHeight = y + _scroll + S(12);
+        g.Restore(clip);
+        if (_contentHeight > Height)
+        {
+            var track = Math.Max(1, Height - S(80));
+            var thumb = Math.Max(S(24), track * track / (_contentHeight - S(80)));
+            var top = S(80) + (track - thumb) * (_scroll / (_contentHeight - Height));
+            using var brush = new SolidBrush(_p.TextDim);
+            g.FillRectangle(brush, Width - S(5), top, S(2), thumb);
+        }
         using var edge = new Pen(_p.Line);
         g.DrawLine(edge, Width - 1, 0, Width - 1, Height);
     }
@@ -232,7 +282,7 @@ internal sealed class NavMenu : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var hover = _rects.FindIndex(r => r.Contains(e.Location));
+        var hover = e.Y >= S(76) ? _rects.FindIndex(r => r.Contains(e.Location)) : -1;
         if (hover != _hover)
         {
             _hover = hover;
@@ -250,7 +300,7 @@ internal sealed class NavMenu : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        var index = _rects.FindIndex(r => r.Contains(e.Location));
+        var index = e.Y >= S(76) ? _rects.FindIndex(r => r.Contains(e.Location)) : -1;
         if (index >= 0) Selected?.Invoke(index);
     }
 

@@ -58,7 +58,7 @@ internal sealed class ElectricityPriceService
             || (!HasTomorrow && now.Hour >= 13 && ageMin > 10);
     }
 
-    public async Task RefreshAsync(AppSettings settings)
+    public async Task RefreshAsync(AppSettings settings, CancellationToken cancel = default)
     {
         // Remember the latest change instead of losing it during a fetch in progress.
         // Take a copy before the first await, so area and tariff always belong to the same request.
@@ -69,11 +69,13 @@ internal sealed class ElectricityPriceService
         {
             while (_pendingRefresh is { } request)
             {
+                cancel.ThrowIfCancellationRequested();
                 _pendingRefresh = null;
-                await RefreshOneAsync(request);
+                await RefreshOneAsync(request, cancel);
                 Updated?.Invoke();
             }
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { _pendingRefresh = null; throw; }
         finally
         {
             _lock.Release();
@@ -84,7 +86,7 @@ internal sealed class ElectricityPriceService
     private static string AreaKey(AppSettings s) =>
         Countries.Find(s.Country) is { } c ? $"{c.Code}:{c.AreaOrDefault(s.PriceArea).Code}" : "";
 
-    private async Task RefreshOneAsync(FetchRequest request)
+    private async Task RefreshOneAsync(FetchRequest request, CancellationToken cancel)
     {
         var area = request.Area;
         if (request.Country is not { } country)
@@ -99,7 +101,7 @@ internal sealed class ElectricityPriceService
         }
         try
         {
-            var samples = await SpotPriceSources.FetchAsync(_http, country.AreaOrDefault(area.Split(':').Last()), DateTime.Today);
+            var samples = await SpotPriceSources.FetchAsync(_http, country.AreaOrDefault(area.Split(':').Last()), DateTime.Today, cancel);
             if (samples.Count == 0) throw new InvalidOperationException("The price source returned no prices.");
             Prices = samples.Select(p => new PricePoint(p.StartUtc.ToLocalTime(), p.PerKwh * country.Unit.PerMajor)).ToList();
             FetchedArea = area;
@@ -107,6 +109,7 @@ internal sealed class ElectricityPriceService
             LastError = null;
             LastSuccessfulFetch = DateTime.Now;
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             LastError = ex.Message;
@@ -125,10 +128,11 @@ internal sealed class ElectricityPriceService
         {
             NetTariffs = !request.HasNetTariff
                 ? Array.Empty<TariffRow>()
-                : await FetchTariffsAsync($"\"ChargeOwner\":[\"{request.Owner}\"]", request.Codes, 400);
-            StateCharges = await FetchTariffsAsync($"\"GLN_Number\":[\"{EnerginetGln}\"]", EnerginetCodes, 30);
+                : await FetchTariffsAsync($"\"ChargeOwner\":[\"{request.Owner}\"]", request.Codes, 400, cancel);
+            StateCharges = await FetchTariffsAsync($"\"GLN_Number\":[\"{EnerginetGln}\"]", EnerginetCodes, 30, cancel);
             TariffError = null;
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             TariffError = ex.Message;
@@ -138,13 +142,13 @@ internal sealed class ElectricityPriceService
         LastFetch = DateTime.Now;
     }
 
-    private async Task<IReadOnlyList<TariffRow>> FetchTariffsAsync(string ownerFilter, string[] codes, int limit)
+    private async Task<IReadOnlyList<TariffRow>> FetchTariffsAsync(string ownerFilter, string[] codes, int limit, CancellationToken cancel)
     {
         var codeJson = string.Join(",", codes.Select(c => $"\"{c}\""));
         var filter = Uri.EscapeDataString($"{{{ownerFilter},\"ChargeTypeCode\":[{codeJson}],\"ChargeType\":[\"D03\"]}}");
         var url = $"{Api}DatahubPricelist?filter={filter}&sort=ValidFrom%20desc&limit={limit}";
 
-        using var doc = JsonDocument.Parse(await _http.GetStringAsync(url));
+        using var doc = JsonDocument.Parse(await _http.GetStringAsync(url, cancel));
         return ParseTariffRows(doc.RootElement.GetProperty("records"));
     }
 

@@ -79,13 +79,20 @@ internal sealed class ProxmoxPanel : PopupPanel
             return;
         }
 
-        // The status is followed closely until the action has taken effect
-        foreach (var delay in new[] { 3, 8, 15, 30 })
+        if (error != null || IsDisposed) return;
+        var cancel = _pve.Lifetime;
+        try
         {
-            await Task.Delay(TimeSpan.FromSeconds(delay));
-            await _pve.RefreshAsync(Settings);
-            if (_pve.PendingAction(guest.VmId) == null) break;
+            // Follow the action only while this plugin's current activation is alive.
+            foreach (var delay in new[] { 3, 8, 15, 30 })
+            {
+                await Task.Delay(TimeSpan.FromSeconds(delay), cancel);
+                if (IsDisposed || !Settings.HasProxmox) return;
+                await _pve.RefreshAsync(Settings, cancel);
+                if (_pve.PendingAction(guest.VmId) == null) break;
+            }
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
     }
 
     // ---------- Drawing ----------
