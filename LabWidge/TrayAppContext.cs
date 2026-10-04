@@ -188,7 +188,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _homeAssistantTimer = new System.Windows.Forms.Timer { Interval = 15_000 };
         _homeAssistantTimer.Tick += async (_, _) =>
         {
-            var inView = _dashboard.Visible || HomeAssistantPanel.IsOpen;
+            var inView = _dashboard.Visible || SectionWindows.IsOpen("ha");
             if (_settings.HasHomeAssistant && _settings.ShowHomeAssistant && inView)
             {
                 await _homeAssistant.RefreshAsync(_settings);
@@ -213,7 +213,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _proxmoxTimer = new System.Windows.Forms.Timer { Interval = 15_000 };
         _proxmoxTimer.Tick += async (_, _) =>
         {
-            if (_settings.HasProxmox && ((_dashboard.Visible && _settings.ShowProxmox) || ProxmoxPanel.IsOpen))
+            if (_settings.HasProxmox && ((_dashboard.Visible && _settings.ShowProxmox) || SectionWindows.IsOpen("proxmox")))
                 await _proxmox.RefreshAsync(_settings);
         };
         _proxmoxTimer.Start();
@@ -263,6 +263,8 @@ internal sealed class TrayAppContext : ApplicationContext
         if (_settings.OnboardingCompleted && !forceSetup)
         {
             if (_settings.WidgetVisible) _dashboard.ShowWidget();
+            // Windows pinned on the desktop open where they were when LabWidge closed
+            SectionWindows.RestorePinned(_settings);
             if (isUpdate) RunLater(TimeSpan.FromSeconds(5), ShowWhatsNewToast);
         }
         else
@@ -427,9 +429,7 @@ internal sealed class TrayAppContext : ApplicationContext
     protected override void ExitThreadCore()
     {
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
-        HomeAssistantPanel.CloseIfOpen();
-        CloudflarePanel.CloseIfOpen();
-        ProxmoxPanel.CloseIfOpen();
+        SectionWindows.CloseAllForShutdown();
         _ipTimer.Dispose();
         _priceTimer.Dispose();
         _homeAssistantTimer.Dispose();
@@ -506,6 +506,8 @@ internal sealed class TrayAppContext : ApplicationContext
     private void ApplyNewSettings(AppSettings updated)
     {
         var old = _settings;
+        // The settings window does not edit the section windows; keep what they changed while it was open
+        updated.SectionWindows = old.SectionWindows;
         _settings = updated;
         SettingsStore.Save(_settings);
 
@@ -586,9 +588,8 @@ internal sealed class TrayAppContext : ApplicationContext
         }
         else
         {
-            HomeAssistantPanel.CloseIfOpen();
-            CloudflarePanel.CloseIfOpen();
-            ProxmoxPanel.CloseIfOpen();
+            // Pinned windows stay on the desktop; pop-ups belong to the widget
+            SectionWindows.ClosePopups();
         }
     }
 
@@ -787,7 +788,7 @@ internal sealed class TrayAppContext : ApplicationContext
             return;
         }
         // Not in the middle of a dialog or while the user is at the PC
-        if (_dialogOpen || HomeAssistantPanel.IsOpen || UserIdle.Duration < AutoInstallIdle) return;
+        if (_dialogOpen || UserIdle.Duration < AutoInstallIdle) return;
 
         try
         {

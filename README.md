@@ -55,6 +55,12 @@ It is small, fast and private – no account, no ads and no telemetry.
 - **Cloudflare** – keeps your DNS A records up to date when your IP changes, and shows whether your tunnels and the services
   behind them are up.
 
+**🪟 Detail windows**
+- Every section opens in a larger window with much more detail: the price chart with a price scale and the cheapest periods ahead,
+  five minutes of CPU, RAM, GPU, traffic and ping history, all disks and adapters, and every audio device with its volume.
+- **Drag a section out of the widget** to drop it on the desktop as a window – or click the window button in its header.
+- **Pin a window** to keep it open; it remembers where it was and comes back when LabWidge starts.
+
 **✨ Made to stay out of your way**
 - Collapse, reorder and pin sections; resize the widget; double-click for a one-line view.
 - Dark and light theme (or follow Windows), adjustable opacity, always on top if you want.
@@ -63,6 +69,11 @@ It is small, fast and private – no account, no ads and no telemetry.
 <p align="center">
   <img src="docs/images/compact-dark.png" alt="The compact one-line view: price, CPU, RAM, GPU and IP"><br>
   <sub>The compact view – double-click the widget to switch.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/images/windows.png" width="820" alt="The electricity price, system and network windows"><br>
+  <sub>Detail windows for the electricity price, system and network – drag a section out of the widget to open one.</sub>
 </p>
 
 ## Install
@@ -102,6 +113,8 @@ household electricity and can be changed.
 - **Click a header** to collapse a section – a summary stays in the header.
 - **Drag the handle** (⋮⋮) by a header to reorder sections. **Click the pin** to keep a section at the top or bottom while the rest scrolls;
   right-click the header for more options, such as pinning only the summary.
+- **Drag a section sideways out of the widget** to open it as a window on the desktop. Windows close with Esc or a click outside –
+  unless you pin them. Drag a window's header to move it, and an edge to resize it.
 - **Drag an edge or corner** to resize the widget, and **drag anywhere else** to move it.
 - **Hover** over almost anything – prices, bars, addresses – for details. The status in each header tells you whether data is fresh.
 

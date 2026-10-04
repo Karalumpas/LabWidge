@@ -2,6 +2,12 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.16.0
+- Every section can open in its own window with much more detail – drag a section out of the widget onto the desktop, or click the window button in its header
+- New windows for the electricity price (large chart with price scale, cheapest and most expensive periods), system (CPU, RAM and GPU history, disks, top processes), network (traffic and ping history, all adapters) and audio (every output and microphone with volume)
+- Pin a window to keep it open: it remembers its place and size and opens again when LabWidge starts
+- The Home Assistant, Cloudflare and Proxmox panels can now be pinned, moved and resized too
+
 ## 1.15.3
 - Expanded sections can now be dragged past shorter ones – e.g. an open System section above Cloudflare – without collapsing them first
 

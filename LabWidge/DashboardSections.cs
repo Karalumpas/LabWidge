@@ -37,6 +37,8 @@ internal sealed partial class DashboardForm
         public required float Start;              // y of the first section
         public required Dictionary<string, float> Heights;
         public required List<string> Order;       // the current order, with the dragged section in its new place
+        public required List<string> Original;    // the order when the card was lifted
+        public bool TornOff;                      // dragged out of the widget – becomes a window when dropped
         public readonly Dictionary<string, float> Anim = new();
         public float MouseY;
         public bool Settling;
@@ -120,6 +122,7 @@ internal sealed partial class DashboardForm
             Start = group[0].Top + offset,
             Heights = group.ToDictionary(b => b.Key, b => b.Height),
             Order = group.Select(b => b.Key).ToList(),
+            Original = group.Select(b => b.Key).ToList(),
             MouseY = mouse.Y + offset
         };
         foreach (var b in group) _drag.Anim[b.Key] = b.Top + offset;
@@ -130,6 +133,100 @@ internal sealed partial class DashboardForm
         Cursor = Cursors.SizeNS;
         _dragTimer.Start();
         Invalidate();
+    }
+
+    private DragGhost? _ghost;
+
+    /// <summary>The window for a section, or null when the section is not set up (e.g. no Home Assistant).</summary>
+    private PopupPanel? CreateWindow(string key)
+    {
+        switch (key)
+        {
+            case "price":
+                return _settings.PriceCountry != null ? new PricePanel(_el, _settings, _saveSettings) : null;
+            case "ha":
+                return _settings.HasHomeAssistant ? new HomeAssistantPanel(_ha, _settings, _saveSettings) : null;
+            case "cloudflare":
+                if (!_settings.HasCloudflare) return null;
+                _ = _cf.RefreshAsync(_settings);
+                return new CloudflarePanel(_cf, _services, _settings, _saveSettings, _externalIp);
+            case "proxmox":
+                if (!_settings.HasProxmox) return null;
+                _ = _pve.RefreshAsync(_settings);
+                return new ProxmoxPanel(_pve, _settings, _saveSettings);
+            case "system":
+                return new SystemPanel(_sys, _settings, _saveSettings);
+            case "network":
+                return new NetworkPanel(_net, _externalIp, _networkState, _settings, _saveSettings);
+            case "audio":
+                return new AudioPanel(_audio, SwitchAudio, _settings, _saveSettings);
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// While a card is dragged: outside the widget (more than a short distance) it becomes a see-through card that follows
+    /// the mouse, and dropping it opens the section in a window. Returns true while the card is outside.
+    /// </summary>
+    private bool UpdateTearOff()
+    {
+        var d = _drag!;
+        if (d.Settling || !SectionWindows.Supports(d.Key)) return false;
+        var area = Bounds;
+        area.Inflate((int)U(36), (int)U(36));
+        var cursor = System.Windows.Forms.Cursor.Position;
+        var outside = !area.Contains(cursor);
+        if (outside != d.TornOff)
+        {
+            d.TornOff = outside;
+            if (outside)
+            {
+                _ghost ??= new DragGhost();
+                _ghost.Show(d.Snapshot);
+            }
+            else
+            {
+                _ghost?.Hide();
+            }
+            Cursor = outside ? Cursors.Hand : Cursors.SizeNS;
+            Invalidate();
+        }
+        if (outside) _ghost!.Location = new Point(cursor.X - (int)U(40), cursor.Y - (int)(d.Grab + d.SnapshotTop));
+        return outside;
+    }
+
+    /// <summary>The see-through card that follows the mouse while a section is dragged out of the widget.</summary>
+    private sealed class DragGhost : Form
+    {
+        public DragGhost()
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.Manual;
+            TopMost = true;
+            Opacity = 0.82;
+            BackgroundImageLayout = ImageLayout.None;
+        }
+
+        public void Show(Bitmap snapshot)
+        {
+            BackgroundImage = snapshot;
+            ClientSize = snapshot.Size;
+            if (!Visible) Show();
+        }
+
+        protected override bool ShowWithoutActivation => true;
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.ExStyle |= 0x80 | 0x08000000 | 0x20; // WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT
+                return cp;
+            }
+        }
     }
 
     private void MoveSectionDrag(int mouseY)
@@ -162,6 +259,20 @@ internal sealed partial class DashboardForm
     {
         var d = _drag;
         if (d == null || d.Settling) return;
+        if (d.TornOff)
+        {
+            // Dropped on the desktop: the order stays as it was, and the section opens in a pinned window there.
+            // Settling first: releasing the mouse capture below calls DropSectionDrag again.
+            d.Settling = true;
+            _ghost?.Hide();
+            d.Order.Clear();
+            d.Order.AddRange(d.Original);
+            Capture = false;
+            Cursor = Cursors.Default;
+            FinishSectionDrag();
+            SectionWindows.OpenPinnedAt(d.Key, System.Windows.Forms.Cursor.Position);
+            return;
+        }
         d.Settling = true;
         d.SettleFrom = d.MouseY - d.Grab;
         d.SettleStart = DateTime.Now;
