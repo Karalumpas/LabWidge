@@ -2,6 +2,9 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.15.3
+- Expanded sections can now be dragged past shorter ones – e.g. an open System section above Cloudflare – without collapsing them first
+
 ## 1.15.2
 - Updates are now checked before they are installed: if Windows (Smart App Control) refuses to run the new version, your current version is kept instead of being replaced
 - The installer shows a clear message instead of an error dialog when Windows blocks LabWidge
