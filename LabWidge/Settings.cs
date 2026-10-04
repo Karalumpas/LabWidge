@@ -89,6 +89,25 @@ internal sealed class AppSettings
     public string[] SectionPinSummaries { get; set; } = Array.Empty<string>();
     /// <summary>Pin, position and size of each section's window (key = section, e.g. "price").</summary>
     public Dictionary<string, SectionWindowState> SectionWindows { get; set; } = new();
+    /// <summary>Windows the user chose to forget in the settings window – applied when the settings are saved, never stored.</summary>
+    [JsonIgnore]
+    public string[] ForgetWindows { get; set; } = Array.Empty<string>();
+    /// <summary>Open the pinned section windows again when LabWidge starts.</summary>
+    public bool RestorePinnedWindows { get; set; } = true;
+
+    // System and network
+    public bool ShowGpu { get; set; } = true;
+    /// <summary>Drives (e.g. "D:\") left out of the widget's system section.</summary>
+    public string[] HiddenDisks { get; set; } = Array.Empty<string>();
+    /// <summary>Show virtual adapters (VPN, Hyper-V, WSL) among the widget's local addresses.</summary>
+    public bool ShowVirtualAdapters { get; set; } = true;
+    /// <summary>The host the latency is measured against, e.g. 1.1.1.1 or the router.</summary>
+    public string PingTarget { get; set; } = "1.1.1.1";
+
+    // How often the home lab services are asked
+    public int HomeAssistantRefreshSeconds { get; set; } = 15;
+    public int ProxmoxRefreshSeconds { get; set; } = 15;
+    public int CloudflareRefreshMinutes { get; set; } = 2;
 
     // Audio
     public bool ShowAudio { get; set; } = true;
@@ -261,6 +280,8 @@ internal static class SettingsStore
             loaded.SectionPins ??= new();
             loaded.SectionLastPins ??= new();
             loaded.SectionWindows ??= new();
+            loaded.HiddenDisks ??= Array.Empty<string>();
+            if (string.IsNullOrWhiteSpace(loaded.PingTarget)) loaded.PingTarget = "1.1.1.1";
             loaded.SectionPinSummaries ??= Array.Empty<string>();
 
             settings = loaded;

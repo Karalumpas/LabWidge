@@ -65,6 +65,8 @@ It is small, fast and private – no account, no ads and no telemetry.
 - Collapse, reorder and pin sections; resize the widget; double-click for a one-line view.
 - Dark and light theme (or follow Windows), adjustable opacity, always on top if you want.
 - English and Danish. Updates install themselves while you are away from the PC.
+- A modern settings window in the same theme: choose sections, disks, the ping target (e.g. your router), refresh intervals for
+  your home lab and how the windows behave.
 
 <p align="center">
   <img src="docs/images/compact-dark.png" alt="The compact one-line view: price, CPU, RAM, GPU and IP"><br>
@@ -74,6 +76,11 @@ It is small, fast and private – no account, no ads and no telemetry.
 <p align="center">
   <img src="docs/images/windows.png" width="820" alt="The electricity price, system and network windows"><br>
   <sub>Detail windows for the electricity price, system and network – drag a section out of the widget to open one.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/images/settings.png" width="640" alt="The settings window in the dark theme, with a menu of pages and cards with switches"><br>
+  <sub>The settings follow the widget's light or dark theme.</sub>
 </p>
 
 ## Install

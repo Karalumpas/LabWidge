@@ -59,7 +59,14 @@ internal sealed class SystemPanel : PopupPanel
             return result.OrderByDescending(r => r.Value.Bytes).Take(6).Select(r => (r.Key, r.Value.Bytes, r.Value.Count)).ToList();
         });
         _processes = list;
-        if (IsHandleCreated && !IsDisposed) BeginInvoke(new Action(Invalidate));
+        try
+        {
+            if (IsHandleCreated && !IsDisposed) BeginInvoke(new Action(() => { if (!IsDisposed) Invalidate(); }));
+        }
+        catch (ObjectDisposedException)
+        {
+            // The window closed while the processes were read
+        }
     }
 
     protected override string HeaderStatus => L.T("up ", "tændt i ") + Uptime(_sys.Uptime);

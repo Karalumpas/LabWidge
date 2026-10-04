@@ -849,7 +849,7 @@ internal sealed partial class DashboardForm : Form
         var ramFrac = _sys.RamTotal == 0 ? 0 : (double)_sys.RamUsed / _sys.RamTotal;
         var gpu = _sys.Gpu;
         var right = s.CollapsedSystem
-            ? $"CPU {_sys.CpuPercent:0} %  ·  RAM {ramFrac * 100:0} %" + (gpu.Available ? $"  ·  GPU {gpu.Percent:0} %" : "")
+            ? $"CPU {_sys.CpuPercent:0} %  ·  RAM {ramFrac * 100:0} %" + (gpu.Available && s.ShowGpu ? $"  ·  GPU {gpu.Percent:0} %" : "")
             : L.T("up ", "tændt i ") + Uptime(_sys.Uptime);
         y = Header(g, "", "SYSTEM", right, s.CollapsedSystem ? _p.TextSecondary : null, x, y, w,
                    s.CollapsedSystem, () => ToggleCollapsed(() => s.CollapsedSystem, v => s.CollapsedSystem = v));
@@ -870,9 +870,9 @@ internal sealed partial class DashboardForm : Form
         y = BarRow(g, "RAM", ramFrac, $"{Gb(_sys.RamUsed)} / {Gb(_sys.RamTotal)} GB", x, y, w, labelW, valueW,
                    L.T($"Memory: {ramFrac * 100:0} % used\n{Gb(_sys.RamTotal - _sys.RamUsed)} GB free", $"Hukommelse: {ramFrac * 100:0} % brugt\n{Gb(_sys.RamTotal - _sys.RamUsed)} GB fri"), null);
 
-        if (gpu.Available) y = DrawGpu(g, gpu, x, y, w, labelW, valueW);
+        if (gpu.Available && s.ShowGpu) y = DrawGpu(g, gpu, x, y, w, labelW, valueW);
 
-        foreach (var d in _sys.Disks)
+        foreach (var d in _sys.Disks.Where(d => !s.HiddenDisks.Contains(d.Name, StringComparer.OrdinalIgnoreCase)))
         {
             var frac = d.Total == 0 ? 0 : (double)d.Used / d.Total;
             var name = string.IsNullOrWhiteSpace(d.Label) ? d.Name : $"{d.Name} {d.Label}";
@@ -961,7 +961,7 @@ internal sealed partial class DashboardForm : Form
         {
             y = KeyValue(g, L.T("Local IP", "Intern IP"), primary.Ipv4, _p.TextPrimary, x, y, w, keyW, bold: true, copy: primary.Ipv4,
                          suffix: $"/{primary.PrefixLength}  {Shorten(primary.Name, 18)}");
-            foreach (var a in _net.Adapters.Skip(1).Take(2))
+            foreach (var a in _net.Adapters.Skip(1).Where(a => s.ShowVirtualAdapters || a.Kind != NetworkMonitor.VirtualKind).Take(2))
             {
                 y = KeyValue(g, "", a.Ipv4, _p.TextSecondary, x, y, w, keyW, copy: a.Ipv4, suffix: $"  {Shorten(a.Name, 24)}");
             }

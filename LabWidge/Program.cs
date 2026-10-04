@@ -52,6 +52,10 @@ internal static class Program
 
         SelfInstaller.RegisterUninstallEntry();
         ApplicationConfiguration.Initialize();
+        // An error in a click or a timer must not stop the widget with .NET's crash dialog: log it and carry on
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, e) => Logger.Error($"Unexpected error: {e.Exception}");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Logger.Error($"Unexpected error (fatal): {e.ExceptionObject}");
         Application.Run(new TrayAppContext(forceSetup: args.Contains("--setup")));
     }
 
