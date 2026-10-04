@@ -23,7 +23,6 @@ internal sealed class WidgetTip : Form
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         AutoScaleMode = AutoScaleMode.None;
-        TopMost = true;
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
         _hideTimer.Tick += (_, _) => HideTip();
     }
@@ -33,7 +32,9 @@ internal sealed class WidgetTip : Form
         get
         {
             var cp = base.CreateParams;
-            cp.ExStyle |= 0x80 | 0x08000000 | 0x20; // WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT (clicks pass through)
+            // Set topmost in the native styles. Form.TopMost uses SetWindowPos when the handle is
+            // created and can activate the tooltip before ShowWithoutActivation takes effect.
+            cp.ExStyle |= 0x8 | 0x80 | 0x08000000 | 0x20; // TOPMOST | TOOLWINDOW | NOACTIVATE | TRANSPARENT
             return cp;
         }
     }

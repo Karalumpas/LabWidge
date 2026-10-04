@@ -250,7 +250,7 @@ internal static class UiChecks
         Console.WriteLine("Showcase screenshots: " + Path.Combine(Output, "showcase"));
         Directory.CreateDirectory(Path.Combine(Output, "settings"));
 
-        SectionWindowChecks(widget, s);
+        SectionWindowChecks(fixture);
         SettingsScreens(s);
     }
 
@@ -283,8 +283,10 @@ internal static class UiChecks
     /// <summary>
     /// Opens every section window, renders it, and checks pinning, restoring at start and dragging a section out of the widget.
     /// </summary>
-    private static void SectionWindowChecks(DashboardForm widget, AppSettings s)
+    private static void SectionWindowChecks(Fixture fixture)
     {
+        var widget = fixture.Widget;
+        var s = fixture.Settings;
         s.Theme = WidgetTheme.Dark;
         widget.ApplySettings(s);
         foreach (var key in SectionWindows.Keys)
@@ -299,11 +301,50 @@ internal static class UiChecks
                 window.DrawToBitmap(bitmap, new Rectangle(Point.Empty, window.Size));
                 bitmap.Save(Path.Combine(Output, "showcase", $"window-{key}.png"), ImageFormat.Png);
             }
+            // Hover after the opening grace period: tooltip windows must not dismiss their panel.
+            Thread.Sleep(450);
+            Application.DoEvents();
+            var panelType = typeof(PopupPanel);
+            var pinPoint = new Point(window.ClientSize.Width - (int)(49 * window.DeviceDpi / 96f),
+                (int)(19 * window.DeviceDpi / 96f));
+            panelType.GetMethod("OnMouseMove", Private)!.Invoke(window,
+                new object[] { new MouseEventArgs(MouseButtons.None, 0, pinPoint.X, pinPoint.Y, 0) });
+            Application.DoEvents();
+            Check(!window.IsDisposed && window.Visible, $"Hovering the {key} pin dismissed the window.");
+            panelType.GetMethod("OnMouseLeave", Private)!.Invoke(window, new object[] { EventArgs.Empty });
+            Application.DoEvents();
+            Check(!window.IsDisposed && window.Visible, $"Leaving the {key} tooltip dismissed the window.");
             SectionWindows.Close(key);
             Application.DoEvents();
             Check(!SectionWindows.IsOpen(key), $"The {key} window did not close.");
         }
-        Console.WriteLine("PASS UI: every section window opens, draws and closes");
+        Console.WriteLine("PASS UI: every section window opens, draws and survives tooltip hover and hide");
+
+        Thread.Sleep(300);
+        SectionWindows.Toggle("price", widget.Bounds);
+        Application.DoEvents();
+        var popup = OpenWindow("price");
+        Thread.Sleep(450);
+        // Widget tooltips also stay passive, including translucent and reused tooltips.
+        var widgetTip = Get<WidgetTip>(widget, "_tip");
+        foreach (var opacity in new[] { .75, 1.0, .75 })
+        {
+            widgetTip.ShowBeside(widget, "Hover text", widget.Top + 20, Palette.Dark, opacity);
+            Application.DoEvents();
+            Check(!popup.IsDisposed, "A widget tooltip dismissed the section window.");
+            widgetTip.HideTip();
+            Application.DoEvents();
+            Check(!popup.IsDisposed, "Hiding a widget tooltip dismissed the section window.");
+        }
+        // The normal outside-click/focus-loss behavior must still work.
+        using (var outside = new Form())
+        {
+            outside.Show();
+            outside.Activate();
+            Application.DoEvents();
+            Check(popup.IsDisposed, "An unpinned window did not close when another window took focus.");
+        }
+        Console.WriteLine("PASS UI: widget tooltips preserve the popup; outside activation still closes it");
 
         // Data that arrives after a window closed (e.g. Proxmox answering late) must not touch the closed window.
         // A window just closed cannot be reopened for 250 ms (the click that closed it must not open it again).
@@ -319,6 +360,7 @@ internal static class UiChecks
         Console.WriteLine("PASS UI: late data does not touch a closed window");
 
         // Pinned windows stay, are remembered and come back at the next start
+        Thread.Sleep(300);
         SectionWindows.Toggle("price", widget.Bounds);
         Application.DoEvents();
         OpenWindow("price").GetType().BaseType!.GetMethod("TogglePin", Private)!.Invoke(OpenWindow("price"), null);
@@ -344,12 +386,41 @@ internal static class UiChecks
         Call(widget, "StartSectionDrag", "system", new Point(16, (int)top + 6));
         Cursor.Position = new Point(widget.Left > 500 ? widget.Left - 300 : widget.Right + 300, widget.Top + 100);
         Check((bool)Call(widget, "UpdateTearOff")!, "Dragging a section out of the widget was not noticed.");
+        var savesBeforeDrop = fixture.SaveCount;
         Call(widget, "DropSectionDrag");
         Application.DoEvents();
         Check(SectionWindows.IsOpen("system") && s.SectionWindows["system"].Pinned, "A section dropped outside did not open a pinned window.");
+        Check(s.SectionWindows["system"].Open && fixture.SaveCount > savesBeforeDrop,
+            "A newly torn-off window was not saved as open immediately.");
         Check(s.SectionOrder!.SequenceEqual(orderBefore), "Dragging a section out changed the order.");
         SectionWindows.CloseAllForShutdown();
         Console.WriteLine("PASS UI: a section dragged out of the widget opens as a pinned window");
+
+        // Tearing off a section whose popup is already open must pin and save that same window.
+        Thread.Sleep(300);
+        SectionWindows.Toggle("network", widget.Bounds);
+        Application.DoEvents();
+        var existing = OpenWindow("network");
+        var savesBefore = fixture.SaveCount;
+        var drop = Screen.FromControl(widget).WorkingArea.Location;
+        SectionWindows.OpenPinnedAt("network", drop);
+        Application.DoEvents();
+        Check(ReferenceEquals(existing, OpenWindow("network")), "Tear-off replaced the existing window.");
+        Check(existing.Pinned && s.SectionWindows["network"].Open, "Tear-off did not pin the existing window.");
+        Check(fixture.SaveCount > savesBefore, "Tear-off did not save the pinned window immediately.");
+        Check(s.SectionWindows["network"].Left == existing.Left && s.SectionWindows["network"].Top == existing.Top,
+            "Tear-off did not remember the existing window's new position.");
+        Check(Screen.FromControl(existing).WorkingArea.Contains(existing.Bounds), "Tear-off placed the window outside the screen.");
+        Thread.Sleep(450);
+        using (var outside = new Form())
+        {
+            outside.Show();
+            outside.Activate();
+            Application.DoEvents();
+            Check(!existing.IsDisposed && existing.Visible, "A pinned window closed on loss of focus.");
+        }
+        SectionWindows.CloseAllForShutdown();
+        Console.WriteLine("PASS UI: tearing off an existing popup pins, positions and saves it; it stays open without focus");
     }
 
     private static PopupPanel OpenWindow(string key)
@@ -426,6 +497,7 @@ internal static class UiChecks
         };
         public DashboardForm Widget { get; }
         public AudioService Audio { get; }
+        public int SaveCount { get; private set; }
 
         public Fixture()
         {
@@ -457,7 +529,7 @@ internal static class UiChecks
             Set(pve, "Guests", new List<PveGuest> { new(100, "Home Assistant", "qemu", "Server", "running", .1, 2, 2L << 30, 4L << 30, TimeSpan.FromDays(3)) });
             var network = new NetworkMonitor();
             Widget = new DashboardForm(price, new SystemMonitor(), network, audio, ha, cf, new ServiceMonitor(), pve,
-                Settings, () => { }, () => "203.0.113.10", () => "ajour", () => Task.CompletedTask, Menu,
+                Settings, () => SaveCount++, () => "203.0.113.10", () => "ajour", () => Task.CompletedTask, Menu,
                 () => (DateTime.Now, null));
         }
         public void Dispose() { Widget.Dispose(); Menu.Dispose(); Http.Dispose(); }

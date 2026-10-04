@@ -194,6 +194,7 @@ internal abstract class PopupPanel : Form
         _shownAt = DateTime.Now;
         Show();
         if (IsDisposed) return; // closed while it was shown
+        if (State.Pinned) _saveSettings();
 
         // Focus is taken only after the click on the widget, otherwise neither Esc nor "close on losing focus" works
         BeginInvoke(new Action(() =>
