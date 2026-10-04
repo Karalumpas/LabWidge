@@ -67,6 +67,9 @@ internal abstract class PopupPanel : Form
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         F = new PanelFonts(DpiScale);
         MinimumSize = new Size((int)U(260), (int)U(140));
+        // The header acts as a title bar; without this a double-click on it would maximize the window
+        MaximizeBox = false;
+        MinimizeBox = false;
         ApplyTopMost();
     }
 
@@ -109,7 +112,9 @@ internal abstract class PopupPanel : Form
     protected void Host(Control control)
     {
         _hosted = control;
-        Padding = new Padding(1, (int)U(HeaderHeight), 1, 1);
+        // The edges stay free, so the window can still be resized around the control
+        var edge = (int)U(Edge);
+        Padding = new Padding(edge, (int)U(HeaderHeight), edge, edge);
         control.Dock = DockStyle.Fill;
         Controls.Add(control);
     }

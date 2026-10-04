@@ -153,7 +153,7 @@ internal sealed class PricePanel : PopupPanel
     private float DrawChart(Graphics g, IReadOnlyList<(DateTime Hour, double Value)> hours, List<double> values, DateTime now, float x, float y, float w)
     {
         var labelW = U(34);
-        var chart = new RectangleF(x + labelW, y + U(4), w - labelW, U(170));
+        var chart = new RectangleF(x + labelW, y + U(20), w - labelW, U(170));
         double lo = Math.Min(0, values.Min()), hi = Math.Max(values.Max(), lo + 1);
         var step = NiceStep((hi - lo) / 4);
         lo = Math.Floor(lo / step) * step;
@@ -161,7 +161,7 @@ internal sealed class PricePanel : PopupPanel
         float Y(double v) => chart.Bottom - (float)((v - lo) / (hi - lo)) * chart.Height;
 
         // Price scale
-        using (var grid = new Pen(Color.FromArgb(P.IsDark ? 60 : 90, P.Line), Math.Max(1f, DpiScale)) { DashStyle = DashStyle.Dot })
+        using (var grid = new Pen(Color.FromArgb(P.IsDark ? 150 : 200, P.Line), Math.Max(1f, DpiScale)) { DashStyle = DashStyle.Dot })
         {
             for (var v = lo; v <= hi + step / 2; v += step)
             {
@@ -187,7 +187,7 @@ internal sealed class PricePanel : PopupPanel
             AddHit(new RectangleF(chart.X + i * slot, chart.Y, slot, chart.Height + U(20)),
                 hour.ToString(L.T("dddd d MMM", "dddd d. MMM"), Fmt) + L.T(" ", " kl. ") + $"{hour:HH}–{hour.AddHours(1):HH}\n{P0(value)} {Unit.PerKwh}  ·  {LevelText(ElectricityPriceService.Level(value, values)).ToLower(Fmt)}");
 
-            if (hour.Hour % 3 == 0)
+            if (hour.Hour % 3 == 0 && !(hour.Hour == 3 && hour.Date > now.Date)) // "tomorrow" needs the room of 03
             {
                 var tomorrow = hour.Hour == 0 && i > 0;
                 DrawText(g, tomorrow ? L.T("tomorrow", "i morgen") : hour.ToString("HH"), F.Tiny, tomorrow ? P.TextSecondary : P.TextDim, chart.X + i * slot, chart.Bottom + U(5));

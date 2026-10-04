@@ -84,7 +84,7 @@ internal sealed class CloudflarePanel : PopupPanel
         var ip = _externalIp();
         var records = _cf.ARecords;
         var managed = _cf.ManagedRecords(Settings);
-        y = Subheading(g, "DNS  ·  A-POSTER", x, y);
+        y = Subheading(g, L.T("DNS  ·  A RECORDS", "DNS  ·  A-POSTER"), x, y);
         if (_cf.DnsError != null)
         {
             y = Wrapped(g, "⚠ " + _cf.DnsError, F.Small, P.Amber, x, y, w);
