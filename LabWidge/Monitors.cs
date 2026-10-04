@@ -29,6 +29,18 @@ internal sealed class History
     public int Capacity => _values.Length;
     public double this[int i] => _values[(_start + i) % _values.Length];
     public double Max() { double m = 0; for (var i = 0; i < Count; i++) m = Math.Max(m, this[i]); return m; }
+
+    /// <summary>The newest values, oldest first – at most <paramref name="n"/>.</summary>
+    public List<double> Tail(int n)
+    {
+        var take = Math.Min(n, Count);
+        var list = new List<double>(take);
+        for (var i = Count - take; i < Count; i++) list.Add(this[i]);
+        return list;
+    }
+
+    /// <summary>Five minutes of one-second samples – the widget shows the last minute, the section windows all of it.</summary>
+    public const int FiveMinutes = 300;
 }
 
 internal sealed record DiskInfo(string Name, string Label, long Used, long Total);
@@ -37,7 +49,9 @@ internal sealed class SystemMonitor
 {
     public string CpuName { get; } = ReadCpuName();
     public double CpuPercent { get; private set; }
-    public History CpuHistory { get; } = new(60);
+    public History CpuHistory { get; } = new(History.FiveMinutes);
+    /// <summary>RAM in use, in percent.</summary>
+    public History RamHistory { get; } = new(History.FiveMinutes);
     public ulong RamUsed { get; private set; }
     public ulong RamTotal { get; private set; }
     public IReadOnlyList<DiskInfo> Disks { get; private set; } = Array.Empty<DiskInfo>();
@@ -67,6 +81,7 @@ internal sealed class SystemMonitor
         {
             RamTotal = mem.ullTotalPhys;
             RamUsed = mem.ullTotalPhys - mem.ullAvailPhys;
+            RamHistory.Add(RamTotal == 0 ? 0 : RamUsed * 100.0 / RamTotal);
         }
 
         Gpu.Sample();
@@ -133,8 +148,10 @@ internal sealed class NetworkMonitor
     public IReadOnlyList<AdapterInfo> Adapters { get; private set; } = Array.Empty<AdapterInfo>();
     public double DownBps { get; private set; }
     public double UpBps { get; private set; }
-    public History DownHistory { get; } = new(60);
-    public History UpHistory { get; } = new(60);
+    public History DownHistory { get; } = new(History.FiveMinutes);
+    public History UpHistory { get; } = new(History.FiveMinutes);
+    /// <summary>Ping every 5 seconds for 10 minutes; -1 when there was no answer.</summary>
+    public History PingHistory { get; } = new(120);
     public long? PingMs { get; private set; }
     public string PingTarget { get; } = "1.1.1.1";
 
@@ -218,6 +235,7 @@ internal sealed class NetworkMonitor
         }
         finally
         {
+            PingHistory.Add(PingMs ?? -1);
             _pinging = false;
         }
     }

@@ -288,6 +288,15 @@ internal sealed partial class DashboardForm
         // the item click. Keep it alive until the next opening or form disposal.
         _sectionMenu?.Dispose();
         var menu = _sectionMenu = new ContextMenuStrip();
+        if (SectionWindows.Supports(key))
+        {
+            menu.Items.Add(new ToolStripMenuItem(L.T("Open in a window", "Åbn i et vindue"), null, (_, _) => SectionWindows.Toggle(key, Bounds))
+            {
+                Font = new Font(menu.Font, FontStyle.Bold),
+                ToolTipText = L.T("You can also drag the section out of the widget", "Du kan også trække sektionen ud af widgetten")
+            });
+            menu.Items.Add(new ToolStripSeparator());
+        }
         foreach (var (label, pin) in new[]
                  {
                      (L.T("Pin to the top", "Fastgør øverst"), SectionPin.Top),

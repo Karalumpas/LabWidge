@@ -12,7 +12,7 @@ internal sealed class GpuMonitor
     public bool Available { get; private set; }
     public string Name { get; private set; } = "GPU";
     public double Percent { get; private set; }
-    public History History { get; } = new(60);
+    public History History { get; } = new(History.FiveMinutes);
     public ulong VramUsed { get; private set; }
     public ulong VramTotal { get; private set; }
     public int? TempC { get; private set; }

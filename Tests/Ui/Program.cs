@@ -132,7 +132,7 @@ internal static class UiChecks
         widget.Dispose();
         Check(previousMenu!.IsDisposed, "Widget disposal leaked its section menu.");
         Console.WriteLine("PASS UI: real section-menu mouse clicks pin, unpin and select summaries without premature disposal");
-        Console.WriteLine("7 UI integration checks passed; previews: " + Output);
+        Console.WriteLine("10 UI integration checks passed; previews: " + Output);
         Showcase();
     }
 
@@ -179,6 +179,25 @@ internal static class UiChecks
         Set(net2, "PingMs", (long?)12);
         Set(net2, "DownBps", 4_200_000.0);
         Set(net2, "UpBps", 650_000.0);
+        for (var i = 0; i < 120; i++) net2.PingHistory.Add(i == 70 ? -1 : 10 + 4 * Math.Abs(Math.Sin(i / 6.0)));
+        for (var i = 0; i < 300; i++)
+        {
+            net2.DownHistory.Add(3_000_000 + 2_500_000 * Math.Abs(Math.Sin(i / 17.0)));
+            net2.UpHistory.Add(400_000 + 300_000 * Math.Abs(Math.Cos(i / 11.0)));
+            sys.RamHistory.Add(40 + 3 * Math.Sin(i / 40.0));
+            sys.Gpu.History.Add(30 + 25 * Math.Abs(Math.Sin(i / 23.0)));
+        }
+        Set(net2, "Adapters", new List<AdapterInfo>
+        {
+            new("Ethernet", "Ethernet", "192.168.1.20", 24, "192.168.1.1", new[] { "192.168.1.1", "1.1.1.1" }, 2_500_000_000, true),
+            new("vEthernet (WSL)", NetworkMonitor.VirtualKind, "172.24.48.1", 20, null, Array.Empty<string>(), 10_000_000_000, false)
+        });
+        Set(fixture.Audio, "Microphones", new List<AudioDevice> { new("mic", "Microphone", "Webcam Microphone", AudioKind.Other, null) });
+        Set(fixture.Audio, "DefaultMicId", "mic");
+        Set(fixture.Audio, "Volumes", new Dictionary<string, VolumeState>
+        {
+            ["speaker"] = new(.45f, false), ["headset"] = new(.7f, false), ["display"] = new(.3f, true), ["mic"] = new(.84f, false)
+        });
 
         var shots = new List<Bitmap>();
         foreach (var theme in new[] { WidgetTheme.Dark, WidgetTheme.Light })
@@ -228,6 +247,73 @@ internal static class UiChecks
         hero.Save(Path.Combine(Output, "showcase", "hero.png"), ImageFormat.Png);
         foreach (var shot in shots) shot.Dispose();
         Console.WriteLine("Showcase screenshots: " + Path.Combine(Output, "showcase"));
+
+        SectionWindowChecks(widget, s);
+    }
+
+    /// <summary>
+    /// Opens every section window, renders it, and checks pinning, restoring at start and dragging a section out of the widget.
+    /// </summary>
+    private static void SectionWindowChecks(DashboardForm widget, AppSettings s)
+    {
+        s.Theme = WidgetTheme.Dark;
+        widget.ApplySettings(s);
+        foreach (var key in SectionWindows.Keys)
+        {
+            SectionWindows.Toggle(key, widget.Bounds);
+            Application.DoEvents();
+            Check(SectionWindows.IsOpen(key), $"The {key} window did not open.");
+            var window = OpenWindow(key);
+            Check(window.Width >= 260 && window.Height >= 140, $"The {key} window has no size.");
+            using (var bitmap = new Bitmap(window.Width, window.Height))
+            {
+                window.DrawToBitmap(bitmap, new Rectangle(Point.Empty, window.Size));
+                bitmap.Save(Path.Combine(Output, "showcase", $"window-{key}.png"), ImageFormat.Png);
+            }
+            SectionWindows.Close(key);
+            Application.DoEvents();
+            Check(!SectionWindows.IsOpen(key), $"The {key} window did not close.");
+        }
+        Console.WriteLine("PASS UI: every section window opens, draws and closes");
+
+        // Pinned windows stay, are remembered and come back at the next start
+        SectionWindows.Toggle("price", widget.Bounds);
+        Application.DoEvents();
+        OpenWindow("price").GetType().BaseType!.GetMethod("TogglePin", Private)!.Invoke(OpenWindow("price"), null);
+        Check(s.SectionWindows["price"].Pinned && s.SectionWindows["price"].Open, "Pinning did not remember the window.");
+        SectionWindows.CloseAllForShutdown();
+        Application.DoEvents();
+        Check(s.SectionWindows["price"].Open, "A pinned window forgot that it was open at exit.");
+        SectionWindows.RestorePinned(s);
+        Application.DoEvents();
+        Check(SectionWindows.IsOpen("price"), "A pinned window was not restored at start.");
+        SectionWindows.Close("price");
+        Application.DoEvents();
+        Check(!s.SectionWindows["price"].Open, "Closing a pinned window did not forget it.");
+        Console.WriteLine("PASS UI: pinned windows are remembered, restored and forgotten when closed");
+
+        // A section dragged out of the widget becomes a pinned window; the order is unchanged
+        s.SectionWindows.Clear();
+        Call(widget, "FitSize");
+        var orderBefore = s.SectionOrder!.ToArray();
+        var bounds = Get<IEnumerable>(widget, "_sectionBounds").Cast<object>()
+            .First(b => (string)b.GetType().GetProperty("Key")!.GetValue(b)! == "system");
+        var top = (float)bounds.GetType().GetProperty("Top")!.GetValue(bounds)!;
+        Call(widget, "StartSectionDrag", "system", new Point(16, (int)top + 6));
+        Cursor.Position = new Point(widget.Left > 500 ? widget.Left - 300 : widget.Right + 300, widget.Top + 100);
+        Check((bool)Call(widget, "UpdateTearOff")!, "Dragging a section out of the widget was not noticed.");
+        Call(widget, "DropSectionDrag");
+        Application.DoEvents();
+        Check(SectionWindows.IsOpen("system") && s.SectionWindows["system"].Pinned, "A section dropped outside did not open a pinned window.");
+        Check(s.SectionOrder!.SequenceEqual(orderBefore), "Dragging a section out changed the order.");
+        SectionWindows.CloseAllForShutdown();
+        Console.WriteLine("PASS UI: a section dragged out of the widget opens as a pinned window");
+    }
+
+    private static PopupPanel OpenWindow(string key)
+    {
+        var open = (IDictionary)typeof(SectionWindows).GetField("Open", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        return (PopupPanel)open[key]!;
     }
 
     private static System.Drawing.Drawing2D.GraphicsPath Rounded(Rectangle r, int radius)
@@ -297,6 +383,7 @@ internal static class UiChecks
             AudioDeviceIds = new[] { "speaker", "headset", "display" }, PriceShowTotal = false
         };
         public DashboardForm Widget { get; }
+        public AudioService Audio { get; }
 
         public Fixture()
         {
@@ -304,7 +391,7 @@ internal static class UiChecks
             Set(price, "Prices", Enumerable.Range(0, 192).Select(i => new PricePoint(DateTime.Today.AddMinutes(i * 15), 65 + 35 * Math.Sin(i / 8.0))).ToList());
             Set(price, "LastFetch", DateTime.Now);
             Set(price, "LastSuccessfulFetch", DateTime.Now);
-            var audio = new AudioService();
+            var audio = Audio = new AudioService();
             Set(audio, "Devices", new List<AudioDevice>
             {
                 new("speaker", "Speakers", "Speakers", AudioKind.Speakers, null),

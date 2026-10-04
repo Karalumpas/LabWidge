@@ -10,51 +10,18 @@ internal sealed class ProxmoxPanel : PopupPanel
 {
     private static CultureInfo Fmt => L.Culture;
 
-    private static ProxmoxPanel? _open;
-    private static DateTime _closedAt = DateTime.MinValue;
-
     private readonly ProxmoxService _pve;
-    private readonly AppSettings _settings;
     private readonly ContextMenuStrip _menu = new();
 
-    public static bool IsOpen => _open is { IsDisposed: false, Visible: true };
-
-    public static void Toggle(ProxmoxService pve, AppSettings settings, Rectangle near)
-    {
-        if (IsOpen)
-        {
-            _open!.Close();
-            return;
-        }
-        if ((DateTime.Now - _closedAt).TotalMilliseconds < 250) return;
-
-        var panel = new ProxmoxPanel(pve, settings);
-        _open = panel;
-        panel.ShowNear(near);
-        _ = pve.RefreshAsync(settings);
-    }
-
-    public static void CloseIfOpen()
-    {
-        if (IsOpen) _open!.Close();
-    }
-
-    private ProxmoxPanel(ProxmoxService pve, AppSettings settings) : base("Proxmox", settings, 380)
+    public ProxmoxPanel(ProxmoxService pve, AppSettings settings, Action saveSettings)
+        : base("proxmox", "", "PROXMOX", settings, saveSettings, 380)
     {
         _pve = pve;
-        _settings = settings;
         _pve.Updated += OnDataUpdated;
         _menu.Closed += (_, _) => KeepOpen = false;
     }
 
     private void OnDataUpdated() => RequestRedraw();
-
-    protected override void OnFormClosed(FormClosedEventArgs e)
-    {
-        _closedAt = DateTime.Now;
-        if (ReferenceEquals(_open, this)) _open = null;
-        base.OnFormClosed(e);
-    }
 
     protected override void Dispose(bool disposing)
     {
@@ -116,17 +83,18 @@ internal sealed class ProxmoxPanel : PopupPanel
         foreach (var delay in new[] { 3, 8, 15, 30 })
         {
             await Task.Delay(TimeSpan.FromSeconds(delay));
-            await _pve.RefreshAsync(_settings);
+            await _pve.RefreshAsync(Settings);
             if (_pve.PendingAction(guest.VmId) == null) break;
         }
     }
 
     // ---------- Drawing ----------
 
+    protected override string HeaderStatus =>
+        _pve.LastFetch == DateTime.MinValue ? L.T("fetching…", "henter…") : L.T("updated ", "opdateret ") + _pve.LastFetch.ToString("HH:mm:ss");
+
     protected override float RenderContent(Graphics g, float x, float y, float w)
     {
-        var updated = _pve.LastFetch == DateTime.MinValue ? L.T("fetching…", "henter…") : L.T("updated ", "opdateret ") + _pve.LastFetch.ToString("HH:mm:ss");
-        y = Header(g, "", "PROXMOX", updated, x, y, w);
 
         if (_pve.LastError != null)
         {

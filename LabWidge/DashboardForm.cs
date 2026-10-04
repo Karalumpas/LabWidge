@@ -95,11 +95,11 @@ internal sealed partial class DashboardForm : Form
         _timer = new System.Windows.Forms.Timer { Interval = 1000 };
         _timer.Tick += (_, _) =>
         {
-            if (Visible)
+            if (Visible || SectionWindows.AnyOpen("system", "network"))
             {
                 _sys.Sample();
                 _net.Sample();
-                Invalidate();
+                if (Visible) Invalidate();
             }
             else if (++_hiddenTicks % 10 == 0)
             {
@@ -109,6 +109,8 @@ internal sealed partial class DashboardForm : Form
         _timer.Start();
 
         _dragTimer.Tick += (_, _) => OnDragTick();
+        SectionWindows.Settings = _settings;
+        SectionWindows.Factory = CreateWindow;
         _el.Updated += OnDataUpdated;
         _ha.Updated += OnDataUpdated;
         _cf.Updated += OnDataUpdated;
@@ -123,6 +125,8 @@ internal sealed partial class DashboardForm : Form
     public void ApplySettings(AppSettings settings)
     {
         _settings = settings;
+        SectionWindows.Settings = settings;
+        SectionWindows.ApplySettings(settings);
         _p = Palette.For(settings.Theme);
         BackColor = _p.Bg;
         TopMost = settings.WidgetTopMost;
@@ -255,6 +259,7 @@ internal sealed partial class DashboardForm : Form
             _timer.Dispose();
             _dragTimer.Dispose();
             _drag?.Snapshot.Dispose();
+            _ghost?.Dispose();
             _tip.Dispose();
             _sectionMenu?.Dispose();
             _f.Dispose();
@@ -328,6 +333,7 @@ internal sealed partial class DashboardForm : Form
 
         if (_drag != null)
         {
+            if (UpdateTearOff()) return;
             // When the card is dragged towards the edge of a scrolled widget, the content follows
             if (PinOf(_drag.Key) == SectionPin.None)
             {
@@ -990,7 +996,7 @@ internal sealed partial class DashboardForm : Form
         y += U(22);
 
         var chart = new RectangleF(x, y, w, U(30));
-        var max = Math.Max(Math.Max(_net.DownHistory.Max(), _net.UpHistory.Max()), 200_000);
+        var max = Math.Max(Math.Max(_net.DownHistory.Tail(60).DefaultIfEmpty().Max(), _net.UpHistory.Tail(60).DefaultIfEmpty().Max()), 200_000);
         using (var pen = new Pen(_p.Line, Math.Max(1f, DpiScale)))
         {
             g.DrawLine(pen, chart.Left, chart.Bottom, chart.Right, chart.Bottom);
@@ -1013,7 +1019,7 @@ internal sealed partial class DashboardForm : Form
     private string AudioName(AudioDevice d) =>
         _settings.AudioNames.TryGetValue(d.Id, out var name) && !string.IsNullOrWhiteSpace(name) ? name : d.Name;
 
-    private static string AudioGlyph(AudioKind kind) => kind switch
+    internal static string AudioGlyph(AudioKind kind) => kind switch
     {
         AudioKind.Headphones => "",
         AudioKind.Headset => "",
@@ -1269,7 +1275,7 @@ internal sealed partial class DashboardForm : Form
             ? L.T("Click to open your Home Assistant dashboard", "Klik for at åbne dit Home Assistant-dashboard")
             : L.T($"Click to open the panel with your {entities.Count} entities", $"Klik for at åbne panelet med dine {entities.Count} enheder");
         var next = Header(g, "", "HOME ASSISTANT", right, rightColor, x, y, w, true,
-            () => HomeAssistantPanel.Toggle(_ha, _settings, _saveSettings, Bounds));
+            () => SectionWindows.Toggle("ha", Bounds));
         _hits[^1] = _hits[^1] with { Tip = tip + "\n" + _hits[^1].Tip };
         return next - U(6);
     }
@@ -1319,7 +1325,7 @@ internal sealed partial class DashboardForm : Form
                    s.CollapsedCloudflare, () => ToggleCollapsed(() => s.CollapsedCloudflare, v => s.CollapsedCloudflare = v));
         if (s.CollapsedCloudflare) return y - U(6);
 
-        Action openPanel = () => CloudflarePanel.Toggle(_cf, _services, s, _saveSettings, _externalIp, Bounds);
+        Action openPanel = () => SectionWindows.Toggle("cloudflare", Bounds);
 
         foreach (var t in tunnels)
         {
@@ -1454,7 +1460,7 @@ internal sealed partial class DashboardForm : Form
                    s.CollapsedProxmox, () => ToggleCollapsed(() => s.CollapsedProxmox, v => s.CollapsedProxmox = v));
         if (s.CollapsedProxmox) return y - U(6);
 
-        Action openPanel = () => ProxmoxPanel.Toggle(_pve, s, Bounds);
+        Action openPanel = () => SectionWindows.Toggle("proxmox", Bounds);
         var labelW = U(46);
         var valueW = U(112);
 
@@ -1561,10 +1567,21 @@ internal sealed partial class DashboardForm : Form
         var titleWidth = Math.Min(Measure(g, title, _f.SmallBold).Width, w * 0.53f - U(50));
         DrawText(g, Fit(g, title, _f.SmallBold, Math.Max(U(28), titleWidth)), _f.SmallBold, _p.TextSecondary, x + U(50), y);
         DrawText(g, collapsed ? "" : "", _f.IconSmall, _p.TextDim, x + w - U(10), y + U(3));
+        var hovered = rect.Contains(_mouse) && _drag == null && key != null && SectionWindows.Supports(key);
+        var rightW = 0f;
         if (right != null)
         {
-            DrawText(g, Fit(g, right, _f.Small, Math.Max(U(25), w - U(74) - titleWidth)), _f.Small,
+            rightW = DrawText(g, Fit(g, right, _f.Small, Math.Max(U(25), w - U(74) - titleWidth - (hovered ? U(24) : 0))), _f.Small,
                 rightColor ?? _p.TextDim, x + w - U(18), y, right: true);
+        }
+        if (hovered)
+        {
+            var icon = new RectangleF(x + w - U(18) - rightW - U(26), y - U(3), U(22), U(21));
+            var over = icon.Contains(_mouse);
+            if (over) FillRound(g, icon, _p.Track, U(4));
+            DrawText(g, "\uE8A7", _f.IconSmall, over ? _p.TextPrimary : _p.TextSecondary, icon.X + U(6), icon.Y + U(5));
+            _hits.Add(new Hit(icon, L.T("Open in a window – or drag the section out of the widget", "Åbn i et vindue – eller træk sektionen ud af widgetten"),
+                () => SectionWindows.Toggle(key!, Bounds)));
         }
         return y + U(24);
     }
@@ -1632,13 +1649,15 @@ internal sealed partial class DashboardForm : Form
 
     private void DrawSparkline(Graphics g, RectangleF r, History h, double max, Color c, bool fill)
     {
-        if (h.Count < 2 || max <= 0) return;
-        var step = r.Width / (h.Capacity - 1);
-        var offset = (h.Capacity - h.Count) * step;
-        var pts = new PointF[h.Count];
-        for (var i = 0; i < h.Count; i++)
+        const int Shown = 60; // the last minute
+        var values = h.Tail(Shown);
+        if (values.Count < 2 || max <= 0) return;
+        var step = r.Width / (Shown - 1);
+        var offset = (Shown - values.Count) * step;
+        var pts = new PointF[values.Count];
+        for (var i = 0; i < values.Count; i++)
         {
-            var v = Math.Min(h[i], max) / max;
+            var v = Math.Min(values[i], max) / max;
             pts[i] = new PointF(r.X + offset + i * step, r.Bottom - (float)v * r.Height);
         }
 

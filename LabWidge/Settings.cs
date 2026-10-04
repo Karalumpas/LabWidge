@@ -8,6 +8,20 @@ internal enum WidgetTheme { System, Light, Dark }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum SectionPin { None, Top, Bottom }
 
+/// <summary>Where a section window was and whether it is pinned. Stored per section in the settings.</summary>
+internal sealed class SectionWindowState
+{
+    /// <summary>Pinned: stays open when you click elsewhere, and opens again when LabWidge starts.</summary>
+    public bool Pinned { get; set; }
+    /// <summary>Was open when LabWidge closed (only used for pinned windows).</summary>
+    public bool Open { get; set; }
+    public int? Left { get; set; }
+    public int? Top { get; set; }
+    /// <summary>Size in pixels chosen by dragging an edge; null follows the content.</summary>
+    public int? Width { get; set; }
+    public int? Height { get; set; }
+}
+
 /// <summary>
 /// Everything the user can set. The property names are the keys in settings.json and must not be renamed,
 /// or existing users lose those settings when they update.
@@ -73,6 +87,8 @@ internal sealed class AppSettings
     /// <summary>The side each section was last pinned to – a click on the pin uses it again.</summary>
     public Dictionary<string, SectionPin> SectionLastPins { get; set; } = new();
     public string[] SectionPinSummaries { get; set; } = Array.Empty<string>();
+    /// <summary>Pin, position and size of each section's window (key = section, e.g. "price").</summary>
+    public Dictionary<string, SectionWindowState> SectionWindows { get; set; } = new();
 
     // Audio
     public bool ShowAudio { get; set; } = true;
@@ -244,6 +260,7 @@ internal static class SettingsStore
             loaded.Country ??= "DK"; // settings from before countries were supported
             loaded.SectionPins ??= new();
             loaded.SectionLastPins ??= new();
+            loaded.SectionWindows ??= new();
             loaded.SectionPinSummaries ??= Array.Empty<string>();
 
             settings = loaded;

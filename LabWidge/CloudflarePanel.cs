@@ -11,47 +11,16 @@ internal sealed class CloudflarePanel : PopupPanel
     private const int MaxRecords = 15;
     private static CultureInfo Fmt => L.Culture;
 
-    private static CloudflarePanel? _open;
-    private static DateTime _closedAt = DateTime.MinValue;
-
     private readonly CloudflareService _cf;
     private readonly ServiceMonitor _services;
-    private readonly AppSettings _settings;
     private readonly Action _saveSettings;
     private readonly Func<string?> _externalIp;
 
-    public static bool IsOpen => _open is { IsDisposed: false, Visible: true };
-
-    /// <summary>Opens the panel next to the widget – or closes it if it is already showing.</summary>
-    public static void Toggle(CloudflareService cf, ServiceMonitor services, AppSettings settings, Action saveSettings,
-                              Func<string?> externalIp, Rectangle near)
-    {
-        if (IsOpen)
-        {
-            _open!.Close();
-            return;
-        }
-
-        // The click on the widget first closes the panel (focus is lost); the same click must not open it again
-        if ((DateTime.Now - _closedAt).TotalMilliseconds < 250) return;
-
-        var panel = new CloudflarePanel(cf, services, settings, saveSettings, externalIp);
-        _open = panel;
-        panel.ShowNear(near);
-        _ = cf.RefreshAsync(settings);
-    }
-
-    public static void CloseIfOpen()
-    {
-        if (IsOpen) _open!.Close();
-    }
-
-    private CloudflarePanel(CloudflareService cf, ServiceMonitor services, AppSettings settings, Action saveSettings, Func<string?> externalIp)
-        : base("Cloudflare", settings, 400)
+    public CloudflarePanel(CloudflareService cf, ServiceMonitor services, AppSettings settings, Action saveSettings, Func<string?> externalIp)
+        : base("cloudflare", "", "CLOUDFLARE", settings, saveSettings, 400)
     {
         _cf = cf;
         _services = services;
-        _settings = settings;
         _saveSettings = saveSettings;
         _externalIp = externalIp;
         _cf.Updated += OnDataUpdated;
@@ -59,13 +28,6 @@ internal sealed class CloudflarePanel : PopupPanel
     }
 
     private void OnDataUpdated() => RequestRedraw();
-
-    protected override void OnFormClosed(FormClosedEventArgs e)
-    {
-        _closedAt = DateTime.Now;
-        if (ReferenceEquals(_open, this)) _open = null;
-        base.OnFormClosed(e);
-    }
 
     protected override void Dispose(bool disposing)
     {
@@ -80,17 +42,19 @@ internal sealed class CloudflarePanel : PopupPanel
     /// <summary>Right-clicking an address turns its check off or on again.</summary>
     private void ToggleIgnored(string host)
     {
-        var ignored = _settings.IgnoredServices.ToList();
+        var ignored = Settings.IgnoredServices.ToList();
         if (ignored.RemoveAll(h => h.Equals(host, StringComparison.OrdinalIgnoreCase)) == 0) ignored.Add(host);
-        _settings.IgnoredServices = ignored.OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToArray();
+        Settings.IgnoredServices = ignored.OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToArray();
         _saveSettings();
         Invalidate();
     }
 
+    protected override string HeaderStatus =>
+        (_cf.ZoneName != null ? _cf.ZoneName + "  ·  " : "")
+        + (_cf.LastFetch == DateTime.MinValue ? L.T("fetching…", "henter…") : L.T("updated ", "opdateret ") + _cf.LastFetch.ToString("HH:mm"));
+
     protected override float RenderContent(Graphics g, float x, float y, float w)
     {
-        var updated = _cf.LastFetch == DateTime.MinValue ? L.T("fetching…", "henter…") : L.T("updated ", "opdateret ") + _cf.LastFetch.ToString("HH:mm");
-        y = Header(g, "", "CLOUDFLARE", (_cf.ZoneName != null ? _cf.ZoneName + "  ·  " : "") + updated, x, y, w);
 
         // Tunnels
         y = Subheading(g, "TUNNELS", x, y);
@@ -109,7 +73,7 @@ internal sealed class CloudflarePanel : PopupPanel
         {
             y = Wrapped(g, "⚠ " + _cf.TunnelError, F.Small, P.Amber, x, y, w);
         }
-        if (_settings.ServiceChecksEnabled && _cf.Tunnels.Any(t => t.Routes.Count > 0))
+        if (Settings.ServiceChecksEnabled && _cf.Tunnels.Any(t => t.Routes.Count > 0))
         {
             y = Wrapped(g, L.T("The dot shows whether the address responds. Right-click to turn the check off or on.", "Prikken viser om adressen svarer. Højreklik for at slå tjekket fra eller til."), F.Tiny, P.TextDim, x, y, w);
         }
@@ -119,7 +83,7 @@ internal sealed class CloudflarePanel : PopupPanel
         // DNS
         var ip = _externalIp();
         var records = _cf.ARecords;
-        var managed = _cf.ManagedRecords(_settings);
+        var managed = _cf.ManagedRecords(Settings);
         y = Subheading(g, "DNS  ·  A-POSTER", x, y);
         if (_cf.DnsError != null)
         {
@@ -193,9 +157,9 @@ internal sealed class CloudflarePanel : PopupPanel
             if (hovered) FillRound(g, row, P.HoverBg, U(5));
 
             var checkable = r.Service == null || r.Service.StartsWith("http", StringComparison.OrdinalIgnoreCase);
-            var ignored = _settings.IgnoredServices.Contains(r.Hostname, StringComparer.OrdinalIgnoreCase);
+            var ignored = Settings.IgnoredServices.Contains(r.Hostname, StringComparer.OrdinalIgnoreCase);
             var status = checkable && !ignored ? _services.Get(r.Hostname) : null;
-            if (_settings.ServiceChecksEnabled && checkable)
+            if (Settings.ServiceChecksEnabled && checkable)
             {
                 var dot = ignored || status == null ? P.Track : status.IsDown ? P.Red : status.Responded ? P.Green : P.Amber;
                 Dot(g, dot, x + U(18), y + U(6), 6);
@@ -212,13 +176,13 @@ internal sealed class CloudflarePanel : PopupPanel
 
             var url = "https://" + r.Hostname;
             var tip = (r.Service != null ? $"{r.Hostname} → {r.Service}\n" : $"{r.Hostname}\n")
-                      + (!_settings.ServiceChecksEnabled || !checkable ? ""
+                      + (!Settings.ServiceChecksEnabled || !checkable ? ""
                          : ignored ? L.T("Not checked (right-click to check again)\n", "Tjekkes ikke (højreklik for at tjekke igen)\n")
                          : status == null ? L.T("Not checked yet\n", "Ikke tjekket endnu\n")
                          : $"{status.Describe()} (" + L.T("", "kl. ") + $"{status.Checked:HH:mm})\n")
                       + L.T("Click to open ", "Klik for at åbne ") + url;
             var host = r.Hostname;
-            AddHit(row, tip, () => Open(url), _settings.ServiceChecksEnabled && checkable ? () => ToggleIgnored(host) : null);
+            AddHit(row, tip, () => Open(url), Settings.ServiceChecksEnabled && checkable ? () => ToggleIgnored(host) : null);
             y += U(21);
         }
         return y + U(6);
