@@ -43,6 +43,12 @@ jobs:
       - name: Regression tests
         run: dotnet run --project Tests/LabWidge.Tests.csproj
 
+      - name: Signing pipeline guard tests
+        run: |
+          dotnet publish LabWidge/LabWidge.csproj -c Release -o dist/signing-check --nologo -v q
+          if ($LASTEXITCODE -ne 0) { throw 'Building signing test inputs failed' }
+          ./Tests/SigningPipeline.ps1 -AppDirectory dist/signing-check
+
       - name: Price Worker tests
         working-directory: worker
         run: node --test

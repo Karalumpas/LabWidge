@@ -25,6 +25,8 @@
     Not single-file: Windows Smart App Control blocks an unsigned single-file exe, but allows the small apphost.
   -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!-- SignPath enforces the exact product version across app and installer. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
