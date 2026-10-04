@@ -37,6 +37,12 @@ namespace LabWidgeSetup
                 AppInstaller.Launch(runSetupGuide: false);
                 return true;
             }
+            catch (AppBlockedException)
+            {
+                // The working version was not touched: start it again quietly – the next update check tries again
+                try { AppInstaller.Launch(runSetupGuide: false); } catch { /* blocked too – nothing more to do silently */ }
+                return true;
+            }
             catch
             {
                 return false;

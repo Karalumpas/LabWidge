@@ -20,6 +20,10 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // The installer starts the new version with --probe before it replaces the old one,
+        // to find out whether Windows (Smart App Control) allows it to run
+        if (args.Length == 1 && args[0] == "--probe") return;
+
         if (args.Length == 2 && args[0] == "--write-icon")
         {
             WidgetIcon.WriteIco(args[1]);

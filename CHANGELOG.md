@@ -2,6 +2,10 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.15.2
+- Updates are now checked before they are installed: if Windows (Smart App Control) refuses to run the new version, your current version is kept instead of being replaced
+- The installer shows a clear message instead of an error dialog when Windows blocks LabWidge
+
 ## 1.15.1
 - The electricity price header now shows the full price area (e.g. "DK1" or "SE3") instead of cutting it off
 
