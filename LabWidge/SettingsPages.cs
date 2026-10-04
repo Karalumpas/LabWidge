@@ -1340,7 +1340,7 @@ internal sealed class HomeAssistantPage : SettingsPage
         {
             _showInWidget,
             Ui.Row(L.T("Update interval", "Opdateringsinterval"), _interval, Ui.Inline(L.T("seconds (while shown)", "sekunder (mens den vises)"))),
-            Ui.Row("Adresse", _url),
+            Ui.Row(L.T("Address", "Adresse"), _url),
             Ui.Help(L.T("E.g. http://192.168.0.10:8123 or https://home.example.com – the address you open Home Assistant on yourself.",
                         "Fx http://192.168.0.10:8123 eller https://hjem.eksempel.dk – den adresse du selv åbner Home Assistant på."), 440),
             Ui.Row(L.T("Access token", "Adgangstoken"), _token),

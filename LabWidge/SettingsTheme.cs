@@ -123,16 +123,23 @@ internal static class SettingsTheme
 
     public static void Apply(Control root, Palette p)
     {
-        foreach (Control c in root.Controls) Style(c, p);
+        foreach (Control c in root.Controls) Style(c, p, Ui.ContentWidth);
     }
 
-    private static void Style(Control c, Palette p)
+    private static readonly HashSet<ComboBox> OwnerDrawn = new();
+
+    /// <param name="room">The width a switch can fill here: the card's inner width, less any indent of the groups it sits in.</param>
+    private static void Style(Control c, Palette p, int room)
     {
         switch (c)
         {
             case Card:
                 c.BackColor = CardColor(p);
                 c.ForeColor = p.TextPrimary;
+                room = Ui.ContentWidth;
+                break;
+            case ToggleSwitch toggle:
+                toggle.Width = Math.Min(toggle.Width, Math.Max(160, room - toggle.Margin.Horizontal)); // only shrinks: a switch in a row keeps its own width
                 break;
             case TextBox t:
                 t.BorderStyle = BorderStyle.FixedSingle;
@@ -143,6 +150,22 @@ internal static class SettingsTheme
                 cb.FlatStyle = FlatStyle.Flat;
                 cb.BackColor = p.IsDark ? Color.FromArgb(34, 40, 50) : Color.White;
                 cb.ForeColor = p.TextPrimary;
+                // A drop-down list ignores its colours; drawing the items ourselves gives the theme's colours
+                if (cb.DropDownStyle == ComboBoxStyle.DropDownList && OwnerDrawn.Add(cb))
+                {
+                    cb.DrawMode = DrawMode.OwnerDrawFixed;
+                    cb.DrawItem += (_, e) =>
+                    {
+                        var pal = Ui.Palette;
+                        var selected = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
+                        using (var bg = new SolidBrush(selected ? Color.FromArgb(pal.IsDark ? 70 : 40, pal.Blue) : cb.BackColor))
+                            e.Graphics.FillRectangle(bg, e.Bounds);
+                        if (e.Index >= 0)
+                            TextRenderer.DrawText(e.Graphics, cb.GetItemText(cb.Items[e.Index]), cb.Font, e.Bounds, cb.Enabled ? pal.TextPrimary : pal.TextDim,
+                                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                    };
+                    cb.Disposed += (_, _) => OwnerDrawn.Remove(cb);
+                }
                 break;
             case NumericUpDown n:
                 n.BorderStyle = BorderStyle.FixedSingle;
@@ -185,10 +208,14 @@ internal static class SettingsTheme
                 grid.DefaultCellStyle.SelectionForeColor = p.TextPrimary;
                 grid.ColumnHeadersDefaultCellStyle.BackColor = p.IsDark ? Color.FromArgb(38, 45, 56) : Color.FromArgb(246, 248, 250);
                 grid.ColumnHeadersDefaultCellStyle.ForeColor = p.TextSecondary;
+                grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = grid.ColumnHeadersDefaultCellStyle.BackColor;
+                grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = p.TextSecondary;
                 grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
                 break;
         }
-        foreach (Control child in c.Controls) Style(child, p);
+        // Groups inside a card (e.g. settings that only apply when a feature is on) are indented
+        var inner = c is Card ? room : room - c.Margin.Left - c.Padding.Horizontal;
+        foreach (Control child in c.Controls) Style(child, p, c is FlowLayoutPanel or Panel ? inner : room);
     }
 
     /// <summary>A dark title bar for a dark window (Windows 10 2004 and newer).</summary>

@@ -74,7 +74,7 @@ internal sealed class SettingsWindow : Form
         var save = new Button { Text = L.T("Save", "Gem"), Width = 104, Height = 32, Tag = "accent" };
         var cancel = new Button { Text = L.T("Cancel", "Annuller"), Width = 104, Height = 32, DialogResult = DialogResult.Cancel, Margin = new Padding(0, 0, 8, 0) };
         buttons.Controls.AddRange(new Control[] { save, cancel });
-        var wizard = new LinkLabel { Text = L.T("Run the setup guide again", "Kør opsætningsguiden igen"), AutoSize = true, Location = new Point(250, 20), BackColor = Color.Transparent };
+        var wizard = new LinkLabel { Text = L.T("Run the setup guide again", "Kør opsætningsguiden igen"), AutoSize = true, Location = new Point(20, 20), BackColor = Color.Transparent };
         bottom.Controls.Add(buttons);
         bottom.Controls.Add(wizard);
 
