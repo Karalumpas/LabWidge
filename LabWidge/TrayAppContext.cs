@@ -185,7 +185,8 @@ internal sealed class TrayAppContext : ApplicationContext
         _priceTimer.Start();
 
         // Home Assistant is polled often, so a light switched on elsewhere shows up quickly
-        _homeAssistantTimer = new System.Windows.Forms.Timer { Interval = 15_000 };
+        _network.PingTarget = _settings.PingTarget;
+        _homeAssistantTimer = new System.Windows.Forms.Timer { Interval = Math.Clamp(_settings.HomeAssistantRefreshSeconds, 5, 600) * 1000 };
         _homeAssistantTimer.Tick += async (_, _) =>
         {
             var inView = _dashboard.Visible || SectionWindows.IsOpen("ha");
@@ -197,7 +198,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _homeAssistantTimer.Start();
 
         // Tunnels are checked even while the widget is hidden, so an outage is reported
-        _cloudflareTimer = new System.Windows.Forms.Timer { Interval = 120_000 };
+        _cloudflareTimer = new System.Windows.Forms.Timer { Interval = Math.Clamp(_settings.CloudflareRefreshMinutes, 1, 60) * 60_000 };
         _cloudflareTimer.Tick += async (_, _) =>
         {
             if (_settings.HasCloudflare) await _cloudflare.RefreshAsync(_settings);
@@ -210,7 +211,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _serviceTimer.Start();
 
         // Proxmox is only fetched while it can be seen – one call every 15 seconds
-        _proxmoxTimer = new System.Windows.Forms.Timer { Interval = 15_000 };
+        _proxmoxTimer = new System.Windows.Forms.Timer { Interval = Math.Clamp(_settings.ProxmoxRefreshSeconds, 5, 600) * 1000 };
         _proxmoxTimer.Tick += async (_, _) =>
         {
             if (_settings.HasProxmox && ((_dashboard.Visible && _settings.ShowProxmox) || SectionWindows.IsOpen("proxmox")))
@@ -264,7 +265,7 @@ internal sealed class TrayAppContext : ApplicationContext
         {
             if (_settings.WidgetVisible) _dashboard.ShowWidget();
             // Windows pinned on the desktop open where they were when LabWidge closed
-            SectionWindows.RestorePinned(_settings);
+            if (_settings.RestorePinnedWindows) SectionWindows.RestorePinned(_settings);
             if (isUpdate) RunLater(TimeSpan.FromSeconds(5), ShowWhatsNewToast);
         }
         else
@@ -506,13 +507,24 @@ internal sealed class TrayAppContext : ApplicationContext
     private void ApplyNewSettings(AppSettings updated)
     {
         var old = _settings;
-        // The settings window does not edit the section windows; keep what they changed while it was open
+        // The settings window does not edit the section windows; keep what they changed while it was open,
+        // except the windows the user chose to forget
         updated.SectionWindows = old.SectionWindows;
+        foreach (var key in updated.ForgetWindows)
+        {
+            SectionWindows.Close(key);
+            updated.SectionWindows.Remove(key);
+        }
+        updated.ForgetWindows = Array.Empty<string>();
         _settings = updated;
         SettingsStore.Save(_settings);
 
         _dashboard.ApplySettings(_settings);
         StartupRegistration.Apply(_settings.StartWithWindows);
+        _network.PingTarget = _settings.PingTarget;
+        _homeAssistantTimer.Interval = Math.Clamp(_settings.HomeAssistantRefreshSeconds, 5, 600) * 1000;
+        _proxmoxTimer.Interval = Math.Clamp(_settings.ProxmoxRefreshSeconds, 5, 600) * 1000;
+        _cloudflareTimer.Interval = Math.Clamp(_settings.CloudflareRefreshMinutes, 1, 60) * 60_000;
 
         var priceChanged = old.Country != updated.Country || old.PriceArea != updated.PriceArea
                            || old.NetTariffOwner != updated.NetTariffOwner

@@ -12,6 +12,8 @@ internal sealed class History
 
     public History(int capacity) => _values = new double[capacity];
 
+    public void Clear() { _start = 0; Count = 0; }
+
     public void Add(double v)
     {
         if (Count < _values.Length)
@@ -153,7 +155,20 @@ internal sealed class NetworkMonitor
     /// <summary>Ping every 5 seconds for 10 minutes; -1 when there was no answer.</summary>
     public History PingHistory { get; } = new(120);
     public long? PingMs { get; private set; }
-    public string PingTarget { get; } = "1.1.1.1";
+    /// <summary>The host the latency is measured against; set from the settings.</summary>
+    public string PingTarget
+    {
+        get => _pingTarget;
+        set
+        {
+            var target = string.IsNullOrWhiteSpace(value) ? "1.1.1.1" : value.Trim();
+            if (target == _pingTarget) return;
+            _pingTarget = target;
+            PingHistory.Clear(); // the old numbers belong to another host
+            _lastPing = DateTime.MinValue;
+        }
+    }
+    private string _pingTarget = "1.1.1.1";
 
     private long _prevRx, _prevTx;
     private DateTime _prevSample = DateTime.MinValue;

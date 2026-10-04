@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.Net.Http;
@@ -6,11 +7,14 @@ using System.Windows.Forms;
 /// <summary>Shared building blocks for the settings and the setup guide.</summary>
 internal static class Ui
 {
-    public static readonly Color Accent = Color.FromArgb(9, 105, 218);
-    public static readonly Color Muted = Color.FromArgb(96, 104, 112);
-    public static readonly Color Ok = Color.FromArgb(26, 127, 55);
-    public static readonly Color Warn = Color.FromArgb(176, 100, 0);
-    public static readonly Color Error = Color.FromArgb(207, 34, 46);
+    /// <summary>The theme of the settings window being built – set before its pages are created.</summary>
+    public static Palette Palette { get; set; } = Palette.Light;
+
+    public static Color Accent => Palette.Blue;
+    public static Color Muted => Palette.TextSecondary;
+    public static Color Ok => Palette.Green;
+    public static Color Warn => Palette.Amber;
+    public static Color Error => Palette.Red;
 
     public const int ContentWidth = 470;
 
@@ -22,28 +26,34 @@ internal static class Ui
         Margin = new Padding(0, 0, 0, 4)
     };
 
+    /// <summary>The title of a group of settings; the page puts the group in a card.</summary>
     public static Label Section(string text) => new()
     {
         Text = text,
+        Tag = SectionTag,
         AutoSize = true,
-        Font = new Font("Segoe UI Semibold", 10F),
-        Margin = new Padding(0, 14, 0, 4)
+        Font = new Font("Segoe UI Semibold", 10.5F),
+        Margin = new Padding(0, 0, 0, 6)
     };
+
+    public const string SectionTag = "section";
+    public const string HelpTag = "help";
 
     public static Label Help(string text, int width = ContentWidth) => new()
     {
         Text = text,
+        Tag = HelpTag,
         AutoSize = true,
         MaximumSize = new Size(width, 0),
         ForeColor = Muted,
         Margin = new Padding(0, 0, 0, 8)
     };
 
-    public static CheckBox Check(string text) => new()
+    /// <summary>An on/off setting – drawn as a switch with the text on the left.</summary>
+    public static CheckBox Check(string text) => new ToggleSwitch
     {
         Text = text,
-        AutoSize = true,
-        Margin = new Padding(0, 3, 0, 3)
+        Margin = new Padding(0, 1, 0, 1)
     };
 
     /// <summary>Label on the left, control on the right.</summary>
@@ -90,7 +100,8 @@ internal abstract class SettingsPage : UserControl
         AutoScaleMode = AutoScaleMode.Dpi;
         Dock = DockStyle.Fill;
         Font = new Font("Segoe UI", 9.5F);
-        BackColor = Color.White;
+        BackColor = SettingsTheme.PageColor(Ui.Palette);
+        ForeColor = Ui.Palette.TextPrimary;
         Body = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -104,7 +115,47 @@ internal abstract class SettingsPage : UserControl
 
     public abstract string Title { get; }
 
-    protected void Add(params Control[] controls) => Body.Controls.AddRange(controls);
+    /// <summary>The page's icon in the settings menu (Segoe Fluent Icons).</summary>
+    public virtual string Glyph => "\uE713";
+
+    private Card? _card;
+
+    /// <summary>
+    /// Adds controls to the page. A section title starts a card that holds the controls after it; a heading ends it,
+    /// so the page's own intro text stays outside the cards.
+    /// </summary>
+    protected void Add(params Control[] controls)
+    {
+        foreach (var c in controls)
+        {
+            if (IsHeading(c))
+            {
+                _card = null;
+                Body.Controls.Add(c);
+            }
+            else if (c is Label { Tag: Ui.SectionTag })
+            {
+                _card = new Card();
+                Body.Controls.Add(_card);
+                _card.Controls.Add(c);
+            }
+            else if (_card == null && c is Label { Tag: Ui.HelpTag })
+            {
+                Body.Controls.Add(c); // the page's intro
+            }
+            else
+            {
+                if (_card == null)
+                {
+                    _card = new Card();
+                    Body.Controls.Add(_card);
+                }
+                _card.Controls.Add(c);
+            }
+        }
+    }
+
+    private static bool IsHeading(Control c) => c is Label l && l.Font.Size >= 14;
 
     public abstract void LoadFrom(AppSettings s);
 
@@ -120,6 +171,7 @@ internal abstract class SettingsPage : UserControl
 internal sealed class WelcomePage : SettingsPage
 {
     public override string Title => L.T("Welcome", "Velkommen");
+    public override string Glyph => "\uE80F";
 
     public WelcomePage()
     {
@@ -191,6 +243,7 @@ internal sealed class PricePage : SettingsPage
     private bool _companiesRequested;
 
     public override string Title => L.T("Electricity", "Elpris");
+    public override string Glyph => "\uE945";
 
     private sealed record AreaItem(PriceArea Area)
     {
@@ -493,6 +546,7 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly CheckBox _serviceDown = Ui.Check(L.T("When a service behind a tunnel stops responding", "Når en tjeneste bag en tunnel holder op med at svare"));
 
     public override string Title => L.T("Notifications", "Notifikationer");
+    public override string Glyph => "\uEA8F";
 
     public NotificationsPage()
     {
@@ -538,36 +592,93 @@ internal sealed class NotificationsPage : SettingsPage
 
 // ---------------------------------------------------------------------------
 
+internal sealed class GeneralPage : SettingsPage
+{
+    private readonly ComboBox _language = new() { Width = 180, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox _theme = new() { Width = 180, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TrackBar _opacity = new() { Minimum = 40, Maximum = 100, TickFrequency = 10, SmallChange = 5, LargeChange = 10, Width = 200, AutoSize = false, Height = 30 };
+    private readonly Label _opacityValue = Ui.Inline("");
+    private readonly CheckBox _topMost = Ui.Check(L.T("Keep the widget and pinned windows on top of other windows", "Hold widgetten og fastgjorte vinduer øverst over andre vinduer"));
+    private readonly CheckBox _startup = Ui.Check(L.T("Start automatically when I sign in to Windows", "Start automatisk når jeg logger på Windows"));
+    private readonly CheckBox _autoUpdate = Ui.Check(L.T("Check for new versions automatically", "Søg automatisk efter nye versioner"));
+    private readonly CheckBox _autoInstall = Ui.Check(L.T("Install them by themselves when the PC is not in use", "Installér dem selv, når pc'en ikke er i brug"));
+
+    public override string Title => L.T("General", "Generelt");
+    public override string Glyph => "";
+
+    public GeneralPage()
+    {
+        _language.Items.AddRange(new object[] { "English", "Dansk" });
+        _theme.Items.AddRange(new object[] { L.T("Follow Windows", "Følg Windows"), L.T("Light", "Lyst"), L.T("Dark", "Mørkt") });
+        _opacity.ValueChanged += (_, _) => _opacityValue.Text = $"{_opacity.Value} %";
+        _autoUpdate.CheckedChanged += (_, _) => _autoInstall.Enabled = _autoUpdate.Checked;
+
+        Add(Ui.Heading(L.T("General", "Generelt")),
+            Ui.Help(L.T("Language, look and how LabWidge starts and keeps itself up to date.", "Sprog, udseende og hvordan LabWidge starter og holder sig opdateret.")),
+            Ui.Section(L.T("Language", "Sprog")),
+            Ui.Row(L.T("Language", "Sprog"), _language),
+            Ui.Help(L.T("LabWidge restarts to switch language.", "LabWidge genstarter for at skifte sprog.")),
+            Ui.Section(L.T("Appearance", "Udseende")),
+            Ui.Row(L.T("Theme", "Tema"), _theme),
+            Ui.Row(L.T("Opacity", "Uigennemsigtighed"), _opacity, _opacityValue),
+            _topMost,
+            Ui.Section(L.T("Startup and updates", "Opstart og opdatering")),
+            _startup,
+            _autoUpdate,
+            _autoInstall,
+            Ui.Help(L.T($"You are running version {UpdateService.Current}. New versions come from GitHub. With automatic installation they are " +
+                        "downloaded in the background and installed when the mouse and keyboard have not been touched for 10 minutes – otherwise you are asked first.",
+                        $"Du kører version {UpdateService.Current}. Nye versioner hentes fra GitHub. Med automatisk installation hentes " +
+                        "de i baggrunden og installeres, når mus og tastatur ikke har været rørt i 10 minutter – ellers bliver du spurgt først.")));
+    }
+
+    public override void LoadFrom(AppSettings s)
+    {
+        _language.SelectedIndex = L.Normalize(s.Language) == L.Danish ? 1 : 0;
+        _theme.SelectedIndex = (int)s.Theme;
+        _opacity.Value = Math.Clamp(s.WidgetOpacity, 40, 100);
+        _opacityValue.Text = $"{_opacity.Value} %";
+        _topMost.Checked = s.WidgetTopMost;
+        _startup.Checked = s.StartWithWindows;
+        _autoUpdate.Checked = s.AutoCheckUpdates;
+        _autoInstall.Checked = s.AutoInstallUpdates;
+        _autoInstall.Enabled = s.AutoCheckUpdates;
+    }
+
+    public override string? SaveTo(AppSettings s)
+    {
+        s.Language = _language.SelectedIndex == 1 ? L.Danish : L.English;
+        s.Theme = (WidgetTheme)Math.Max(0, _theme.SelectedIndex);
+        s.WidgetOpacity = _opacity.Value;
+        s.WidgetTopMost = _topMost.Checked;
+        s.StartWithWindows = _startup.Checked;
+        s.AutoCheckUpdates = _autoUpdate.Checked;
+        s.AutoInstallUpdates = _autoInstall.Checked;
+        return null;
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 internal sealed class WidgetPage : SettingsPage
 {
-    private readonly CheckBox _startup = Ui.Check(L.T("Start automatically when I sign in to Windows", "Start automatisk når jeg logger på Windows"));
     private readonly CheckBox _system = Ui.Check(L.T("System – CPU, RAM, graphics card and disks", "System – CPU, RAM, grafikkort og diske"));
     private readonly CheckBox _network = Ui.Check(L.T("Network – IP addresses, ping and traffic", "Netværk – IP-adresser, ping og trafik"));
     private readonly CheckBox _compact = Ui.Check(L.T("Compact view (one line – click to expand)", "Kompakt visning (én linje – klik for at udvide)"));
-    private readonly CheckBox _autoUpdate = Ui.Check(L.T("Check for new versions automatically", "Søg automatisk efter nye versioner"));
-    private readonly CheckBox _autoInstall = Ui.Check(L.T("Install them by themselves when the PC is not in use", "Installér dem selv, når pc'en ikke er i brug"));
-    private readonly CheckBox _topMost = Ui.Check(L.T("Always on top of other windows", "Altid øverst over andre vinduer"));
-    private readonly ComboBox _theme = new() { Width = 160, DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly ComboBox _language = new() { Width = 160, DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly TrackBar _opacity = new() { Minimum = 40, Maximum = 100, TickFrequency = 10, SmallChange = 5, LargeChange = 10, Width = 200, AutoSize = false, Height = 30 };
-    private readonly Label _opacityValue = Ui.Inline("");
     private readonly Button _resetOrder = new() { Text = L.T("Reset the order", "Nulstil rækkefølgen"), AutoSize = true };
-    private bool _orderReset;
+    private readonly Button _resetPins = new() { Text = L.T("Unpin all sections", "Frigør alle sektioner"), AutoSize = true };
     private readonly NumericUpDown _width = new() { Minimum = 300, Maximum = 640, Increment = 20, Width = 80 };
     private readonly NumericUpDown _height = new() { Minimum = 180, Maximum = 2160, Increment = 20, Width = 80 };
     private readonly CheckBox _autoWidth = Ui.Check(L.T("Automatic width", "Automatisk bredde"));
     private readonly CheckBox _autoHeight = Ui.Check(L.T("Automatic height", "Automatisk højde"));
-    private readonly Button _resetPins = new() { Text = L.T("Unpin all sections", "Frigør alle sektioner"), AutoSize = true };
-    private bool _pinsReset;
+    private bool _orderReset, _pinsReset;
 
     public override string Title => "Widget";
+    public override string Glyph => "";
 
     public WidgetPage()
     {
-        _theme.Items.AddRange(new object[] { L.T("Follow Windows", "Følg Windows"), L.T("Light", "Lyst"), L.T("Dark", "Mørkt") });
-        _language.Items.AddRange(new object[] { "English", "Dansk" });
-        _opacity.ValueChanged += (_, _) => _opacityValue.Text = $"{_opacity.Value} %";
-        _autoUpdate.CheckedChanged += (_, _) => _autoInstall.Enabled = _autoUpdate.Checked;
+        _autoWidth.Width = _autoHeight.Width = 200;
         _autoWidth.CheckedChanged += (_, _) => _width.Enabled = !_autoWidth.Checked;
         _autoHeight.CheckedChanged += (_, _) => _height.Enabled = !_autoHeight.Checked;
         _resetPins.Click += (_, _) => { _pinsReset = true; _resetPins.Text = L.T("Sections are unpinned when you save", "Sektionerne frigøres ved Gem"); };
@@ -579,56 +690,28 @@ internal sealed class WidgetPage : SettingsPage
         };
 
         Add(Ui.Heading("Widget"),
-            Ui.Help(L.T("Click the bolt by the clock to show or hide the widget. Click a header in the widget to collapse it, and double-click for the compact view.",
-                        "Klik på lynet ved uret for at vise eller skjule widgetten. Klik på en overskrift i widgetten for at folde den sammen, og dobbeltklik for kompakt visning.")),
-            Ui.Section(L.T("Language", "Sprog")),
-            Ui.Row(L.T("Language", "Sprog"), _language),
-            Ui.Help(L.T("LabWidge restarts to switch language.", "LabWidge genstarter for at skifte sprog.")),
+            Ui.Help(L.T("Click the bolt by the clock to show or hide the widget. Click a header to collapse a section, drag its handle to move it, " +
+                        "and drag it out of the widget to open it in a window.",
+                        "Klik på lynet ved uret for at vise eller skjule widgetten. Klik på en overskrift for at folde en sektion sammen, træk i grebet for at flytte den, " +
+                        "og træk den ud af widgetten for at åbne den i et vindue.")),
             Ui.Section(L.T("Sections", "Sektioner")),
-            Ui.Help(L.T("Electricity price, Home Assistant, Cloudflare and Proxmox are turned on and off on their own pages. " +
-                        "Drag the handle by a header to change the order. Right-click a header to pin the section " +
-                        "to the top or the bottom. The rest scrolls in the middle.",
-                        "Elpris, Home Assistant, Cloudflare og Proxmox slås til og fra på deres egne sider. " +
-                        "Træk i grebet ved overskriften for at ændre rækkefølgen. Højreklik på overskriften for at fastgøre " +
-                        "sektionen øverst eller nederst. Resten scroller i midten.")),
             _system, _network,
-            _resetOrder,
-            _resetPins,
-            Ui.Section(L.T("Appearance", "Udseende")),
-            Ui.Help(L.T("Drag the widget's edges or corners to change its size. The size is remembered across display scaling.",
-                        "Træk i widgettens kanter eller hjørner for at ændre størrelsen. Størrelsen huskes på tværs af skærmskalering.")),
+            Ui.Help(L.T("Electricity price, audio, Home Assistant, Cloudflare and Proxmox are turned on and off on their own pages.",
+                        "Elpris, lyd, Home Assistant, Cloudflare og Proxmox slås til og fra på deres egne sider.")),
+            Ui.Row(L.T("Order and pins", "Rækkefølge og pinning"), _resetOrder, _resetPins),
+            Ui.Section(L.T("Size", "Størrelse")),
+            Ui.Help(L.T("You can also drag the widget's edges or corners. The size is remembered across display scaling.",
+                        "Du kan også trække i widgettens kanter eller hjørner. Størrelsen huskes på tværs af skærmskalering.")),
             Ui.Row(L.T("Width", "Bredde"), _width, _autoWidth),
             Ui.Row(L.T("Height", "Højde"), _height, _autoHeight),
-            Ui.Row(L.T("Theme", "Tema"), _theme),
-            Ui.Row(L.T("Opacity", "Uigennemsigtighed"), _opacity, _opacityValue),
-            _compact,
-            _topMost,
-            Ui.Section(L.T("Startup and updates", "Opstart og opdatering")),
-            _startup,
-            _autoUpdate,
-            _autoInstall,
-            Ui.Help(L.T($"You are running version {UpdateService.Current}. New versions come from GitHub. With automatic installation they are " +
-                        "downloaded in the background and installed when the mouse and keyboard have not been touched for 10 minutes – otherwise you are asked first. " +
-                        "You can always check manually with \"Check for updates…\" in the menu by the clock.",
-                        $"Du kører version {UpdateService.Current}. Nye versioner hentes fra GitHub. Med automatisk installation hentes " +
-                        "de i baggrunden og installeres, når mus og tastatur ikke har været rørt i 10 minutter – ellers bliver du spurgt først. " +
-                        "Du kan altid søge manuelt via \"Søg efter opdateringer…\" i menuen ved uret.")));
+            _compact);
     }
 
     public override void LoadFrom(AppSettings s)
     {
-        _startup.Checked = s.StartWithWindows;
-        _autoUpdate.Checked = s.AutoCheckUpdates;
-        _autoInstall.Checked = s.AutoInstallUpdates;
-        _autoInstall.Enabled = s.AutoCheckUpdates;
         _system.Checked = s.ShowSystem;
         _network.Checked = s.ShowNetwork;
         _compact.Checked = s.CompactMode;
-        _topMost.Checked = s.WidgetTopMost;
-        _theme.SelectedIndex = (int)s.Theme;
-        _language.SelectedIndex = L.Normalize(s.Language) == L.Danish ? 1 : 0;
-        _opacity.Value = Math.Clamp(s.WidgetOpacity, 40, 100);
-        _opacityValue.Text = $"{_opacity.Value} %";
         _width.Value = Math.Clamp(s.WidgetWidth ?? 344, 300, 640);
         _height.Value = Math.Clamp(s.WidgetHeight ?? 600, 180, 2160);
         _autoWidth.Checked = s.WidgetWidth == null;
@@ -639,16 +722,9 @@ internal sealed class WidgetPage : SettingsPage
 
     public override string? SaveTo(AppSettings s)
     {
-        s.StartWithWindows = _startup.Checked;
-        s.AutoCheckUpdates = _autoUpdate.Checked;
-        s.AutoInstallUpdates = _autoInstall.Checked;
         s.ShowSystem = _system.Checked;
         s.ShowNetwork = _network.Checked;
         s.CompactMode = _compact.Checked;
-        s.WidgetTopMost = _topMost.Checked;
-        s.Theme = (WidgetTheme)Math.Max(0, _theme.SelectedIndex);
-        s.Language = _language.SelectedIndex == 1 ? L.Danish : L.English;
-        s.WidgetOpacity = _opacity.Value;
         if (_orderReset) s.SectionOrder = null;
         s.WidgetWidth = _autoWidth.Checked ? null : (int)_width.Value;
         s.WidgetHeight = _autoHeight.Checked ? null : (int)_height.Value;
@@ -659,9 +735,214 @@ internal sealed class WidgetPage : SettingsPage
 
 // ---------------------------------------------------------------------------
 
+internal sealed class WindowsPage : SettingsPage
+{
+    private readonly CheckBox _restore = Ui.Check(L.T("Open pinned windows again when LabWidge starts", "Åbn fastgjorte vinduer igen, når LabWidge starter"));
+    private readonly FlowLayoutPanel _list = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
+    private readonly HashSet<string> _forget = new();
+    private Dictionary<string, SectionWindowState> _states = new();
+
+    public override string Title => L.T("Windows", "Vinduer");
+    public override string Glyph => "";
+
+    public WindowsPage()
+    {
+        var forgetAll = new Button { Text = L.T("Forget all windows", "Glem alle vinduer"), AutoSize = true };
+        forgetAll.Click += (_, _) =>
+        {
+            foreach (var key in SectionWindows.Keys) _forget.Add(key);
+            Fill();
+        };
+
+        Add(Ui.Heading(L.T("Windows", "Vinduer")),
+            Ui.Help(L.T("Every section can open in its own window with more detail: drag the section out of the widget, click the window button in its header, " +
+                        "or choose \"Open in a window\" when you right-click it. A window closes when you click elsewhere – unless you pin it.",
+                        "Hver sektion kan åbne i sit eget vindue med flere detaljer: træk sektionen ud af widgetten, klik på vindue-knappen i overskriften, " +
+                        "eller vælg \"Åbn i et vindue\", når du højreklikker. Et vindue lukker, når du klikker andre steder – medmindre du fastgør det.")),
+            Ui.Section(L.T("Behaviour", "Adfærd")),
+            _restore,
+            Ui.Section(L.T("Your windows", "Dine vinduer")),
+            Ui.Help(L.T("Pinned windows remember their place and size. Forget a window to unpin it and let it open next to the widget again.",
+                        "Fastgjorte vinduer husker deres plads og størrelse. Glem et vindue for at frigøre det og lade det åbne ved siden af widgetten igen.")),
+            _list,
+            forgetAll);
+    }
+
+    private static string WindowName(string key) => key switch
+    {
+        "price" => L.T("Electricity price", "Elpris"),
+        "ha" => "Home Assistant",
+        "cloudflare" => "Cloudflare",
+        "proxmox" => "Proxmox",
+        "system" => "System",
+        "network" => L.T("Network", "Netværk"),
+        "audio" => L.T("Audio", "Lyd"),
+        _ => key
+    };
+
+    private void Fill()
+    {
+        _list.SuspendLayout();
+        _list.Controls.Clear();
+        foreach (var key in SectionWindows.Keys)
+        {
+            var state = _forget.Contains(key) ? null : _states.GetValueOrDefault(key);
+            var status = state == null ? L.T("opens next to the widget", "åbner ved siden af widgetten")
+                : state.Pinned ? L.T("pinned", "fastgjort") + (state.Width != null ? L.T(" · own size", " · egen størrelse") : "")
+                : state.Width != null ? L.T("own size", "egen størrelse") : L.T("opens next to the widget", "åbner ved siden af widgetten");
+            var label = Ui.Inline(status, state?.Pinned == true ? Ui.Accent : Ui.Muted);
+            label.MinimumSize = new Size(190, 0);
+            var forget = new Button { Text = L.T("Forget", "Glem"), AutoSize = true, Enabled = state != null };
+            forget.Click += (_, _) => { _forget.Add(key); Fill(); };
+            _list.Controls.Add(Ui.Row(WindowName(key), label, forget));
+        }
+        SettingsTheme.Apply(_list, Ui.Palette);
+        _list.ResumeLayout();
+    }
+
+    public override void LoadFrom(AppSettings s)
+    {
+        _restore.Checked = s.RestorePinnedWindows;
+        _states = s.SectionWindows.ToDictionary(kv => kv.Key, kv => kv.Value);
+        Fill();
+    }
+
+    public override string? SaveTo(AppSettings s)
+    {
+        s.RestorePinnedWindows = _restore.Checked;
+        s.ForgetWindows = _forget.ToArray();
+        return null;
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+internal sealed class SystemNetworkPage : SettingsPage
+{
+    private readonly CheckBox _gpu = Ui.Check(L.T("Show the graphics card", "Vis grafikkortet"));
+    private readonly CheckedListBox _disks = new() { Width = 300, Height = 96, CheckOnClick = true, IntegralHeight = false };
+    private readonly CheckBox _virtual = Ui.Check(L.T("Show virtual adapters (VPN, Hyper-V, WSL) among the local addresses", "Vis virtuelle adaptere (VPN, Hyper-V, WSL) blandt de interne adresser"));
+    private readonly TextBox _ping = new() { Width = 200 };
+    private string[] _hidden = Array.Empty<string>();
+
+    public override string Title => L.T("System and network", "System og netværk");
+    public override string Glyph => "";
+
+    public SystemNetworkPage()
+    {
+        Add(Ui.Heading(L.T("System and network", "System og netværk")),
+            Ui.Help(L.T("Choose what the widget's system and network sections show. Their windows always show everything.",
+                        "Vælg hvad widgettens system- og netværkssektioner viser. Deres vinduer viser altid det hele.")),
+            Ui.Section("System"),
+            _gpu,
+            Ui.Row(L.T("Disks in the widget", "Diske i widgetten"), _disks),
+            Ui.Section(L.T("Network", "Netværk")),
+            _virtual,
+            Ui.Row(L.T("Measure ping to", "Mål ping til"), _ping),
+            Ui.Help(L.T("A host name or IP address – e.g. 1.1.1.1 for the internet, or your router or server to watch your own network.",
+                        "Et værtsnavn eller en IP-adresse – fx 1.1.1.1 for internettet, eller din router eller server for at holde øje med dit eget netværk.")));
+    }
+
+    public override void LoadFrom(AppSettings s)
+    {
+        _gpu.Checked = s.ShowGpu;
+        _virtual.Checked = s.ShowVirtualAdapters;
+        _ping.Text = s.PingTarget;
+        _hidden = s.HiddenDisks;
+        _disks.Items.Clear();
+        try
+        {
+            foreach (var d in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady))
+            {
+                var label = string.IsNullOrWhiteSpace(d.VolumeLabel) ? d.Name : $"{d.Name}  {d.VolumeLabel}";
+                _disks.Items.Add(new DiskItem(d.Name, label), !_hidden.Contains(d.Name, StringComparer.OrdinalIgnoreCase));
+            }
+        }
+        catch
+        {
+            // The drives could not be read; the list stays empty
+        }
+    }
+
+    private sealed record DiskItem(string Name, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    public override string? SaveTo(AppSettings s)
+    {
+        var ping = _ping.Text.Trim();
+        if (ping.Length == 0 || ping.Length > 253 || ping.Any(char.IsWhiteSpace))
+            return L.T("Type a host name or IP address to measure ping to.", "Skriv et værtsnavn eller en IP-adresse at måle ping til.");
+        s.ShowGpu = _gpu.Checked;
+        s.ShowVirtualAdapters = _virtual.Checked;
+        s.PingTarget = ping;
+        // Drives that are not connected right now keep their choice
+        var listed = _disks.Items.Cast<DiskItem>().Select(d => d.Name).ToList();
+        s.HiddenDisks = _hidden.Where(h => !listed.Contains(h, StringComparer.OrdinalIgnoreCase))
+            .Concat(_disks.Items.Cast<DiskItem>().Where((d, i) => !_disks.GetItemChecked(i)).Select(d => d.Name))
+            .ToArray();
+        return null;
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+internal sealed class AboutPage : SettingsPage
+{
+    public override string Title => L.T("About", "Om");
+    public override string Glyph => "";
+
+    public AboutPage()
+    {
+        var logo = new PictureBox { Size = new Size(56, 56), SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0, 0, 0, 6) };
+        // The shared app icon – not disposed here
+        if (AppIconProvider.GetIcon() is { } icon) logo.Image = new Icon(icon, 64, 64).ToBitmap();
+
+        Add(logo,
+            Ui.Heading("LabWidge"),
+            Ui.Help(L.T($"Version {UpdateService.Current}  ·  Electricity price, PC and home lab – at a glance, right by the clock.",
+                        $"Version {UpdateService.Current}  ·  Elpris, pc og hjemmelab – med et blik, lige ved uret.")),
+            Ui.Section(L.T("Links", "Links")),
+            Link(L.T("The project on GitHub – features, help and source code", "Projektet på GitHub – funktioner, hjælp og kildekode"), "https://github.com/Karalumpas/LabWidge"),
+            Link(L.T("What's new in each version", "Nyheder i hver version"), "https://github.com/Karalumpas/LabWidge/blob/main/CHANGELOG.md"),
+            Link(L.T("Report a problem or suggest an idea", "Meld en fejl eller foreslå en idé"), "https://github.com/Karalumpas/LabWidge/issues"),
+            Link(L.T("Privacy – what LabWidge contacts and why", "Privatliv – hvad LabWidge kontakter og hvorfor"), "https://github.com/Karalumpas/LabWidge/blob/main/PRIVACY.md"),
+            Ui.Section(L.T("Troubleshooting", "Fejlfinding")),
+            Folder(L.T("Open the folder with settings and the log", "Åbn mappen med indstillinger og log"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LabWidge")),
+            Ui.Help(L.T("Free and open source under the MIT license. No telemetry and no account.",
+                        "Gratis og open source under MIT-licensen. Ingen telemetri og ingen konto.")));
+    }
+
+    private static LinkLabel Link(string text, string url)
+    {
+        var link = new LinkLabel { Text = text, AutoSize = true, Margin = new Padding(0, 4, 0, 4) };
+        link.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        return link;
+    }
+
+    private static LinkLabel Folder(string text, string path)
+    {
+        var link = new LinkLabel { Text = text, AutoSize = true, Margin = new Padding(0, 4, 0, 4) };
+        link.LinkClicked += (_, _) =>
+        {
+            try { Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true }); }
+            catch (Exception ex) { Logger.Error($"Could not open {path}: {ex.Message}"); }
+        };
+        return link;
+    }
+
+    public override void LoadFrom(AppSettings s) { }
+    public override string? SaveTo(AppSettings s) => null;
+}
+
+// ---------------------------------------------------------------------------
+
 internal sealed class CloudflarePage : SettingsPage
 {
     private readonly CheckBox _enabled = Ui.Check(L.T("I use Cloudflare for DNS and/or tunnels", "Jeg bruger Cloudflare til DNS og/eller tunnels"));
+    private readonly NumericUpDown _interval = new() { Width = 70, Minimum = 1, Maximum = 60 };
     private readonly CheckBox _showInWidget = Ui.Check(L.T("Show Cloudflare – tunnels and DNS – in the widget", "Vis Cloudflare – tunnels og DNS – i widgetten"));
     private readonly CheckBox _serviceChecks = Ui.Check(L.T("Check that the addresses behind my tunnels respond (every 5 minutes)", "Tjek at adresserne bag mine tunnels svarer (hvert 5. minut)"));
     private readonly FlowLayoutPanel _details;
@@ -677,6 +958,7 @@ internal sealed class CloudflarePage : SettingsPage
     private readonly Label _testResult = Ui.Inline("");
 
     public override string Title => "Cloudflare";
+    public override string Glyph => "\uE753";
 
     public CloudflarePage()
     {
@@ -696,6 +978,7 @@ internal sealed class CloudflarePage : SettingsPage
                         "(står under Overview i Cloudflare-dashboardet). Tokenet gemmes sikkert i Windows Credential Manager. " +
                         "Lad feltet stå tomt for at beholde det gemte token."), 440),
             _showInWidget,
+            Ui.Row(L.T("Tunnel check interval", "Interval for tunnel-tjek"), _interval, Ui.Inline(L.T("minutes", "minutter"))),
             _serviceChecks,
             _autoUpdate,
             _updateAll,
@@ -782,6 +1065,7 @@ internal sealed class CloudflarePage : SettingsPage
         _details.Enabled = s.CloudflareEnabled;
         _zoneId.Text = s.ZoneId ?? "";
         _accountId.Text = s.CloudflareAccountId ?? "";
+        _interval.Value = Math.Clamp(s.CloudflareRefreshMinutes, 1, 60);
         _showInWidget.Checked = s.ShowCloudflare;
         _serviceChecks.Checked = s.ServiceChecksEnabled;
         _autoUpdate.Checked = s.CloudflareAutoUpdate;
@@ -804,6 +1088,7 @@ internal sealed class CloudflarePage : SettingsPage
 
         s.ZoneId = zone;
         s.CloudflareAccountId = _accountId.Text.Trim() is { Length: > 0 } account ? account : null;
+        s.CloudflareRefreshMinutes = (int)_interval.Value;
         s.ShowCloudflare = _showInWidget.Checked;
         s.ServiceChecksEnabled = _serviceChecks.Checked;
         s.CloudflareAutoUpdate = _autoUpdate.Checked;
@@ -828,6 +1113,7 @@ internal sealed class CloudflarePage : SettingsPage
 internal sealed class ProxmoxPage : SettingsPage
 {
     private readonly CheckBox _enabled = Ui.Check(L.T("I use Proxmox VE and want to see my server in the widget", "Jeg bruger Proxmox VE og vil se min server i widgetten"));
+    private readonly NumericUpDown _interval = new() { Width = 70, Minimum = 5, Maximum = 600 };
     private readonly CheckBox _showInWidget = Ui.Check(L.T("Show Proxmox in the widget", "Vis Proxmox i widgetten"));
     private readonly FlowLayoutPanel _details;
     private readonly TextBox _url = new() { Width = 290, PlaceholderText = L.T("e.g. 192.168.1.50", "fx 192.168.1.50") };
@@ -844,6 +1130,7 @@ internal sealed class ProxmoxPage : SettingsPage
     private string _loadedUrl = "";
 
     public override string Title => "Proxmox";
+    public override string Glyph => "\uE977";
 
     public ProxmoxPage()
     {
@@ -851,6 +1138,7 @@ internal sealed class ProxmoxPage : SettingsPage
         _details.Controls.AddRange(new Control[]
         {
             _showInWidget,
+            Ui.Row(L.T("Update interval", "Opdateringsinterval"), _interval, Ui.Inline(L.T("seconds (while shown)", "sekunder (mens den vises)"))),
             Ui.Row(L.T("Address", "Adresse"), _url),
             Ui.Help(L.T("The address you open Proxmox on. Port 8006 is used unless you type another.", "Adressen du åbner Proxmox på. Port 8006 bruges, hvis du ikke skriver en anden."), 440),
             Ui.Row(L.T("Token ID", "Token-id"), _tokenId),
@@ -958,6 +1246,7 @@ internal sealed class ProxmoxPage : SettingsPage
     {
         _enabled.Checked = s.ProxmoxEnabled;
         _details.Enabled = s.ProxmoxEnabled;
+        _interval.Value = Math.Clamp(s.ProxmoxRefreshSeconds, 5, 600);
         _showInWidget.Checked = s.ShowProxmox;
         _url.Text = s.ProxmoxUrl ?? "";
         _loadedUrl = _url.Text;
@@ -971,6 +1260,7 @@ internal sealed class ProxmoxPage : SettingsPage
     public override string? SaveTo(AppSettings s)
     {
         s.ProxmoxEnabled = _enabled.Checked;
+        s.ProxmoxRefreshSeconds = (int)_interval.Value;
         s.ShowProxmox = _showInWidget.Checked;
         if (!_enabled.Checked) return null;
 
@@ -1009,6 +1299,7 @@ internal sealed class HomeAssistantPage : SettingsPage
     private static readonly HttpClient Http = HttpClientFactory.Create(TimeSpan.FromSeconds(30));
 
     private readonly CheckBox _enabled = Ui.Check(L.T("I use Home Assistant and want to control lights from the widget", "Jeg bruger Home Assistant og vil styre lys fra widgetten"));
+    private readonly NumericUpDown _interval = new() { Width = 70, Minimum = 5, Maximum = 600 };
     private readonly CheckBox _showInWidget = Ui.Check(L.T("Show Home Assistant – lights and sensors – in the widget", "Vis Home Assistant – lys og sensorer – i widgetten"));
     private readonly FlowLayoutPanel _details;
     private readonly TextBox _url = new() { Width = 290 };
@@ -1037,6 +1328,7 @@ internal sealed class HomeAssistantPage : SettingsPage
     private bool _updatingList;
 
     public override string Title => "Home Assistant";
+    public override string Glyph => "\uE80F";
 
     public HomeAssistantPage()
     {
@@ -1047,6 +1339,7 @@ internal sealed class HomeAssistantPage : SettingsPage
         _details.Controls.AddRange(new Control[]
         {
             _showInWidget,
+            Ui.Row(L.T("Update interval", "Opdateringsinterval"), _interval, Ui.Inline(L.T("seconds (while shown)", "sekunder (mens den vises)"))),
             Ui.Row("Adresse", _url),
             Ui.Help(L.T("E.g. http://192.168.0.10:8123 or https://home.example.com – the address you open Home Assistant on yourself.",
                         "Fx http://192.168.0.10:8123 eller https://hjem.eksempel.dk – den adresse du selv åbner Home Assistant på."), 440),
@@ -1227,6 +1520,7 @@ internal sealed class HomeAssistantPage : SettingsPage
     {
         _enabled.Checked = s.HomeAssistantEnabled;
         _details.Enabled = s.HomeAssistantEnabled;
+        _interval.Value = Math.Clamp(s.HomeAssistantRefreshSeconds, 5, 600);
         _showInWidget.Checked = s.ShowHomeAssistant;
         _url.Text = s.HomeAssistantUrl ?? "";
         _dashboard.Text = s.HomeAssistantDashboardPath ?? "";
@@ -1250,6 +1544,7 @@ internal sealed class HomeAssistantPage : SettingsPage
     public override string? SaveTo(AppSettings s)
     {
         s.HomeAssistantEnabled = _enabled.Checked;
+        s.HomeAssistantRefreshSeconds = (int)_interval.Value;
         s.ShowHomeAssistant = _showInWidget.Checked;
         if (!_enabled.Checked)
         {
@@ -1338,6 +1633,7 @@ internal sealed class AudioPage : SettingsPage
     private bool _filling;
 
     public override string Title => L.T("Audio", "Lyd");
+    public override string Glyph => "\uE767";
 
     private sealed record StandardItem(string? Id, string Text)
     {

@@ -133,7 +133,7 @@ internal static class UiChecks
         widget.Dispose();
         Check(previousMenu!.IsDisposed, "Widget disposal leaked its section menu.");
         Console.WriteLine("PASS UI: real section-menu mouse clicks pin, unpin and select summaries without premature disposal");
-        Console.WriteLine("10 UI integration checks passed; previews: " + Output);
+        Console.WriteLine("11 UI integration checks passed; previews: " + Output);
         Showcase();
     }
 
@@ -248,8 +248,36 @@ internal static class UiChecks
         hero.Save(Path.Combine(Output, "showcase", "hero.png"), ImageFormat.Png);
         foreach (var shot in shots) shot.Dispose();
         Console.WriteLine("Showcase screenshots: " + Path.Combine(Output, "showcase"));
+        Directory.CreateDirectory(Path.Combine(Output, "settings"));
 
         SectionWindowChecks(widget, s);
+        SettingsScreens(s);
+    }
+
+    /// <summary>Renders every settings page in both themes, so the look can be reviewed in the CI artifact.</summary>
+    private static void SettingsScreens(AppSettings settings)
+    {
+        foreach (var theme in new[] { WidgetTheme.Dark, WidgetTheme.Light })
+        {
+            var s = settings.Clone();
+            s.Theme = theme;
+            using var window = new SettingsWindow(s);
+            window.Show();
+            Application.DoEvents();
+            var pages = (Array)window.GetType().GetField("_pages", Private)!.GetValue(window)!;
+            for (var i = 0; i < pages.Length; i++)
+            {
+                var task = (Task)window.GetType().GetMethod("ShowPageAsync", Private)!.Invoke(window, new object[] { i })!;
+                var until = DateTime.Now.AddSeconds(8);
+                while (!task.IsCompleted && DateTime.Now < until) { Application.DoEvents(); Thread.Sleep(20); }
+                Application.DoEvents();
+                using var bitmap = new Bitmap(window.Width, window.Height);
+                window.DrawToBitmap(bitmap, new Rectangle(Point.Empty, window.Size));
+                bitmap.Save(Path.Combine(Output, "settings", $"{theme.ToString().ToLowerInvariant()}-{i:00}.png"), ImageFormat.Png);
+            }
+            window.Close();
+        }
+        Console.WriteLine("PASS UI: every settings page opens in both themes");
     }
 
     /// <summary>
