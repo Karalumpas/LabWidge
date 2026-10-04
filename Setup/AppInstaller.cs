@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -66,6 +67,10 @@ namespace LabWidgeSetup
                     }
                 }
 
+                // Windows may refuse to run a new unsigned build (Smart App Control). Find out before the
+                // working version is touched – otherwise an update would leave the user without an app.
+                EnsureAllowedToRun(Path.Combine(staging, "LabWidge.exe"));
+
                 StopRunningInstance();
                 Retry(() => InstallTransaction.Commit(InstallDir, staging));
             }
@@ -89,13 +94,57 @@ namespace LabWidgeSetup
 
         public static void Launch(bool runSetupGuide)
         {
-            Process.Start(new ProcessStartInfo
+            try
             {
-                FileName = InstalledExe,
-                Arguments = runSetupGuide ? "--setup" : "",
-                WorkingDirectory = InstallDir,
-                UseShellExecute = false
-            });
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = InstalledExe,
+                    Arguments = runSetupGuide ? "--setup" : "",
+                    WorkingDirectory = InstallDir,
+                    UseShellExecute = false
+                });
+            }
+            catch (Win32Exception ex) when (IsBlockedByPolicy(ex))
+            {
+                throw new AppBlockedException(ex);
+            }
+        }
+
+        // ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION (Smart App Control / App Control) and ERROR_ACCESS_DISABLED_BY_POLICY (AppLocker)
+        private static bool IsBlockedByPolicy(Win32Exception ex) => ex.NativeErrorCode == 4551 || ex.NativeErrorCode == 1260;
+
+        /// <summary>
+        /// Starts the unpacked version with --probe, which exits at once. Throws <see cref="AppBlockedException"/> if Windows
+        /// refuses to start it or it cannot load (exit code other than 0). A probe that takes too long is not held against it.
+        /// </summary>
+        public static void EnsureAllowedToRun(string exe)
+        {
+            Process process;
+            try
+            {
+                process = Process.Start(new ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = "--probe",
+                    WorkingDirectory = Path.GetDirectoryName(exe),
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Win32Exception ex) when (IsBlockedByPolicy(ex))
+            {
+                throw new AppBlockedException(ex);
+            }
+            using (process)
+            {
+                if (process == null) return;
+                if (!process.WaitForExit(30000))
+                {
+                    try { process.Kill(); } catch { /* it has exited after all */ }
+                    return;
+                }
+                if (process.ExitCode != 0) throw new AppBlockedException(null);
+            }
         }
 
         private static void StopRunningInstance()
@@ -165,5 +214,17 @@ namespace LabWidgeSetup
         }
 
         public static bool SettingsExist => File.Exists(SettingsPath);
+    }
+
+    /// <summary>Windows would not run the new version – the installed version is kept.</summary>
+    internal sealed class AppBlockedException : Exception
+    {
+        public AppBlockedException(Exception inner)
+            : base(L.T("Windows blocked the new version of LabWidge (Smart App Control), so your current version is kept. " +
+                       "This can happen because LabWidge is not code-signed yet – try again later, or download the installer again.",
+                       "Windows blokerede den nye version af LabWidge (Smart App Control), så din nuværende version er bevaret. " +
+                       "Det kan ske, fordi LabWidge endnu ikke er kodesigneret – prøv igen senere, eller hent installeren igen."), inner)
+        {
+        }
     }
 }

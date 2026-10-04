@@ -206,7 +206,18 @@ namespace LabWidgeSetup
         {
             if (_done)
             {
-                if (_startApp.Checked) AppInstaller.Launch(runSetupGuide: false);
+                if (_startApp.Checked)
+                {
+                    try
+                    {
+                        AppInstaller.Launch(runSetupGuide: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(this, ex is AppBlockedException ? ex.Message : L.T("LabWidge could not be started: ", "LabWidge kunne ikke startes: ") + ex.Message,
+                            Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                }
                 Close();
                 return;
             }
@@ -246,6 +257,13 @@ namespace LabWidgeSetup
             {
                 _progress.Visible = false;
                 _status.Text = L.T("The installation was cancelled.", "Installationen blev afbrudt.");
+                _status.ForeColor = Warn;
+            }
+            catch (AppBlockedException ex)
+            {
+                _progress.Visible = false;
+                SetStatus(_appIcon, _appText, "!", Warn, L.T("The new version was not installed", "Den nye version blev ikke installeret"));
+                _status.Text = ex.Message;
                 _status.ForeColor = Warn;
             }
             catch (Exception ex)
