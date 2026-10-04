@@ -24,3 +24,8 @@ app.log
 
 # Build output (installer)
 dist/
+
+# Cloudflare Worker
+worker/node_modules/
+worker/.wrangler/
+worker/.dev.vars

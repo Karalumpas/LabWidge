@@ -1,0 +1,11 @@
+{
+  "name": "labwidge-prices",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker that serves ENTSO-E day-ahead prices to LabWidge",
+  "scripts": {
+    "test": "node --test",
+    "dev": "npx wrangler dev",
+    "deploy": "npx wrangler deploy"
+  }
+}

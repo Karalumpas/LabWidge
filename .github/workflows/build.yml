@@ -43,6 +43,10 @@ jobs:
       - name: Regression tests
         run: dotnet run --project Tests/LabWidge.Tests.csproj
 
+      - name: Price Worker tests
+        working-directory: worker
+        run: node --test
+
       - name: UI integration tests and previews
         run: dotnet run --project Tests/Ui/LabWidge.UiTests.csproj
 
@@ -50,4 +54,4 @@ jobs:
         if: always()
         with:
           name: widget-ui-preview
-          path: dist/ui-preview/*.png
+          path: dist/ui-preview/**/*.png
