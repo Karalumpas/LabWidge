@@ -46,9 +46,7 @@ internal static class SectionWindows
     {
         if (IsOpen(key))
         {
-            var open = Open[key];
-            open.Location = new Point(screen.X - open.Width / 3, screen.Y - 16);
-            open.Activate();
+            Open[key].ShowPinnedAt(screen);
             return;
         }
         Create(key)?.ShowPinnedAt(screen);

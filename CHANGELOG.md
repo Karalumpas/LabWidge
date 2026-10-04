@@ -2,6 +2,11 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.17.1
+- Fixed: section windows no longer disappear when moving the mouse over buttons or showing hover text
+- Dragging a section onto the desktop now pins its window even if the window is already open
+- Windows pinned by dragging are saved immediately, so their position and open state are restored after restarting LabWidge
+
 ## 1.17.0
 - A new, modern settings window in the widget's light or dark theme, with a menu of pages, cards and on/off switches
 - New pages: General, Windows (restore pinned windows, forget a window's place), System and network, and About
