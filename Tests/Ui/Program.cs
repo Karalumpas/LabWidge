@@ -109,7 +109,8 @@ internal static class UiChecks
         Check(settings.SectionOrder![^1] == "system", "A tall section could not be dragged below shorter ones.");
         Console.WriteLine("PASS UI: tall sections can be dragged past short ones to both ends");
         ContextMenuStrip? previousMenu = null;
-        foreach (var index in new[] { 1, 0, 4, 2, 1, 2 })
+        // "Open in a window" and a separator come first
+        foreach (var index in new[] { 3, 2, 6, 4, 3, 4 })
         {
             Call(widget, "ShowSectionMenu", "price", new Point(20, 20));
             var menu = Get<ContextMenuStrip>(widget, "_sectionMenu");
@@ -123,10 +124,10 @@ internal static class UiChecks
             typeof(ToolStrip).GetMethod("OnMouseDown", Private)!.Invoke(menu, new object[] { mouse });
             typeof(ToolStrip).GetMethod("OnMouseUp", Private)!.Invoke(menu, new object[] { mouse });
             Check(!menu.Visible && !menu.IsDisposed, "Closed dropdown was disposed before WinForms finished its click.");
-            if (index == 0) Check(settings.SectionPins["price"] == SectionPin.Top, "Top menu action failed.");
-            if (index == 1) Check(settings.SectionPins["price"] == SectionPin.Bottom, "Bottom menu action failed.");
-            if (index == 2) Check(!settings.SectionPins.ContainsKey("price"), "Unpin menu action failed.");
-            if (index == 4) Check(settings.SectionPinSummaries.Contains("price"), "Summary menu action failed.");
+            if (index == 2) Check(settings.SectionPins["price"] == SectionPin.Top, "Top menu action failed.");
+            if (index == 3) Check(settings.SectionPins["price"] == SectionPin.Bottom, "Bottom menu action failed.");
+            if (index == 4) Check(!settings.SectionPins.ContainsKey("price"), "Unpin menu action failed.");
+            if (index == 6) Check(settings.SectionPinSummaries.Contains("price"), "Summary menu action failed.");
             previousMenu = menu;
         }
         widget.Dispose();
