@@ -98,6 +98,16 @@ internal static class UiChecks
         using var automatic = Frame(widget, "automatic-light.png");
         Check(Get<WidgetLayout>(widget, "_layout").TopHeight == 0, "Released pins remained fixed.");
         Console.WriteLine("PASS UI: automatic size and unpinned scrolling remain available");
+
+        // A tall expanded section must pass a short one in both directions – also at the ends of the list
+        settings.SectionOrder = new[] { "ha", "cloudflare", "system", "proxmox", "network", "audio", "price" };
+        settings.CollapsedSystem = settings.CollapsedPrice = false;
+        widget.ApplySettings(settings); Call(widget, "FitSize");
+        DragSection(widget, "system", -100_000);
+        Check(settings.SectionOrder![0] == "system", "A tall section could not be dragged above shorter ones.");
+        DragSection(widget, "system", 100_000);
+        Check(settings.SectionOrder![^1] == "system", "A tall section could not be dragged below shorter ones.");
+        Console.WriteLine("PASS UI: tall sections can be dragged past short ones to both ends");
         ContextMenuStrip? previousMenu = null;
         foreach (var index in new[] { 1, 0, 4, 2, 1, 2 })
         {
@@ -122,7 +132,7 @@ internal static class UiChecks
         widget.Dispose();
         Check(previousMenu!.IsDisposed, "Widget disposal leaked its section menu.");
         Console.WriteLine("PASS UI: real section-menu mouse clicks pin, unpin and select summaries without premature disposal");
-        Console.WriteLine("6 UI integration checks passed; previews: " + Output);
+        Console.WriteLine("7 UI integration checks passed; previews: " + Output);
         Showcase();
     }
 
@@ -230,6 +240,17 @@ internal static class UiChecks
         path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
         path.CloseFigure();
         return path;
+    }
+
+    /// <summary>Lifts a section by its header, moves the mouse to <paramref name="mouseY"/> (clamped by the widget) and drops it.</summary>
+    private static void DragSection(DashboardForm widget, string key, int mouseY)
+    {
+        var bounds = Get<IEnumerable>(widget, "_sectionBounds").Cast<object>()
+            .First(b => (string)b.GetType().GetProperty("Key")!.GetValue(b)! == key);
+        var top = (float)bounds.GetType().GetProperty("Top")!.GetValue(bounds)!;
+        Call(widget, "StartSectionDrag", key, new Point(16, (int)top + 6));
+        Call(widget, "MoveSectionDrag", mouseY);
+        Call(widget, "FinishSectionDrag");
     }
 
     private static object? Call(object target, string method, params object[] args) => target.GetType().GetMethod(method, Private)!.Invoke(target, args);
