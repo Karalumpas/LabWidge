@@ -140,11 +140,16 @@ internal sealed partial class DashboardForm
         var total = Targets(d).Values.Max() + d.Heights[d.Order[^1]];
         d.MouseY = Math.Clamp(mouseY, d.Start + d.Grab - U(12), total - d.Heights[d.Key] + d.Grab + U(12));
 
-        // The slot is found from the card's middle relative to the other sections' middles
-        var center = d.MouseY - d.Grab + d.Heights[d.Key] / 2;
+        // The card's leading edge decides: a section above the card moves below it when the card's top passes its
+        // middle, and a section below moves above it when the card's bottom passes its middle. Comparing middles
+        // instead would never let a tall card pass a short section at the end of the list, because the card cannot
+        // be dragged beyond the ends of its area.
+        var top = d.MouseY - d.Grab;
+        var bottom = top + d.Heights[d.Key];
         var targets = Targets(d);
+        var before = d.Order.TakeWhile(k => k != d.Key).ToHashSet();
         var others = d.Order.Where(k => k != d.Key).ToList();
-        var index = others.Count(k => targets[k] + d.Heights[k] / 2 < center);
+        var index = others.Count(k => targets[k] + d.Heights[k] / 2 < (before.Contains(k) ? top : bottom));
         others.Insert(index, d.Key);
         if (!others.SequenceEqual(d.Order))
         {
