@@ -261,7 +261,9 @@ internal sealed partial class DashboardForm
         if (d == null || d.Settling) return;
         if (d.TornOff)
         {
-            // Dropped on the desktop: the order stays as it was, and the section opens in a pinned window there
+            // Dropped on the desktop: the order stays as it was, and the section opens in a pinned window there.
+            // Settling first: releasing the mouse capture below calls DropSectionDrag again.
+            d.Settling = true;
             _ghost?.Hide();
             d.Order.Clear();
             d.Order.AddRange(d.Original);
