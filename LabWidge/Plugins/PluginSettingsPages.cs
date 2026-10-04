@@ -71,8 +71,8 @@ internal sealed class SystemPluginPage : SettingsPage
         _disks.Items.Clear();
         try
         {
-            foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady))
-                _disks.Items.Add(drive.Name, !_hidden.Contains(drive.Name, StringComparer.OrdinalIgnoreCase));
+            foreach (var name in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady).Select(d => AppSettings.DiskName(d.Name)))
+                _disks.Items.Add(name, !_hidden.Contains(name, StringComparer.OrdinalIgnoreCase));
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }

@@ -45,7 +45,7 @@ internal static class Program
 
         // After a language change the old instance is still closing, so a restart waits a moment for it
         using var mutex = new Mutex(false, "Local\\LabWidge");
-        if (!mutex.WaitOne(args.Contains(RestartArgument) ? TimeSpan.FromSeconds(15) : TimeSpan.Zero))
+        if (!AcquireSingleInstance(mutex, args.Contains(RestartArgument) ? TimeSpan.FromSeconds(15) : TimeSpan.Zero))
         {
             return; // Already running
         }
@@ -60,6 +60,16 @@ internal static class Program
     }
 
     public const string RestartArgument = "--restart";
+
+    /// <summary>
+    /// The old instance never releases the mutex, so when it exits while we wait, Windows hands it over as
+    /// abandoned. That still means we own it now.
+    /// </summary>
+    private static bool AcquireSingleInstance(Mutex mutex, TimeSpan wait)
+    {
+        try { return mutex.WaitOne(wait); }
+        catch (AbandonedMutexException) { return true; }
+    }
 
     /// <summary>Starts a new instance and closes this one – used when the language changes.</summary>
     public static void Restart()

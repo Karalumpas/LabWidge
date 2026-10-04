@@ -92,14 +92,15 @@ namespace LabWidgeSetup
             }
         }
 
-        public static void Launch(bool runSetupGuide)
+        /// <param name="waitForOldInstance">Starts with --restart, so the new process waits for a LabWidge that is still closing.</param>
+        public static void Launch(bool runSetupGuide, bool waitForOldInstance = false)
         {
             try
             {
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = InstalledExe,
-                    Arguments = runSetupGuide ? "--setup" : "",
+                    Arguments = runSetupGuide ? "--setup" : waitForOldInstance ? "--restart" : "",
                     WorkingDirectory = InstallDir,
                     UseShellExecute = false
                 });

@@ -134,8 +134,11 @@ internal sealed class AppSettings
 
     // System and network
     public bool ShowGpu { get; set; } = true;
-    /// <summary>Drives (e.g. "D:\") left out of the widget's system section.</summary>
+    /// <summary>Drives (e.g. "D:", see <see cref="DiskName"/>) left out of the widget's system section.</summary>
     public string[] HiddenDisks { get; set; } = Array.Empty<string>();
+
+    /// <summary>The name a disk is shown and hidden by: "C:" (DriveInfo.Name is "C:\").</summary>
+    public static string DiskName(string driveName) => driveName.TrimEnd('\\');
     /// <summary>Show virtual adapters (VPN, Hyper-V, WSL) among the widget's local addresses.</summary>
     public bool ShowVirtualAdapters { get; set; } = true;
     /// <summary>The host the latency is measured against, e.g. 1.1.1.1 or the router.</summary>
@@ -318,7 +321,9 @@ internal static class SettingsStore
             loaded.SectionLastPins ??= new();
             loaded.SectionWindows ??= new();
             loaded.Plugins ??= new();
-            loaded.HiddenDisks ??= Array.Empty<string>();
+            // Before 1.18.1 the settings page saved "C:\" while the widget compares with "C:"
+            loaded.HiddenDisks = (loaded.HiddenDisks ?? Array.Empty<string>()).Select(AppSettings.DiskName)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             if (string.IsNullOrWhiteSpace(loaded.PingTarget)) loaded.PingTarget = "1.1.1.1";
             loaded.SectionPinSummaries ??= Array.Empty<string>();
 

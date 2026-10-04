@@ -338,8 +338,10 @@ internal sealed partial class DashboardForm : Form
         {
             _pressed = false;
             _downHit = null;
-            // Dragging a header moves the section – dragging anywhere else moves the widget
-            if (_downSection != null && Math.Abs(e.Y - _downPoint.Y) >= Math.Abs(e.X - _downPoint.X)) StartSectionDrag(_downSection, _mouse);
+            // Dragging a header moves the section – dragging anywhere else moves the widget. A section that can open
+            // in its own window is also dragged sideways, so it can be pulled straight out onto the desktop.
+            if (_downSection != null && (SectionWindows.Supports(_downSection) || Math.Abs(e.Y - _downPoint.Y) >= Math.Abs(e.X - _downPoint.X)))
+                StartSectionDrag(_downSection, _mouse);
             else BeginDrag();
             return;
         }
