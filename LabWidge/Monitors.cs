@@ -97,7 +97,7 @@ internal sealed class SystemMonitor
             {
                 Disks = DriveInfo.GetDrives()
                     .Where(d => d.DriveType == DriveType.Fixed && d.IsReady)
-                    .Select(d => new DiskInfo(d.Name.TrimEnd('\\'), d.VolumeLabel, d.TotalSize - d.TotalFreeSpace, d.TotalSize))
+                    .Select(d => new DiskInfo(AppSettings.DiskName(d.Name), d.VolumeLabel, d.TotalSize - d.TotalFreeSpace, d.TotalSize))
                     .ToList();
             }
             catch

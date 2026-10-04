@@ -25,7 +25,7 @@ internal sealed class ElectricityPriceService
 
     private readonly HttpClient _http;
     private readonly SemaphoreSlim _lock = new(1, 1);
-    private sealed record FetchRequest(Country? Country, string Area, string Owner, string[] Codes, bool HasNetTariff);
+    private sealed record FetchRequest(Country? Country, string Area, string Owner, string[] Codes, bool HasNetTariff, CancellationToken Cancel);
     private FetchRequest? _pendingRefresh;
 
     public IReadOnlyList<PricePoint> Prices { get; private set; } = Array.Empty<PricePoint>();
@@ -63,23 +63,29 @@ internal sealed class ElectricityPriceService
         // Remember the latest change instead of losing it during a fetch in progress.
         // Take a copy before the first await, so area and tariff always belong to the same request.
         _pendingRefresh = new FetchRequest(Countries.Find(settings.Country), AreaKey(settings), settings.NetTariffOwner,
-            settings.NetTariffCodes.ToArray(), settings.HasNetTariff);
+            settings.NetTariffCodes.ToArray(), settings.HasNetTariff, cancel);
         if (!await _lock.WaitAsync(0)) return;
         try
         {
+            // Each request runs with the token of the call that made it: cancelling an old fetch
+            // must not drop a newer request that arrived while it was running
             while (_pendingRefresh is { } request)
             {
-                cancel.ThrowIfCancellationRequested();
                 _pendingRefresh = null;
-                await RefreshOneAsync(request, cancel);
-                Updated?.Invoke();
+                if (request.Cancel.IsCancellationRequested) continue;
+                try
+                {
+                    await RefreshOneAsync(request, request.Cancel);
+                    Updated?.Invoke();
+                }
+                catch (OperationCanceledException) when (request.Cancel.IsCancellationRequested) { }
             }
         }
-        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { _pendingRefresh = null; throw; }
         finally
         {
             _lock.Release();
         }
+        cancel.ThrowIfCancellationRequested();
     }
 
     /// <summary>"DK:DK1" – the country and area the prices belong to. Empty when the country has no prices.</summary>
@@ -98,6 +104,13 @@ internal sealed class ElectricityPriceService
             LastError = TariffError = null;
             LastFetch = DateTime.Now;
             return;
+        }
+        if (area != FetchedArea && (Prices.Count > 0 || NetTariffs.Count > 0 || StateCharges.Count > 0))
+        {
+            // The old prices belong to another country or area – never show them with the new unit, VAT and add-on
+            Prices = Array.Empty<PricePoint>();
+            NetTariffs = StateCharges = Array.Empty<TariffRow>();
+            Updated?.Invoke();
         }
         try
         {

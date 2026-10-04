@@ -62,7 +62,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Widget: status distinguishes fresh, stale and failed data", FreshnessStates),
     ("Widget: size and pin preferences survive settings cloning", LayoutSettings),
     ("Plugins: legacy activation migrates and configuration survives disable and clone", PluginSettings),
-    ("Plugins: cancellation stops price requests before tariff fetching and allows restart", CancelPriceFetch)
+    ("Plugins: cancellation stops price requests before tariff fetching and allows restart", CancelPriceFetch),
+    ("Plugins: cancelling an old price fetch keeps a newer request waiting behind it", CancelKeepsNewerPriceRequest),
+    ("Settings: hidden disks match the widget's disk names", HiddenDiskNames)
 };
 foreach (var test in tests)
 {
@@ -135,6 +137,30 @@ static async Task CancelPriceFetch()
     handler.Block = false;
     await service.RefreshAsync(settings).WaitAsync(TimeSpan.FromSeconds(5));
     Check(updates == 1 && service.LastSuccessfulFetch != DateTime.MinValue, "Canceled service could not be restarted.");
+}
+
+static async Task CancelKeepsNewerPriceRequest()
+{
+    using var handler = new CancelHandler();
+    using var http = new HttpClient(handler);
+    var service = new ElectricityPriceService(http);
+    var settings = new AppSettings { Country = "DK" };
+    using var oldGeneration = new CancellationTokenSource();
+    var running = service.RefreshAsync(settings, oldGeneration.Token);
+    await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    // A new plugin generation asks for prices while the old fetch still holds the lock
+    await service.RefreshAsync(settings, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+    handler.Block = false;
+    oldGeneration.Cancel();
+    try { await running.WaitAsync(TimeSpan.FromSeconds(5)); throw new Exception("Canceled fetch completed normally."); }
+    catch (OperationCanceledException) { }
+    Check(service.Prices.Count > 0 && service.LastSuccessfulFetch != DateTime.MinValue, "Cancelling the old fetch dropped the newer request.");
+}
+
+static Task HiddenDiskNames()
+{
+    Check(AppSettings.DiskName(@"C:\") == "C:" && AppSettings.DiskName("D:") == "D:", "Drive names were not normalized like the widget's.");
+    return Task.CompletedTask;
 }
 
 static Task LayoutSettings()

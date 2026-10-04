@@ -295,8 +295,8 @@ internal sealed class PricePage : SettingsPage
         {
             var previous = _vatCountry;
             ApplyCountry();
-            // A new country brings its usual VAT, unless the user had changed it
-            if (SelectedCountry is { } c && previous != null && (double)_vatPercent.Value == previous.VatPercent)
+            // A new country brings its usual VAT, unless the user had changed it (coming from Other there is nothing to keep)
+            if (SelectedCountry is { } c && (previous == null || (double)_vatPercent.Value == previous.VatPercent))
                 _vatPercent.Value = (decimal)c.VatPercent;
             _vatCountry = SelectedCountry;
             if (SelectedCountry?.Code == "DK") await EnsureCompaniesAsync();

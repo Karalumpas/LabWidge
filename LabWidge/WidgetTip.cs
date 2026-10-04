@@ -32,9 +32,9 @@ internal sealed class WidgetTip : Form
         get
         {
             var cp = base.CreateParams;
-            // Set topmost in the native styles. Form.TopMost uses SetWindowPos when the handle is
-            // created and can activate the tooltip before ShowWithoutActivation takes effect.
-            cp.ExStyle |= 0x8 | 0x80 | 0x08000000 | 0x20; // TOPMOST | TOOLWINDOW | NOACTIVATE | TRANSPARENT
+            // Not Form.TopMost: it uses SetWindowPos when the handle is created and can activate the
+            // tooltip before ShowWithoutActivation takes effect. Topmost follows the owner, see ShowBeside.
+            cp.ExStyle |= 0x80 | 0x08000000 | 0x20; // TOOLWINDOW | NOACTIVATE | TRANSPARENT
             return cp;
         }
     }
@@ -84,6 +84,8 @@ internal sealed class WidgetTip : Form
         var y = Math.Clamp(screenY - size.Height / 2, wa.Top, Math.Max(wa.Top, wa.Bottom - size.Height));
 
         Bounds = new Rectangle(x, y, size.Width, size.Height);
+        // As an owned window it always stays above its owner; it only goes above other programs when the owner does
+        SetWindowPos(Handle, owner.TopMost ? HwndTopMost : HwndNoTopMost, 0, 0, 0, 0, SwpNoSize | SwpNoMove | SwpNoActivate);
         if (!Visible) Show(owner);
         Invalidate();
         if (durationMs > 0)
@@ -133,6 +135,12 @@ internal sealed class WidgetTip : Form
         }
         base.Dispose(disposing);
     }
+
+    private static readonly IntPtr HwndTopMost = new(-1), HwndNoTopMost = new(-2);
+    private const uint SwpNoSize = 0x1, SwpNoMove = 0x2, SwpNoActivate = 0x10;
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);

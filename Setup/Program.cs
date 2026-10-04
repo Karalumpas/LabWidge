@@ -39,8 +39,9 @@ namespace LabWidgeSetup
             }
             catch (AppBlockedException)
             {
-                // The working version was not touched: start it again quietly – the next update check tries again
-                try { AppInstaller.Launch(runSetupGuide: false); } catch { /* blocked too – nothing more to do silently */ }
+                // The working version was not touched: start it again quietly – the next update check tries again.
+                // The instance that started the update may still be closing, so the new one waits for it.
+                try { AppInstaller.Launch(runSetupGuide: false, waitForOldInstance: true); } catch { /* blocked too – nothing more to do silently */ }
                 return true;
             }
             catch

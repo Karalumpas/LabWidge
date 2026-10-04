@@ -2,6 +2,13 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.18.1
+- Fixed: unticking a disk in Settings now actually hides it from the widget
+- Fixed: choosing your country's electricity price after "Other" now includes the right VAT instead of 0 %
+- Prices from the previous country are no longer shown in the new currency while switching country
+- Drag a section sideways out of the widget to open it in its own window, and hover text no longer stays on top of other programs when the widget doesn't
+- More reliable updates: LabWidge starts again on its own if Windows blocks a new version, and changed grid tariffs are fetched straight away
+
 ## 1.18.0
 - Choose which plugins you use: enable or disable electricity, system, network, audio, Home Assistant, Cloudflare and Proxmox in Settings.
 - Disabled plugins stop their background work to save resources, while keeping your settings and pinned window positions.
