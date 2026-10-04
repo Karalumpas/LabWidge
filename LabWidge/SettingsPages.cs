@@ -164,6 +164,7 @@ internal abstract class SettingsPage : UserControl
 
     /// <summary>Called when the page is shown for the first time (e.g. to fetch data).</summary>
     public virtual Task OnFirstShownAsync() => Task.CompletedTask;
+    public virtual void UsePluginActivation() { }
 }
 
 // ---------------------------------------------------------------------------
@@ -662,9 +663,7 @@ internal sealed class GeneralPage : SettingsPage
 
 internal sealed class WidgetPage : SettingsPage
 {
-    private readonly CheckBox _system = Ui.Check(L.T("System – CPU, RAM, graphics card and disks", "System – CPU, RAM, grafikkort og diske"));
-    private readonly CheckBox _network = Ui.Check(L.T("Network – IP addresses, ping and traffic", "Netværk – IP-adresser, ping og trafik"));
-    private readonly CheckBox _compact = Ui.Check(L.T("Compact view (one line – click to expand)", "Kompakt visning (én linje – klik for at udvide)"));
+    private readonly CheckBox _compact = Ui.Check(L.T("Compact view (a summary per plugin)", "Kompakt visning (en oversigt pr. plugin)"));
     private readonly Button _resetOrder = new() { Text = L.T("Reset the order", "Nulstil rækkefølgen"), AutoSize = true };
     private readonly Button _resetPins = new() { Text = L.T("Unpin all sections", "Frigør alle sektioner"), AutoSize = true };
     private readonly NumericUpDown _width = new() { Minimum = 300, Maximum = 640, Increment = 20, Width = 80 };
@@ -695,9 +694,8 @@ internal sealed class WidgetPage : SettingsPage
                         "Klik på lynet ved uret for at vise eller skjule widgetten. Klik på en overskrift for at folde en sektion sammen, træk i grebet for at flytte den, " +
                         "og træk den ud af widgetten for at åbne den i et vindue.")),
             Ui.Section(L.T("Sections", "Sektioner")),
-            _system, _network,
-            Ui.Help(L.T("Electricity price, audio, Home Assistant, Cloudflare and Proxmox are turned on and off on their own pages.",
-                        "Elpris, lyd, Home Assistant, Cloudflare og Proxmox slås til og fra på deres egne sider.")),
+            Ui.Help(L.T("Choose active sections on the Plugins page. Configure each active plugin on its own page.",
+                        "Vælg aktive sektioner på Plugins-siden. Indstil hvert aktivt plugin på dets egen side.")),
             Ui.Row(L.T("Order and pins", "Rækkefølge og pinning"), _resetOrder, _resetPins),
             Ui.Section(L.T("Size", "Størrelse")),
             Ui.Help(L.T("You can also drag the widget's edges or corners. The size is remembered across display scaling.",
@@ -709,8 +707,6 @@ internal sealed class WidgetPage : SettingsPage
 
     public override void LoadFrom(AppSettings s)
     {
-        _system.Checked = s.ShowSystem;
-        _network.Checked = s.ShowNetwork;
         _compact.Checked = s.CompactMode;
         _width.Value = Math.Clamp(s.WidgetWidth ?? 344, 300, 640);
         _height.Value = Math.Clamp(s.WidgetHeight ?? 600, 180, 2160);
@@ -722,8 +718,6 @@ internal sealed class WidgetPage : SettingsPage
 
     public override string? SaveTo(AppSettings s)
     {
-        s.ShowSystem = _system.Checked;
-        s.ShowNetwork = _network.Checked;
         s.CompactMode = _compact.Checked;
         if (_orderReset) s.SectionOrder = null;
         s.WidgetWidth = _autoWidth.Checked ? null : (int)_width.Value;
@@ -817,77 +811,6 @@ internal sealed class WindowsPage : SettingsPage
 
 // ---------------------------------------------------------------------------
 
-internal sealed class SystemNetworkPage : SettingsPage
-{
-    private readonly CheckBox _gpu = Ui.Check(L.T("Show the graphics card", "Vis grafikkortet"));
-    private readonly CheckedListBox _disks = new() { Width = 300, Height = 96, CheckOnClick = true, IntegralHeight = false };
-    private readonly CheckBox _virtual = Ui.Check(L.T("Show virtual adapters (VPN, Hyper-V, WSL) among the local addresses", "Vis virtuelle adaptere (VPN, Hyper-V, WSL) blandt de interne adresser"));
-    private readonly TextBox _ping = new() { Width = 200 };
-    private string[] _hidden = Array.Empty<string>();
-
-    public override string Title => L.T("System and network", "System og netværk");
-    public override string Glyph => "";
-
-    public SystemNetworkPage()
-    {
-        Add(Ui.Heading(L.T("System and network", "System og netværk")),
-            Ui.Help(L.T("Choose what the widget's system and network sections show. Their windows always show everything.",
-                        "Vælg hvad widgettens system- og netværkssektioner viser. Deres vinduer viser altid det hele.")),
-            Ui.Section("System"),
-            _gpu,
-            Ui.Row(L.T("Disks in the widget", "Diske i widgetten"), _disks),
-            Ui.Section(L.T("Network", "Netværk")),
-            _virtual,
-            Ui.Row(L.T("Measure ping to", "Mål ping til"), _ping),
-            Ui.Help(L.T("A host name or IP address – e.g. 1.1.1.1 for the internet, or your router or server to watch your own network.",
-                        "Et værtsnavn eller en IP-adresse – fx 1.1.1.1 for internettet, eller din router eller server for at holde øje med dit eget netværk.")));
-    }
-
-    public override void LoadFrom(AppSettings s)
-    {
-        _gpu.Checked = s.ShowGpu;
-        _virtual.Checked = s.ShowVirtualAdapters;
-        _ping.Text = s.PingTarget;
-        _hidden = s.HiddenDisks;
-        _disks.Items.Clear();
-        try
-        {
-            foreach (var d in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady))
-            {
-                var label = string.IsNullOrWhiteSpace(d.VolumeLabel) ? d.Name : $"{d.Name}  {d.VolumeLabel}";
-                _disks.Items.Add(new DiskItem(d.Name, label), !_hidden.Contains(d.Name, StringComparer.OrdinalIgnoreCase));
-            }
-        }
-        catch
-        {
-            // The drives could not be read; the list stays empty
-        }
-    }
-
-    private sealed record DiskItem(string Name, string Label)
-    {
-        public override string ToString() => Label;
-    }
-
-    public override string? SaveTo(AppSettings s)
-    {
-        var ping = _ping.Text.Trim();
-        if (ping.Length == 0 || ping.Length > 253 || ping.Any(char.IsWhiteSpace))
-            return L.T("Type a host name or IP address to measure ping to.", "Skriv et værtsnavn eller en IP-adresse at måle ping til.");
-        s.ShowGpu = _gpu.Checked;
-        s.ShowVirtualAdapters = _virtual.Checked;
-        s.PingTarget = ping;
-        // Drives that are not connected right now keep their choice
-        var listed = _disks.Items.Cast<DiskItem>().Select(d => d.Name).ToList();
-        s.HiddenDisks = _hidden.Where(h => !listed.Contains(h, StringComparer.OrdinalIgnoreCase))
-            .Concat(_disks.Items.Cast<DiskItem>().Where((d, i) => !_disks.GetItemChecked(i)).Select(d => d.Name))
-            .ToArray();
-        return null;
-    }
-}
-
-// ---------------------------------------------------------------------------
-
 internal sealed class AboutPage : SettingsPage
 {
     public override string Title => L.T("About", "Om");
@@ -959,6 +882,16 @@ internal sealed class CloudflarePage : SettingsPage
 
     public override string Title => "Cloudflare";
     public override string Glyph => "\uE753";
+
+    private bool _managedPlugin;
+
+    public override void UsePluginActivation()
+    {
+        _managedPlugin = true;
+        _enabled.Visible = false;
+        _enabled.Checked = true;
+        _details.Enabled = true;
+    }
 
     public CloudflarePage()
     {
@@ -1077,6 +1010,7 @@ internal sealed class CloudflarePage : SettingsPage
 
     public override string? SaveTo(AppSettings s)
     {
+        if (!_managedPlugin) s.SetPluginEnabled("cloudflare", _enabled.Checked);
         s.CloudflareEnabled = _enabled.Checked;
         if (!_enabled.Checked) return null;
 
@@ -1131,6 +1065,16 @@ internal sealed class ProxmoxPage : SettingsPage
 
     public override string Title => "Proxmox";
     public override string Glyph => "\uE977";
+
+    private bool _managedPlugin;
+
+    public override void UsePluginActivation()
+    {
+        _managedPlugin = true;
+        _enabled.Visible = false;
+        _enabled.Checked = true;
+        _details.Enabled = true;
+    }
 
     public ProxmoxPage()
     {
@@ -1259,6 +1203,7 @@ internal sealed class ProxmoxPage : SettingsPage
 
     public override string? SaveTo(AppSettings s)
     {
+        if (!_managedPlugin) s.SetPluginEnabled("proxmox", _enabled.Checked);
         s.ProxmoxEnabled = _enabled.Checked;
         s.ProxmoxRefreshSeconds = (int)_interval.Value;
         s.ShowProxmox = _showInWidget.Checked;
@@ -1329,6 +1274,16 @@ internal sealed class HomeAssistantPage : SettingsPage
 
     public override string Title => "Home Assistant";
     public override string Glyph => "\uE80F";
+
+    private bool _managedPlugin;
+
+    public override void UsePluginActivation()
+    {
+        _managedPlugin = true;
+        _enabled.Visible = false;
+        _enabled.Checked = true;
+        _details.Enabled = true;
+    }
 
     public HomeAssistantPage()
     {
@@ -1543,6 +1498,7 @@ internal sealed class HomeAssistantPage : SettingsPage
 
     public override string? SaveTo(AppSettings s)
     {
+        if (!_managedPlugin) s.SetPluginEnabled("ha", _enabled.Checked);
         s.HomeAssistantEnabled = _enabled.Checked;
         s.HomeAssistantRefreshSeconds = (int)_interval.Value;
         s.ShowHomeAssistant = _showInWidget.Checked;

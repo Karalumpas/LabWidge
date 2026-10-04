@@ -32,6 +32,42 @@ internal sealed class AppSettings
 
     public int SettingsVersion { get; set; } = CurrentVersion;
     public bool OnboardingCompleted { get; set; }
+    /// <summary>Explicit plugin activation. Missing keys use the existing preferences for backwards compatibility.</summary>
+    public Dictionary<string, bool> Plugins { get; set; } = new();
+
+    public bool IsPluginEnabled(string key) => Plugins.TryGetValue(key, out var enabled) ? enabled : key switch
+    {
+        "price" => ShowPrice, "system" => ShowSystem, "network" => ShowNetwork, "audio" => ShowAudio,
+        "ha" => HomeAssistantEnabled, "cloudflare" => CloudflareEnabled, "proxmox" => ProxmoxEnabled,
+        _ => false
+    };
+
+    public void SetPluginEnabled(string key, bool enabled)
+    {
+        var previouslyEnabled = IsPluginEnabled(key);
+        var legacyActivation = !Plugins.ContainsKey(key);
+        Plugins[key] = enabled;
+        // Connection switches remain readable by old settings and the setup guide.
+        if (enabled)
+        {
+            if (!previouslyEnabled && legacyActivation)
+            {
+                switch (key)
+                {
+                    case "price": ShowPrice = true; break;
+                    case "system": ShowSystem = true; break;
+                    case "network": ShowNetwork = true; break;
+                    case "audio": ShowAudio = true; break;
+                }
+            }
+            switch (key)
+            {
+                case "ha": HomeAssistantEnabled = true; break;
+                case "cloudflare": CloudflareEnabled = true; break;
+                case "proxmox": ProxmoxEnabled = true; break;
+            }
+        }
+    }
     public bool StartWithWindows { get; set; } = true;
     /// <summary>"en" or "da". Null until chosen in the installer or the settings; then the Windows language is used.</summary>
     public string? Language { get; set; }
@@ -74,6 +110,7 @@ internal sealed class AppSettings
     public bool ShowSystem { get; set; } = true;
     public bool ShowNetwork { get; set; } = true;
     public bool ShowHomeAssistant { get; set; } = true;
+    public bool CollapsedHomeAssistant { get; set; } = true;
     public bool CollapsedPrice { get; set; }
     public bool CollapsedSystem { get; set; }
     public bool CollapsedNetwork { get; set; }
@@ -196,18 +233,18 @@ internal sealed class AppSettings
     public string? LastRunVersion { get; set; }
 
     [JsonIgnore]
-    public bool HasCloudflare => CloudflareEnabled && !string.IsNullOrWhiteSpace(ZoneId);
+    public bool HasCloudflare => IsPluginEnabled("cloudflare") && CloudflareEnabled && !string.IsNullOrWhiteSpace(ZoneId);
 
     [JsonIgnore]
     public bool HasProxmox =>
-        ProxmoxEnabled && !string.IsNullOrWhiteSpace(ProxmoxUrl) && !string.IsNullOrWhiteSpace(ProxmoxTokenId);
+        IsPluginEnabled("proxmox") && ProxmoxEnabled && !string.IsNullOrWhiteSpace(ProxmoxUrl) && !string.IsNullOrWhiteSpace(ProxmoxTokenId);
 
     [JsonIgnore]
     public Country? PriceCountry => Countries.Find(Country);
 
     /// <summary>Whether the electricity price is shown: turned on and the country has prices.</summary>
     [JsonIgnore]
-    public bool PriceEnabled => ShowPrice && PriceCountry != null;
+    public bool PriceEnabled => IsPluginEnabled("price") && ShowPrice && PriceCountry != null;
 
     [JsonIgnore]
     public double EffectiveVatPercent => VatPercent ?? PriceCountry?.VatPercent ?? 0;
@@ -220,7 +257,7 @@ internal sealed class AppSettings
 
     [JsonIgnore]
     public bool HasHomeAssistant =>
-        HomeAssistantEnabled && !string.IsNullOrWhiteSpace(HomeAssistantUrl) && HomeAssistantEntities.Length > 0;
+        IsPluginEnabled("ha") && HomeAssistantEnabled && !string.IsNullOrWhiteSpace(HomeAssistantUrl) && HomeAssistantEntities.Length > 0;
 
     public AppSettings Clone() =>
         JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(this)) ?? new AppSettings();
@@ -280,6 +317,7 @@ internal static class SettingsStore
             loaded.SectionPins ??= new();
             loaded.SectionLastPins ??= new();
             loaded.SectionWindows ??= new();
+            loaded.Plugins ??= new();
             loaded.HiddenDisks ??= Array.Empty<string>();
             if (string.IsNullOrWhiteSpace(loaded.PingTarget)) loaded.PingTarget = "1.1.1.1";
             loaded.SectionPinSummaries ??= Array.Empty<string>();

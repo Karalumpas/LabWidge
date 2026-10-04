@@ -7,7 +7,6 @@ using Microsoft.Win32;
 
 internal sealed class TrayAppContext : ApplicationContext
 {
-    private const int UpdateIntervalMinutes = 5;
     private const int NotifyTextMaxLength = 127;
     private static CultureInfo Fmt => L.Culture;
     private static readonly HttpClient Http = HttpClientFactory.Create(TimeSpan.FromSeconds(15));
@@ -19,12 +18,6 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _dk1Item;
     private readonly ToolStripMenuItem _dk2Item;
     private readonly ToolStripMenuItem _cloudflareItem;
-    private readonly System.Windows.Forms.Timer _ipTimer;
-    private readonly System.Windows.Forms.Timer _priceTimer;
-    private readonly System.Windows.Forms.Timer _homeAssistantTimer;
-    private readonly System.Windows.Forms.Timer _cloudflareTimer;
-    private readonly System.Windows.Forms.Timer _serviceTimer;
-    private readonly System.Windows.Forms.Timer _proxmoxTimer;
     private readonly System.Windows.Forms.Timer _updateTimer;
     private readonly SemaphoreSlim _updateLock = new(1, 1);
     private readonly SemaphoreSlim _cloudflareLock = new(1, 1);
@@ -38,7 +31,6 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly ElectricityPriceService _prices = new(HttpClientFactory.Create(TimeSpan.FromSeconds(20)));
     private readonly SystemMonitor _system = new();
     private readonly AudioService _audio = new();
-    private readonly System.Windows.Forms.Timer _audioTimer = new() { Interval = 2000 };
     private readonly NetworkMonitor _network = new();
     private readonly HomeAssistantService _homeAssistant = new(HttpClientFactory.Create(TimeSpan.FromSeconds(10)));
     private readonly CloudflareService _cloudflare = new(HttpClientFactory.Create(TimeSpan.FromSeconds(15)));
@@ -47,6 +39,7 @@ internal sealed class TrayAppContext : ApplicationContext
     /// <summary>Last known status per tunnel id, so a change can be reported.</summary>
     private readonly Dictionary<string, string> _tunnelStatus = new();
     private readonly DashboardForm _dashboard;
+    private readonly PluginRuntime _plugins = new();
 
     private AppSettings _settings;
     private string? _lastIp;
@@ -89,7 +82,7 @@ internal sealed class TrayAppContext : ApplicationContext
         var updateItem = new ToolStripMenuItem(L.T("Refresh now", "Opdatér nu"), null, async (_, _) =>
         {
             await UpdateIpAsync(manual: true);
-            await _prices.RefreshAsync(_settings);
+            await RefreshPricesAsync();
         });
 
         var areaItem = new ToolStripMenuItem(L.T("Price area", "Prisområde"));
@@ -164,61 +157,6 @@ internal sealed class TrayAppContext : ApplicationContext
             CheckPriceAlerts();
         };
 
-        // ---------- Timers ----------
-        _ipTimer = new System.Windows.Forms.Timer { Interval = (int)TimeSpan.FromMinutes(UpdateIntervalMinutes).TotalMilliseconds };
-        _ipTimer.Tick += async (_, _) => await UpdateIpAsync(manual: false);
-        _ipTimer.Start();
-
-        _priceTimer = new System.Windows.Forms.Timer { Interval = 30_000 };
-        _priceTimer.Tick += async (_, _) =>
-        {
-            if (_prices.NeedsRefresh(_settings))
-            {
-                await _prices.RefreshAsync(_settings);
-            }
-            else
-            {
-                ApplyUiState(); // icon and tooltip follow the quarter-hour
-                CheckPriceAlerts();
-            }
-        };
-        _priceTimer.Start();
-
-        // Home Assistant is polled often, so a light switched on elsewhere shows up quickly
-        _network.PingTarget = _settings.PingTarget;
-        _homeAssistantTimer = new System.Windows.Forms.Timer { Interval = Math.Clamp(_settings.HomeAssistantRefreshSeconds, 5, 600) * 1000 };
-        _homeAssistantTimer.Tick += async (_, _) =>
-        {
-            var inView = _dashboard.Visible || SectionWindows.IsOpen("ha");
-            if (_settings.HasHomeAssistant && _settings.ShowHomeAssistant && inView)
-            {
-                await _homeAssistant.RefreshAsync(_settings);
-            }
-        };
-        _homeAssistantTimer.Start();
-
-        // Tunnels are checked even while the widget is hidden, so an outage is reported
-        _cloudflareTimer = new System.Windows.Forms.Timer { Interval = Math.Clamp(_settings.CloudflareRefreshMinutes, 1, 60) * 60_000 };
-        _cloudflareTimer.Tick += async (_, _) =>
-        {
-            if (_settings.HasCloudflare) await _cloudflare.RefreshAsync(_settings);
-        };
-        _cloudflareTimer.Start();
-
-        // Services: the timer is cheap – only addresses that are due are checked (normally every 5 minutes)
-        _serviceTimer = new System.Windows.Forms.Timer { Interval = 30_000 };
-        _serviceTimer.Tick += async (_, _) => await CheckServicesAsync();
-        _serviceTimer.Start();
-
-        // Proxmox is only fetched while it can be seen – one call every 15 seconds
-        _proxmoxTimer = new System.Windows.Forms.Timer { Interval = Math.Clamp(_settings.ProxmoxRefreshSeconds, 5, 600) * 1000 };
-        _proxmoxTimer.Tick += async (_, _) =>
-        {
-            if (_settings.HasProxmox && ((_dashboard.Visible && _settings.ShowProxmox) || SectionWindows.IsOpen("proxmox")))
-                await _proxmox.RefreshAsync(_settings);
-        };
-        _proxmoxTimer.Start();
-
         // The first version check runs shortly after start, then once a day
         _updateTimer = new System.Windows.Forms.Timer { Interval = (int)TimeSpan.FromMinutes(2).TotalMilliseconds };
         _updateTimer.Tick += async (_, _) =>
@@ -228,23 +166,13 @@ internal sealed class TrayAppContext : ApplicationContext
         };
         _updateTimer.Start();
 
-        // Audio: the list follows devices being connected, and the default device takes over when the active one disappears
-        // The headset battery is read every minute, and at once when an output appears or disappears (e.g. headset switched on)
-        _audio.Refresh();
-        ApplyStandardAudioAtLogon();
-        _ = RefreshBatteriesAsync();
-        var batteryTicks = 0;
-        _audioTimer.Tick += (_, _) =>
-        {
-            var before = _audio.Devices;
-            if (_audio.Refresh()) FallBackToStandardAudio();
-            if (++batteryTicks >= 30 || !before.Select(d => d.Id).SequenceEqual(_audio.Devices.Select(d => d.Id)))
-            {
-                batteryTicks = 0;
-                _ = RefreshBatteriesAsync();
-            }
-        };
-        _audioTimer.Start();
+        var pluginServices = _dashboard.Services;
+        pluginServices.PriceTick = () => { ApplyUiState(); CheckPriceAlerts(); };
+        pluginServices.RefreshIp = ct => UpdateIpAsync(manual: false, ct);
+        pluginServices.RefreshDns = ct => UpdateCloudflareAsync(force: false, ct);
+        pluginServices.CheckServices = CheckServicesAsync;
+        pluginServices.RefreshAudio = () => { if (_audio.Refresh()) FallBackToStandardAudio(); };
+        pluginServices.RefreshBatteries = RefreshBatteriesAsync;
 
         _installTimer.Tick += (_, _) => InstallStagedWhenIdle();
 
@@ -254,16 +182,14 @@ internal sealed class TrayAppContext : ApplicationContext
 
         StartupRegistration.Apply(_settings.StartWithWindows);
 
-        _ = UpdateIpAsync(manual: false);
-        _ = _prices.RefreshAsync(_settings);
-        _ = _homeAssistant.RefreshAsync(_settings);
-        _ = _cloudflare.RefreshAsync(_settings);
-        if (_settings.WidgetVisible) _ = _proxmox.RefreshAsync(_settings);
+        _plugins.ApplySettings(_dashboard.Services, _settings);
+        SectionWindows.WindowOpened += OnPluginWindowOpened;
+        if (_settings.IsPluginEnabled("audio")) ApplyStandardAudioAtLogon();
 
         var isUpdate = RecordRunVersion();
         if (_settings.OnboardingCompleted && !forceSetup)
         {
-            if (_settings.WidgetVisible) _dashboard.ShowWidget();
+            if (_settings.WidgetVisible) { _dashboard.ShowWidget(); RefreshVisiblePlugins(); }
             // Windows pinned on the desktop open where they were when LabWidge closed
             if (_settings.RestorePinnedWindows) SectionWindows.RestorePinned(_settings);
             if (isUpdate) RunLater(TimeSpan.FromSeconds(5), ShowWhatsNewToast);
@@ -298,9 +224,10 @@ internal sealed class TrayAppContext : ApplicationContext
     /// <summary>The level last warned about per headset: 1 = low, 2 = critical.</summary>
     private readonly Dictionary<string, int> _batteryAlerted = new();
 
-    private async Task RefreshBatteriesAsync()
+    private async Task RefreshBatteriesAsync(CancellationToken cancel)
     {
-        await _audio.RefreshBatteriesAsync();
+        await _audio.RefreshBatteriesAsync(cancel);
+        cancel.ThrowIfCancellationRequested();
         CheckBatteryAlerts();
     }
 
@@ -311,6 +238,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private void CheckBatteryAlerts()
     {
         var s = _settings;
+        if (!s.IsPluginEnabled("audio")) return;
         foreach (var (id, battery) in _audio.Batteries)
         {
             var low = Math.Clamp(s.AudioBatteryLowLevel, 1, 99);
@@ -429,16 +357,11 @@ internal sealed class TrayAppContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        SectionWindows.WindowOpened -= OnPluginWindowOpened;
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        _plugins.Dispose();
         SectionWindows.CloseAllForShutdown();
-        _ipTimer.Dispose();
-        _priceTimer.Dispose();
-        _homeAssistantTimer.Dispose();
-        _cloudflareTimer.Dispose();
-        _serviceTimer.Dispose();
-        _proxmoxTimer.Dispose();
         _updateTimer.Dispose();
-        _audioTimer.Dispose();
         _installTimer.Dispose();
         _dashboard.Dispose();
         _notifyIcon.Visible = false;
@@ -507,6 +430,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private void ApplyNewSettings(AppSettings updated)
     {
         var old = _settings;
+        _plugins.Stop();
         // The settings window does not edit the section windows; keep what they changed while it was open,
         // except the windows the user chose to forget
         updated.SectionWindows = old.SectionWindows;
@@ -521,44 +445,10 @@ internal sealed class TrayAppContext : ApplicationContext
 
         _dashboard.ApplySettings(_settings);
         StartupRegistration.Apply(_settings.StartWithWindows);
-        _network.PingTarget = _settings.PingTarget;
-        _homeAssistantTimer.Interval = Math.Clamp(_settings.HomeAssistantRefreshSeconds, 5, 600) * 1000;
-        _proxmoxTimer.Interval = Math.Clamp(_settings.ProxmoxRefreshSeconds, 5, 600) * 1000;
-        _cloudflareTimer.Interval = Math.Clamp(_settings.CloudflareRefreshMinutes, 1, 60) * 60_000;
-
-        var priceChanged = old.Country != updated.Country || old.PriceArea != updated.PriceArea
-                           || old.NetTariffOwner != updated.NetTariffOwner
-                           || !old.NetTariffCodes.SequenceEqual(updated.NetTariffCodes);
-        if (priceChanged) _ = _prices.RefreshAsync(_settings);
-
-        var homeAssistantChanged = old.HomeAssistantEnabled != updated.HomeAssistantEnabled
-                                   || old.HomeAssistantUrl != updated.HomeAssistantUrl
-                                   || !old.HomeAssistantEntities.SequenceEqual(updated.HomeAssistantEntities);
-        if (homeAssistantChanged) _ = _homeAssistant.RefreshAsync(_settings);
-
-        var dnsSettingsChanged = old.HasCloudflare != updated.HasCloudflare
-                                 || old.ZoneId != updated.ZoneId
-                                 || old.CloudflareAutoUpdate != updated.CloudflareAutoUpdate
-                                 || old.UpdateAllARecords != updated.UpdateAllARecords
-                                 || !old.IncludedHosts.SequenceEqual(updated.IncludedHosts);
-        if (dnsSettingsChanged) _dnsSync.Invalidate();
-        if (updated.HasCloudflare && dnsSettingsChanged && _lastIp != null)
-            _ = UpdateCloudflareAsync(force: false);
-
-        var cloudflareChanged = old.HasCloudflare != updated.HasCloudflare
-                                || old.ZoneId != updated.ZoneId
-                                || old.CloudflareAccountId != updated.CloudflareAccountId;
-        if (cloudflareChanged)
-        {
-            _tunnelStatus.Clear();
-            _ = _cloudflare.RefreshAsync(_settings);
-        }
-
-        var proxmoxChanged = old.HasProxmox != updated.HasProxmox
-                             || old.ProxmoxUrl != updated.ProxmoxUrl
-                             || old.ProxmoxTokenId != updated.ProxmoxTokenId
-                             || old.ProxmoxAllowSelfSigned != updated.ProxmoxAllowSelfSigned;
-        if (proxmoxChanged) _ = _proxmox.RefreshAsync(_settings);
+        _dnsSync.Invalidate();
+        _tunnelStatus.Clear();
+        _plugins.ApplySettings(_dashboard.Services, _settings);
+        if (_settings.RestorePinnedWindows) SectionWindows.RestorePinned(_settings);
 
         ApplyUiState();
         Logger.Info("Settings saved.");
@@ -583,7 +473,15 @@ internal sealed class TrayAppContext : ApplicationContext
         _settings.PriceArea = area;
         SettingsStore.Save(_settings);
         _dashboard.ApplySettings(_settings);
-        await _prices.RefreshAsync(_settings);
+        await RefreshPricesAsync();
+    }
+
+    private async Task RefreshPricesAsync()
+    {
+        if (!_settings.IsPluginEnabled("price")) return;
+        var cancel = _plugins.TokenFor("price");
+        try { await _prices.RefreshAsync(_settings, cancel); }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
     }
 
     private void ToggleWidget()
@@ -592,17 +490,15 @@ internal sealed class TrayAppContext : ApplicationContext
         _settings.WidgetVisible = _dashboard.Visible;
         SettingsStore.Save(_settings);
 
-        // The numbers must be fresh the moment the widget appears
-        if (_dashboard.Visible)
-        {
-            _ = _homeAssistant.RefreshAsync(_settings);
-            _ = _proxmox.RefreshAsync(_settings);
-        }
-        else
-        {
-            // Pinned windows stay on the desktop; pop-ups belong to the widget
-            SectionWindows.ClosePopups();
-        }
+        if (!_dashboard.Visible) SectionWindows.ClosePopups();
+        else RefreshVisiblePlugins();
+    }
+
+    private void OnPluginWindowOpened(string key) => _plugins.Refresh(key);
+
+    private void RefreshVisiblePlugins()
+    {
+        foreach (var key in new[] { "system", "network", "ha", "proxmox" }) _plugins.Refresh(key);
     }
 
     private void ShowWidgetFromToast()
@@ -920,7 +816,7 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private void CheckPriceAlerts()
     {
-        if (!_settings.OnboardingCompleted) return;
+        if (!_settings.OnboardingCompleted || !_settings.IsPluginEnabled("price")) return;
 
         foreach (var alert in PriceAlerts.Evaluate(_prices, _settings, DateTime.Now))
         {
@@ -940,13 +836,17 @@ internal sealed class TrayAppContext : ApplicationContext
 
     // ---------- IP ----------
 
-    private async Task UpdateIpAsync(bool manual)
+    private async Task UpdateIpAsync(bool manual, CancellationToken cancel = default)
     {
+        if (!_settings.IsPluginEnabled("network") && !_settings.HasCloudflare) return;
+        if (!cancel.CanBeCanceled) cancel = _plugins.TokenFor(_settings.IsPluginEnabled("network") ? "network" : "cloudflare");
+        if (cancel.IsCancellationRequested) return;
         if (!await _updateLock.WaitAsync(0)) return;
 
         try
         {
-            var ip = await ExternalIpProvider.FetchAsync(Http).ConfigureAwait(true);
+            var ip = await ExternalIpProvider.FetchAsync(Http, cancel).ConfigureAwait(true);
+            cancel.ThrowIfCancellationRequested();
             var previous = _lastIp;
             var changed = previous != null && !string.Equals(previous, ip, StringComparison.Ordinal);
             _lastIp = ip;
@@ -972,8 +872,9 @@ internal sealed class TrayAppContext : ApplicationContext
 
             // First lookup after start or a new IP: sync Cloudflare.
             // The sync only remembers the IP after a successful DNS call.
-            await UpdateCloudflareAsync(force: false);
+            if (_settings.HasCloudflare) await UpdateCloudflareAsync(force: false, _plugins.TokenFor("cloudflare"));
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
         catch (Exception ex)
         {
             _lastError = ex.Message;
@@ -1017,9 +918,11 @@ internal sealed class TrayAppContext : ApplicationContext
             onUpdateCloudflare: async () => await UpdateCloudflareAsync(force: true));
     }
 
-    private async Task UpdateCloudflareAsync(bool force)
+    private async Task UpdateCloudflareAsync(bool force, CancellationToken cancel = default)
     {
         if (!_settings.HasCloudflare) return;
+        if (!cancel.CanBeCanceled) cancel = _plugins.TokenFor("cloudflare");
+        if (cancel.IsCancellationRequested) return;
         if (string.IsNullOrWhiteSpace(_lastIp))
         {
             PopupForm.SetStatus(L.T("No IP yet.", "Ingen IP endnu."), StatusLevel.Warning);
@@ -1048,7 +951,8 @@ internal sealed class TrayAppContext : ApplicationContext
             var zone = _settings.ZoneId!;
             var hosts = _settings.UpdateAllARecords ? null : _settings.IncludedHosts.ToArray();
             var updated = await _dnsSync.SyncAsync(ip, () =>
-                CloudflareClient.UpdateAllARecordsAsync(zone, token, ip, hosts));
+                CloudflareClient.UpdateAllARecordsAsync(zone, token, ip, hosts, cancel: cancel));
+            cancel.ThrowIfCancellationRequested();
 
             _lastCloudflareError = null;
             _lastToastedCloudflareError = null;
@@ -1059,6 +963,7 @@ internal sealed class TrayAppContext : ApplicationContext
                 updated == 0 ? StatusLevel.Warning : StatusLevel.Success);
             Logger.Info($"Cloudflare updated: {updated} A records.");
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
         catch (Exception ex)
         {
             SetCloudflareError(ex.Message);
@@ -1070,18 +975,23 @@ internal sealed class TrayAppContext : ApplicationContext
         }
 
         // The widget's DNS line must show the result at once
-        await _cloudflare.RefreshAsync(_settings);
+        if (_settings.HasCloudflare && !cancel.IsCancellationRequested)
+        {
+            try { await _cloudflare.RefreshAsync(_settings, cancel); }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
+        }
     }
 
-    private async Task CheckServicesAsync()
+    private async Task CheckServicesAsync(CancellationToken cancel)
     {
         if (!_settings.HasCloudflare || !_settings.ServiceChecksEnabled || _cloudflare.Tunnels.Count == 0) return;
-        await _services.CheckDueAsync(ServiceMonitor.CheckableHosts(_cloudflare.Tunnels, _settings));
+        await _services.CheckDueAsync(ServiceMonitor.CheckableHosts(_cloudflare.Tunnels, _settings), cancel);
     }
 
     /// <summary>Reports when a service stops responding – and when it responds again.</summary>
     private void OnServiceChanged(ServiceStatus status, bool down)
     {
+        if (!_settings.HasCloudflare) return;
         // If the tunnel itself is down, it has already reported that
         var tunnel = _cloudflare.Tunnels.FirstOrDefault(t => t.Routes.Any(r => r.Hostname.Equals(status.Host, StringComparison.OrdinalIgnoreCase)));
         if (tunnel is { IsDown: true }) return;

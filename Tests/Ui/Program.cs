@@ -5,7 +5,7 @@ using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-internal static class UiChecks
+internal static partial class UiChecks
 {
     private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
     private static readonly string Output = Path.GetFullPath(Path.Combine("dist", "ui-preview"));
@@ -14,9 +14,11 @@ internal static class UiChecks
     private static void Main()
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Directory.CreateDirectory(Output);
+        PluginChecks();
         using var fixture = new Fixture();
         var widget = fixture.Widget;
         var settings = fixture.Settings;
@@ -270,6 +272,7 @@ internal static class UiChecks
                 var task = (Task)window.GetType().GetMethod("ShowPageAsync", Private)!.Invoke(window, new object[] { i })!;
                 var until = DateTime.Now.AddSeconds(8);
                 while (!task.IsCompleted && DateTime.Now < until) { Application.DoEvents(); Thread.Sleep(20); }
+                if (task.IsFaulted) task.GetAwaiter().GetResult();
                 Application.DoEvents();
                 using var bitmap = new Bitmap(window.Width, window.Height);
                 window.DrawToBitmap(bitmap, new Rectangle(Point.Empty, window.Size));

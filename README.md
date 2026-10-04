@@ -35,6 +35,11 @@ It is small, fast and private – no account, no ads and no telemetry.
 
 ## Features
 
+**🧩 Choose your plugins**
+- Electricity price, system, network, audio, Home Assistant, Cloudflare and Proxmox are bundled internal plugins.
+- Enable or disable them under **Settings → Plugins**. Disabled plugins stop polling; their configuration and pinned window positions are kept.
+- Each active plugin has its own settings page, compact summary, expanded section and detachable detail window.
+
 **⚡ Electricity price – save money without thinking about it**
 - The price right now, coloured green, yellow or red, with a chart for today and tomorrow and the **cheapest 3 hours**.
 - **Notifications** before the cheap hours start and before power gets expensive – time the dishwasher, the car or the heat pump.
@@ -62,14 +67,14 @@ It is small, fast and private – no account, no ads and no telemetry.
 - **Pin a window** to keep it open; it remembers where it was and comes back when LabWidge starts.
 
 **✨ Made to stay out of your way**
-- Collapse, reorder and pin sections; resize the widget; double-click for a one-line view.
+- Collapse, reorder and pin sections; resize the widget; double-click for compact plugin summaries.
 - Dark and light theme (or follow Windows), adjustable opacity, always on top if you want.
 - English and Danish. Updates install themselves while you are away from the PC.
 - A modern settings window in the same theme: choose sections, disks, the ping target (e.g. your router), refresh intervals for
   your home lab and how the windows behave.
 
 <p align="center">
-  <img src="docs/images/compact-dark.png" alt="The compact one-line view: price, CPU, RAM, GPU and IP"><br>
+  <img src="docs/images/compact-dark.png" alt="Compact summaries of the active plugins"><br>
   <sub>The compact view – double-click the widget to switch.</sub>
 </p>
 

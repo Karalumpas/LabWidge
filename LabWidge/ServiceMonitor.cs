@@ -76,7 +76,7 @@ internal sealed class ServiceMonitor
             .ToList();
 
     /// <summary>Checks the addresses that are due. Called often (e.g. every 30 seconds); it costs nothing when nothing is due.</summary>
-    public async Task CheckDueAsync(IReadOnlyList<string> hosts)
+    public async Task CheckDueAsync(IReadOnlyList<string> hosts, CancellationToken cancel = default)
     {
         var now = DateTime.Now;
         var due = hosts.Where(h => IsDue(Get(h), now)).ToList();
@@ -91,11 +91,12 @@ internal sealed class ServiceMonitor
             using var gate = new SemaphoreSlim(Parallel);
             var results = await Task.WhenAll(due.Select(async h =>
             {
-                await gate.WaitAsync().ConfigureAwait(false);
-                try { return await CheckAsync(h).ConfigureAwait(false); }
+                await gate.WaitAsync(cancel).ConfigureAwait(false);
+                try { return await CheckAsync(h, cancel).ConfigureAwait(false); }
                 finally { gate.Release(); }
             }));
 
+            cancel.ThrowIfCancellationRequested();
             foreach (var r in results)
             {
                 var before = Get(r.Host);
@@ -120,7 +121,7 @@ internal sealed class ServiceMonitor
         finally
         {
             _running.Release();
-            Updated?.Invoke();
+            if (!cancel.IsCancellationRequested) Updated?.Invoke();
         }
     }
 
@@ -131,13 +132,13 @@ internal sealed class ServiceMonitor
         return now - s.Checked >= wait;
     }
 
-    private async Task<ServiceStatus> CheckAsync(string host)
+    private async Task<ServiceStatus> CheckAsync(string host, CancellationToken cancel)
     {
         var sw = Stopwatch.StartNew();
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, "https://" + host);
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancel).ConfigureAwait(false);
             var code = (int)response.StatusCode;
 
             // 502-504 and Cloudflare's own 52x codes mean the tunnel cannot reach the service.
@@ -145,6 +146,7 @@ internal sealed class ServiceMonitor
             var responded = code is not (502 or 503 or 504) && code is < 520 or > 530;
             return new ServiceStatus(host, responded, code, sw.ElapsedMilliseconds, null, DateTime.Now, 0);
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
         catch (TaskCanceledException)
         {
             return new ServiceStatus(host, false, null, null, L.T("no answer within 10 s", "intet svar inden for 10 sek."), DateTime.Now, 0);

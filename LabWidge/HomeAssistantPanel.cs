@@ -114,7 +114,9 @@ internal sealed class HomeAssistantPanel : PopupPanel
             Directory.CreateDirectory(profile);
 
             var environment = await CoreWebView2Environment.CreateAsync(null, profile);
+            if (IsDisposed || !Settings.HasHomeAssistant) return;
             await _web!.EnsureCoreWebView2Async(environment);
+            if (IsDisposed || !Settings.HasHomeAssistant) return;
 
             var core = _web.CoreWebView2;
             core.Settings.AreDefaultContextMenusEnabled = false;
@@ -143,7 +145,7 @@ internal sealed class HomeAssistantPanel : PopupPanel
         catch (Exception ex)
         {
             Logger.Error($"The dashboard could not be shown: {ex.Message}");
-            if (_status != null)
+            if (!IsDisposed && _status != null)
             {
                 _status.Text = L.T("The dashboard could not be shown.\n\n", "Dashboardet kunne ikke vises.\n\n") + ex.Message +
                                L.T("\n\nMicrosoft Edge WebView2 Runtime must be installed.", "\n\nMicrosoft Edge WebView2 Runtime skal være installeret.");

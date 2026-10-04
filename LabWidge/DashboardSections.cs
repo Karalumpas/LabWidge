@@ -11,7 +11,7 @@ using System.Windows.Forms;
 internal sealed partial class DashboardForm
 {
     /// <summary>The default order – and the order new sections are inserted in.</summary>
-    public static readonly string[] DefaultSectionOrder = { "price", "ha", "cloudflare", "proxmox", "system", "network", "audio" };
+    public static readonly string[] DefaultSectionOrder = WidgetPlugins.All.Select(p => p.Key).ToArray();
 
     private const float SectionGap = 22;      // space between sections; the line sits 10 px down
     private const float EdgeSnap = 20;        // how close to the edge the widget snaps in
@@ -48,20 +48,9 @@ internal sealed partial class DashboardForm
 
     private List<Section> VisibleSections()
     {
-        var all = new Dictionary<string, (bool Show, Func<Graphics, float, float, float, float> Draw)>
-        {
-            ["price"] = (_settings.PriceEnabled, DrawPrice),
-            ["ha"] = (_settings.ShowHomeAssistant && _settings.HasHomeAssistant, DrawHomeAssistant),
-            ["cloudflare"] = (ShowsCloudflare, DrawCloudflare),
-            ["proxmox"] = (_settings.ShowProxmox && _settings.HasProxmox, DrawProxmox),
-            ["system"] = (_settings.ShowSystem, DrawSystem),
-            ["network"] = (_settings.ShowNetwork, DrawNetwork),
-            ["audio"] = (_settings.ShowAudio && VisibleAudioDevices().Count > 0, DrawAudio)
-        };
-        return SectionOrder()
-            .Where(k => all.TryGetValue(k, out var s) && s.Show)
-            .Select(k => new Section(k, all[k].Draw))
-            .ToList();
+        return SectionOrder().Select(WidgetPlugins.Find).OfType<IWidgetPlugin>()
+            .Where(p => _settings.IsPluginEnabled(p.Key) && p.IsVisible(this, _settings))
+            .Select(p => new Section(p.Key, (g, x, y, w) => p.RenderExpanded(this, g, x, y, w))).ToList();
     }
 
     /// <summary>The saved order, plus sections added since.</summary>
@@ -140,29 +129,8 @@ internal sealed partial class DashboardForm
     /// <summary>The window for a section, or null when the section is not set up (e.g. no Home Assistant).</summary>
     private PopupPanel? CreateWindow(string key)
     {
-        switch (key)
-        {
-            case "price":
-                return _settings.PriceCountry != null ? new PricePanel(_el, _settings, _saveSettings) : null;
-            case "ha":
-                return _settings.HasHomeAssistant ? new HomeAssistantPanel(_ha, _settings, _saveSettings) : null;
-            case "cloudflare":
-                if (!_settings.HasCloudflare) return null;
-                _ = _cf.RefreshAsync(_settings);
-                return new CloudflarePanel(_cf, _services, _settings, _saveSettings, _externalIp);
-            case "proxmox":
-                if (!_settings.HasProxmox) return null;
-                _ = _pve.RefreshAsync(_settings);
-                return new ProxmoxPanel(_pve, _settings, _saveSettings);
-            case "system":
-                return new SystemPanel(_sys, _settings, _saveSettings);
-            case "network":
-                return new NetworkPanel(_net, _externalIp, _networkState, _settings, _saveSettings);
-            case "audio":
-                return new AudioPanel(_audio, SwitchAudio, _settings, _saveSettings);
-            default:
-                return null;
-        }
+        if (!_settings.IsPluginEnabled(key)) return null;
+        return WidgetPlugins.Find(key)?.CreateWindow(this, _settings, _saveSettings);
     }
 
     /// <summary>

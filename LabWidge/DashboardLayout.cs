@@ -94,6 +94,7 @@ internal sealed partial class DashboardForm
     {
         "price" => _settings.CollapsedPrice, "system" => _settings.CollapsedSystem,
         "network" => _settings.CollapsedNetwork, "audio" => _settings.CollapsedAudio,
+        "ha" => _settings.CollapsedHomeAssistant,
         "cloudflare" => _settings.CollapsedCloudflare, "proxmox" => _settings.CollapsedProxmox,
         _ => true
     };
@@ -106,6 +107,7 @@ internal sealed partial class DashboardForm
             case "system": _settings.CollapsedSystem = value; break;
             case "network": _settings.CollapsedNetwork = value; break;
             case "audio": _settings.CollapsedAudio = value; break;
+            case "ha": _settings.CollapsedHomeAssistant = value; break;
             case "cloudflare": _settings.CollapsedCloudflare = value; break;
             case "proxmox": _settings.CollapsedProxmox = value; break;
         }
@@ -269,6 +271,12 @@ internal sealed partial class DashboardForm
 
     private void ToggleHeader(string key, Action original)
     {
+        if (_settings.CompactMode)
+        {
+            SetCollapsed(key, false);
+            SetCompact(false);
+            return;
+        }
         if (_autoSummaries.Contains(key))
         {
             ShowTip(L.T("Make the widget taller or pin fewer sections to show the details.", "Gør widgetten højere eller fastgør færre sektioner for at vise detaljerne."), 4000);
@@ -311,7 +319,7 @@ internal sealed partial class DashboardForm
         menu.Items.Add(new ToolStripSeparator());
         var summary = new ToolStripMenuItem(L.T("Pin the summary only", "Fastgør kun resumé"))
         {
-            Checked = _settings.SectionPinSummaries.Contains(key), Enabled = PinOf(key) != SectionPin.None && key != "ha"
+            Checked = _settings.SectionPinSummaries.Contains(key), Enabled = PinOf(key) != SectionPin.None
         };
         summary.Click += (_, _) =>
         {

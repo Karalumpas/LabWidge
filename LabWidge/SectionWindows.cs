@@ -7,7 +7,7 @@ using System.Drawing;
 internal static class SectionWindows
 {
     /// <summary>The sections that have a window, in the order they are offered.</summary>
-    public static readonly string[] Keys = { "price", "ha", "cloudflare", "proxmox", "system", "network", "audio" };
+    public static readonly string[] Keys = WidgetPlugins.All.Select(p => p.Key).ToArray();
 
     private static readonly Dictionary<string, PopupPanel> Open = new();
     private static readonly Dictionary<string, DateTime> ClosedAt = new();
@@ -17,6 +17,7 @@ internal static class SectionWindows
 
     /// <summary>Creates the window for a section, or null if the section has nothing to show (e.g. not set up).</summary>
     public static Func<string, PopupPanel?>? Factory { get; set; }
+    public static event Action<string>? WindowOpened;
 
     public static bool Supports(string key) => Keys.Contains(key);
 
@@ -57,7 +58,7 @@ internal static class SectionWindows
     {
         foreach (var key in Keys)
         {
-            if (settings.SectionWindows.TryGetValue(key, out var state) && state.Pinned && state.Open && !IsOpen(key))
+            if (settings.IsPluginEnabled(key) && settings.SectionWindows.TryGetValue(key, out var state) && state.Pinned && state.Open && !IsOpen(key))
             {
                 try
                 {
@@ -94,7 +95,11 @@ internal static class SectionWindows
     public static void ApplySettings(AppSettings settings)
     {
         foreach (var w in Open.Values.ToList())
-            if (!w.IsDisposed) w.ApplySettings(settings);
+            if (!w.IsDisposed)
+            {
+                if (!settings.IsPluginEnabled(w.Key)) w.CloseForShutdown();
+                else w.ApplySettings(settings);
+            }
     }
 
     private static PopupPanel? Create(string key)
@@ -102,6 +107,7 @@ internal static class SectionWindows
         var window = Factory?.Invoke(key);
         if (window == null) return null;
         Open[key] = window;
+        window.Shown += (_, _) => WindowOpened?.Invoke(key);
         window.FormClosed += (_, _) =>
         {
             ClosedAt[key] = DateTime.Now;

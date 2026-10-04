@@ -25,8 +25,24 @@ internal sealed class GpuMonitor
 
     private IntPtr _nvDevice;
     private bool _nvTried;
+    private bool _nvInitialized;
     private PdhGpu? _pdh;
     private bool _pdhTried;
+
+    public void Suspend()
+    {
+        _pdh?.Dispose();
+        _pdh = null;
+        _pdhTried = false;
+        if (_nvInitialized)
+        {
+            try { Nvml.nvmlShutdown(); } catch { }
+        }
+        _nvDevice = IntPtr.Zero;
+        _nvInitialized = false;
+        _nvTried = false;
+        Available = false;
+    }
 
     public void Sample()
     {
@@ -66,6 +82,7 @@ internal sealed class GpuMonitor
         try
         {
             if (Nvml.nvmlInit_v2() != 0) return;
+            _nvInitialized = true;
             if (Nvml.nvmlDeviceGetCount_v2(out var count) != 0 || count == 0) return;
             if (Nvml.nvmlDeviceGetHandleByIndex_v2(0, out var dev) != 0) return;
             _nvDevice = dev;
@@ -163,6 +180,7 @@ internal sealed class GpuMonitor
         public struct Memory { public ulong Total, Free, Used; }
 
         [DllImport(Dll)] public static extern int nvmlInit_v2();
+        [DllImport(Dll)] public static extern int nvmlShutdown();
         [DllImport(Dll)] public static extern int nvmlDeviceGetCount_v2(out uint count);
         [DllImport(Dll)] public static extern int nvmlDeviceGetHandleByIndex_v2(uint index, out IntPtr device);
         [DllImport(Dll)] public static extern int nvmlDeviceGetName(IntPtr device, byte[] name, uint length);
@@ -182,6 +200,7 @@ internal sealed class GpuMonitor
     private sealed class PdhGpu
     {
         private readonly IntPtr _query, _engine, _memory;
+        public void Dispose() => PdhCloseQuery(_query);
 
         private PdhGpu(IntPtr query, IntPtr engine, IntPtr memory)
         {

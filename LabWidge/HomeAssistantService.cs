@@ -73,11 +73,12 @@ internal sealed class HomeAssistantService
     public event Action? Updated;
 
     public HomeAssistantService(HttpClient http) => _http = http;
+    public CancellationToken Lifetime { get; set; }
 
     /// <summary>True while an on/off call is under way, so the widget can show the row as pending.</summary>
     public bool IsPending(string entityId) => _pending.Contains(entityId);
 
-    public async Task RefreshAsync(AppSettings settings)
+    public async Task RefreshAsync(AppSettings settings, CancellationToken cancel = default)
     {
         if (!settings.HasHomeAssistant)
         {
@@ -85,7 +86,7 @@ internal sealed class HomeAssistantService
             {
                 Entities = Array.Empty<HaEntity>();
                 LastError = null;
-                Updated?.Invoke();
+                if (!cancel.IsCancellationRequested) Updated?.Invoke();
             }
             return;
         }
@@ -103,7 +104,7 @@ internal sealed class HomeAssistantService
 
             var baseUrl = Normalize(settings.HomeAssistantUrl!);
             var ids = settings.HomeAssistantEntities;
-            var results = await Task.WhenAll(ids.Select(id => FetchOneAsync(baseUrl, token!, id)));
+            var results = await Task.WhenAll(ids.Select(id => FetchOneAsync(baseUrl, token!, id, cancel)));
 
             // The order follows the user's choice, and entities that failed are shown as unavailable
             var list = new List<HaEntity>(ids.Length);
@@ -114,11 +115,13 @@ internal sealed class HomeAssistantService
                 error ??= results[i].Error;
             }
 
+            cancel.ThrowIfCancellationRequested();
             Entities = list;
             LastError = list.All(e => e.IsUnavailable) ? error : null;
             if (LastError == null) LastFetch = DateTime.Now;
             if (LastError != null) Logger.Error($"Home Assistant: {LastError}");
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             LastError = ex.Message;
@@ -127,13 +130,15 @@ internal sealed class HomeAssistantService
         finally
         {
             _lock.Release();
-            Updated?.Invoke();
+            if (!cancel.IsCancellationRequested) Updated?.Invoke();
         }
     }
 
     /// <summary>Switches an entity on or off and updates the row with Home Assistant's answer.</summary>
     public async Task ToggleAsync(string entityId, AppSettings settings)
     {
+        var cancel = Lifetime;
+        if (cancel.IsCancellationRequested) return;
         if (!settings.HasHomeAssistant || _pending.Contains(entityId)) return;
 
         var token = CredentialStore.ReadHomeAssistantToken();
@@ -150,7 +155,7 @@ internal sealed class HomeAssistantService
                 JsonSerializer.Serialize(new Dictionary<string, string> { ["entity_id"] = entityId }),
                 Encoding.UTF8, "application/json");
 
-            using (var response = await _http.SendAsync(request))
+            using (var response = await _http.SendAsync(request, cancel))
             {
                 response.EnsureSuccessStatusCode();
             }
@@ -158,17 +163,18 @@ internal sealed class HomeAssistantService
             // The answer to a service call does not always contain the new state – e.g. not for lights
             // with a transition time. The state is therefore fetched directly, so the row changes at once
             // instead of staying unchanged until the next refresh up to 15 seconds later.
-            await ReadBackAsync(baseUrl, token!, entityId);
+            await ReadBackAsync(baseUrl, token!, entityId, cancel);
             Logger.Info($"Home Assistant: {entityId} toggled.");
 
             _pending.Remove(entityId);
-            Updated?.Invoke();
+            if (!cancel.IsCancellationRequested) Updated?.Invoke();
 
             // A transition is rarely finished at once; an extra look catches the final
             // brightness without the row continuing to look busy.
-            await Task.Delay(900);
-            if (await ReadBackAsync(baseUrl, token!, entityId)) Updated?.Invoke();
+            await Task.Delay(900, cancel);
+            if (await ReadBackAsync(baseUrl, token!, entityId, cancel)) Updated?.Invoke();
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
         catch (Exception ex)
         {
             LastError = ex.Message;
@@ -177,14 +183,14 @@ internal sealed class HomeAssistantService
         finally
         {
             _pending.Remove(entityId);
-            Updated?.Invoke();
+            if (!cancel.IsCancellationRequested) Updated?.Invoke();
         }
     }
 
     /// <summary>Fetches one entity's state and puts it in the list. True if something changed.</summary>
-    private async Task<bool> ReadBackAsync(string baseUrl, string token, string entityId)
+    private async Task<bool> ReadBackAsync(string baseUrl, string token, string entityId, CancellationToken cancel)
     {
-        var (entity, _) = await FetchOneAsync(baseUrl, token, entityId);
+        var (entity, _) = await FetchOneAsync(baseUrl, token, entityId, cancel);
         if (entity == null) return false;
 
         var current = Entities.FirstOrDefault(e => e.EntityId == entity.EntityId);
@@ -194,21 +200,22 @@ internal sealed class HomeAssistantService
         return true;
     }
 
-    private async Task<(HaEntity? Entity, string? Error)> FetchOneAsync(string baseUrl, string token, string entityId)
+    private async Task<(HaEntity? Entity, string? Error)> FetchOneAsync(string baseUrl, string token, string entityId, CancellationToken cancel = default)
     {
         try
         {
             using var request = Authorized(HttpMethod.Get, $"{baseUrl}/api/states/{Uri.EscapeDataString(entityId)}", token);
-            using var response = await _http.SendAsync(request);
+            using var response = await _http.SendAsync(request, cancel);
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 return (null, entityId + L.T(" does not exist", " findes ikke"));
             }
             response.EnsureSuccessStatusCode();
 
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancel));
             return (Parse(doc.RootElement), null);
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             return (null, Describe(ex));

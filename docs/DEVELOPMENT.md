@@ -54,6 +54,8 @@ languages sit side by side and a missing translation cannot happen. Logs and cod
 
 ## Settings and data
 
+The widget sections are bundled internal plugins. See [PLUGINS.md](PLUGINS.md) for registration, views, settings and lifecycle.
+
 - Settings: `%APPDATA%\LabWidge\settings.json`, written atomically via `settings.json.tmp`; the previous version is kept as
   `settings.json.bak` and used automatically if the main file is damaged.
 - Tokens (Cloudflare, Home Assistant, Proxmox) are kept in Windows Credential Manager.

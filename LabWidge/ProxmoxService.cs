@@ -74,7 +74,9 @@ internal sealed class ProxmoxService
         return false;
     }
 
-    public async Task RefreshAsync(AppSettings settings)
+    public CancellationToken Lifetime { get; set; }
+
+    public async Task RefreshAsync(AppSettings settings, CancellationToken cancel = default)
     {
         _settings = settings;
         if (!settings.HasProxmox)
@@ -85,7 +87,7 @@ internal sealed class ProxmoxService
                 Guests = Array.Empty<PveGuest>();
                 Storages = Array.Empty<PveStorage>();
                 LastError = null;
-                Updated?.Invoke();
+                if (!cancel.IsCancellationRequested) Updated?.Invoke();
             }
             return;
         }
@@ -93,7 +95,7 @@ internal sealed class ProxmoxService
         if (!await _lock.WaitAsync(0)) return;
         try
         {
-            using var doc = await SendAsync(HttpMethod.Get, "cluster/resources");
+            using var doc = await SendAsync(HttpMethod.Get, "cluster/resources", cancel: cancel);
             var nodes = new List<PveNode>();
             var guests = new List<PveGuest>();
             var storages = new List<PveStorage>();
@@ -124,6 +126,7 @@ internal sealed class ProxmoxService
                 }
             }
 
+            cancel.ThrowIfCancellationRequested();
             Nodes = nodes.OrderBy(n => n.Name).ToList();
             Guests = guests.OrderBy(g => g.VmId).ToList();
             Storages = storages.OrderByDescending(s => s.Total).ToList();
@@ -138,6 +141,7 @@ internal sealed class ProxmoxService
                 if (done || DateTime.Now - p.Since > TimeSpan.FromMinutes(2)) _pending.Remove(vmid);
             }
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             var error = Describe(ex);
@@ -147,16 +151,18 @@ internal sealed class ProxmoxService
         finally
         {
             _lock.Release();
-            Updated?.Invoke();
+            if (!cancel.IsCancellationRequested) Updated?.Invoke();
         }
     }
 
     /// <summary>Sends start, shutdown or reboot. Requires the permission VM.PowerMgmt.</summary>
     public async Task<string?> PowerAsync(PveGuest guest, string action)
     {
+        var cancel = Lifetime;
+        if (cancel.IsCancellationRequested) return L.T("Plugin is disabled", "Pluginet er deaktiveret");
         try
         {
-            using var _ = await SendAsync(HttpMethod.Post, $"nodes/{guest.Node}/{guest.Type}/{guest.VmId}/status/{action}");
+            using var _ = await SendAsync(HttpMethod.Post, $"nodes/{guest.Node}/{guest.Type}/{guest.VmId}/status/{action}", cancel: cancel);
             _pending[guest.VmId] = new Pending(action, guest.Status, DateTime.Now);
             Logger.Info($"Proxmox: {action} sent to {guest.Kind} {guest.VmId} ({guest.Name}).");
             Updated?.Invoke();
@@ -188,15 +194,15 @@ internal sealed class ProxmoxService
         return L.T($"{nodes} node{(nodes == 1 ? "" : "s")}, {guests} VMs and containers", $"{nodes} node{(nodes == 1 ? "" : "s")}, {guests} VM'er og containere");
     }
 
-    private async Task<JsonDocument> SendAsync(HttpMethod method, string path, string? secret = null)
+    private async Task<JsonDocument> SendAsync(HttpMethod method, string path, string? secret = null, CancellationToken cancel = default)
     {
         secret ??= CredentialStore.ReadProxmoxSecret();
         if (string.IsNullOrWhiteSpace(secret)) throw new InvalidOperationException(L.T("No token saved", "Intet token gemt"));
 
         using var request = new HttpRequestMessage(method, $"{Normalize(_settings.ProxmoxUrl!)}/api2/json/{path}");
         request.Headers.Authorization = new AuthenticationHeaderValue("PVEAPIToken", $"{_settings.ProxmoxTokenId!.Trim()}={secret.Trim()}");
-        using var response = await _http.SendAsync(request).ConfigureAwait(true);
-        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(true);
+        using var response = await _http.SendAsync(request, cancel).ConfigureAwait(true);
+        var json = await response.Content.ReadAsStringAsync(cancel).ConfigureAwait(true);
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}", null, response.StatusCode);

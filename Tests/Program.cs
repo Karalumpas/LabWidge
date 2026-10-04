@@ -60,7 +60,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Installer: an inherited working directory is released before switching folders", InstallerWorkingDirectory),
     ("Widget: pinned bands reserve the middle viewport and clamp scroll", LayoutBands),
     ("Widget: status distinguishes fresh, stale and failed data", FreshnessStates),
-    ("Widget: size and pin preferences survive settings cloning", LayoutSettings)
+    ("Widget: size and pin preferences survive settings cloning", LayoutSettings),
+    ("Plugins: legacy activation migrates and configuration survives disable and clone", PluginSettings),
+    ("Plugins: cancellation stops price requests before tariff fetching and allows restart", CancelPriceFetch)
 };
 foreach (var test in tests)
 {
@@ -97,6 +99,42 @@ static Task FreshnessStates()
     var offline = DataFreshness.Describe(now.AddMinutes(-1), "HTTP 503", TimeSpan.FromMinutes(5), now);
     Check(offline.Health == DataHealth.Offline && offline.Detail.Contains("18:29"), "Failure lost the timestamp of preserved data.");
     return Task.CompletedTask;
+}
+
+static Task PluginSettings()
+{
+    var settings = JsonSerializer.Deserialize<AppSettings>("""{"ShowSystem":false,"ShowAudio":false,"ShowNetwork":true,"HomeAssistantEnabled":true,"HomeAssistantUrl":"http://ha.example.test","HomeAssistantEntities":["light.room"],"CloudflareEnabled":true,"ZoneId":"zone","ShowCloudflare":false} """)!;
+    Check(!settings.IsPluginEnabled("system") && !settings.IsPluginEnabled("audio") && settings.IsPluginEnabled("network"), "Legacy local section choices changed.");
+    Check(settings.IsPluginEnabled("ha") && settings.HasCloudflare, "Legacy integration choices changed.");
+    settings.SetPluginEnabled("cloudflare", false);
+    settings.SetPluginEnabled("ha", false);
+    settings.Plugins["future-plugin"] = true;
+    var copy = settings.Clone();
+    Check(!copy.HasCloudflare && !copy.HasHomeAssistant && copy.ZoneId == "zone" && copy.HomeAssistantEntities.Single() == "light.room", "Disabling discarded integration configuration.");
+    copy.SetPluginEnabled("cloudflare", true);
+    Check(copy.HasCloudflare && !settings.HasCloudflare && copy.Plugins["future-plugin"], "Plugin cloning or reactivation lost preferences.");
+    return Task.CompletedTask;
+}
+
+static async Task CancelPriceFetch()
+{
+    using var handler = new CancelHandler();
+    using var http = new HttpClient(handler);
+    var service = new ElectricityPriceService(http);
+    var settings = new AppSettings { Country = "DK" };
+    var updates = 0;
+    service.Updated += () => updates++;
+    using var cancel = new CancellationTokenSource();
+    var running = service.RefreshAsync(settings, cancel.Token);
+    await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    cancel.Cancel();
+    try { await running.WaitAsync(TimeSpan.FromSeconds(5)); throw new Exception("Canceled fetch completed normally."); }
+    catch (OperationCanceledException) { }
+    Check(handler.Requests == 1 && updates == 0 && service.LastError == null && service.TariffError == null,
+        "Cancellation started tariff requests, published data or recorded an outage.");
+    handler.Block = false;
+    await service.RefreshAsync(settings).WaitAsync(TimeSpan.FromSeconds(5));
+    Check(updates == 1 && service.LastSuccessfulFetch != DateTime.MinValue, "Canceled service could not be restarted.");
 }
 
 static Task LayoutSettings()
@@ -483,4 +521,20 @@ static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK)
 sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> send) : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => send(request);
+}
+
+sealed class CancelHandler : HttpMessageHandler
+{
+    public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public bool Block { get; set; } = true;
+    public int Requests { get; private set; }
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests++;
+        if (Block) { Entered.TrySetResult(); await Task.Delay(Timeout.Infinite, cancellationToken); }
+        var body = request.RequestUri!.ToString().Contains("DayAheadPrices")
+            ? JsonSerializer.Serialize(new { records = new[] { new { TimeUTC = DateTime.Today.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss"), DayAheadPriceDKK = 1000 } } })
+            : "{\"records\":[]}";
+        return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
+    }
 }
