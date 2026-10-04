@@ -105,7 +105,24 @@ internal abstract class PopupPanel : Form
     /// <summary>Called when the data changed; may be called from any thread.</summary>
     protected void RequestRedraw(bool resize = true)
     {
-        if (IsHandleCreated && !IsDisposed) BeginInvoke(new Action(() => { if (resize) FitSize(); Invalidate(); }));
+        if (!IsHandleCreated || IsDisposed) return;
+        try
+        {
+            BeginInvoke(new Action(() =>
+            {
+                if (IsDisposed) return; // closed while the call waited
+                if (resize) FitSize();
+                Invalidate();
+            }));
+        }
+        catch (ObjectDisposedException)
+        {
+            // Closed in the meantime
+        }
+        catch (InvalidOperationException)
+        {
+            // The handle is being destroyed
+        }
     }
 
     /// <summary>Fills the window below the header with a control (e.g. a WebView).</summary>
@@ -169,10 +186,14 @@ internal abstract class PopupPanel : Form
         Show();
     }
 
+    private DateTime _shownAt;
+
     private void ShowAndFocus()
     {
         State.Open = State.Pinned;
+        _shownAt = DateTime.Now;
         Show();
+        if (IsDisposed) return; // closed while it was shown
 
         // Focus is taken only after the click on the widget, otherwise neither Esc nor "close on losing focus" works
         BeginInvoke(new Action(() =>
@@ -232,6 +253,8 @@ internal abstract class PopupPanel : Form
     protected override void OnDeactivate(EventArgs e)
     {
         base.OnDeactivate(e);
+        // The click on the widget that opened the window can briefly take focus back; that must not close it again
+        if ((DateTime.Now - _shownAt).TotalMilliseconds < 400) return;
         if (!KeepOpen && !State.Pinned) Close();
     }
 
@@ -417,6 +440,7 @@ internal abstract class PopupPanel : Form
 
     protected void FitSize()
     {
+        if (IsDisposed) return;
         using (var bmp = new Bitmap(1, 1))
         using (var g = Graphics.FromImage(bmp))
         {
@@ -482,7 +506,7 @@ internal abstract class PopupPanel : Form
             if (Math.Abs(content - _contentHeight) > 1)
             {
                 _contentHeight = content;
-                if (State.Width == null) BeginInvoke(new Action(() => { FitSize(); Invalidate(); }));
+                if (State.Width == null) BeginInvoke(new Action(() => { if (IsDisposed) return; FitSize(); Invalidate(); }));
             }
             g.Restore(state);
 

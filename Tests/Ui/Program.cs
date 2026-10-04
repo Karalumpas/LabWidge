@@ -305,6 +305,17 @@ internal static class UiChecks
         }
         Console.WriteLine("PASS UI: every section window opens, draws and closes");
 
+        // Data that arrives after a window closed (e.g. Proxmox answering late) must not touch the closed window
+        SectionWindows.Toggle("proxmox", widget.Bounds);
+        Application.DoEvents();
+        var closed = OpenWindow("proxmox");
+        SectionWindows.Close("proxmox");
+        Application.DoEvents();
+        Check(closed.IsDisposed, "A closed window was not disposed.");
+        closed.GetType().BaseType!.GetMethod("RequestRedraw", Private)!.Invoke(closed, new object[] { true });
+        Application.DoEvents();
+        Console.WriteLine("PASS UI: late data does not touch a closed window");
+
         // Pinned windows stay, are remembered and come back at the next start
         SectionWindows.Toggle("price", widget.Bounds);
         Application.DoEvents();

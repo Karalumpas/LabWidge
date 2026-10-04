@@ -7,6 +7,7 @@ The top section is used as the release notes when the version is published. The 
 - New pages: General, Windows (restore pinned windows, forget a window's place), System and network, and About
 - Choose which disks the widget shows, whether to show the graphics card and virtual network adapters, and what to measure ping against – e.g. your router
 - Set how often Home Assistant, Proxmox and Cloudflare are updated
+- Fixed: opening a section window could show an error dialog ("Cannot access a disposed object")
 
 ## 1.16.0
 - Every section can open in its own window with much more detail – drag a section out of the widget onto the desktop, or click the window button in its header
