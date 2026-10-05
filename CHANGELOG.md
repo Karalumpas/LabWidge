@@ -2,6 +2,10 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.19.0
+- Electricity prices in 12 more countries: Belgium, France, Italy, Switzerland, Czechia, Slovakia, Hungary, Slovenia, Croatia, Romania, Bulgaria and Greece
+- Italy has all 7 price zones to choose from, and prices are shown in your own currency – Kč, Ft, bani or Rp. where the euro isn't used
+
 ## 1.18.1
 - Fixed: unticking a disk in Settings now actually hides it from the widget
 - Fixed: choosing your country's electricity price after "Other" now includes the right VAT instead of 0 %
