@@ -1,6 +1,7 @@
 # Publishes a new version when the version number in LabWidge.csproj changes on main.
 # The Setup file goes to the public repository Karalumpas/labwidge-releases, which the app checks for updates.
 # Requires the secret RELEASES_TOKEN: a fine-grained token with "Contents: Read and write" on labwidge-releases.
+# Releases are unsigned. If SignPath is ever configured (docs/CODE_SIGNING.md), the app and Setup are signed instead.
 name: Release
 
 on:
@@ -57,7 +58,8 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Require signing configuration
+      - name: Signing configured?
+        id: signing
         if: steps.exists.outputs.found == 'false'
         env:
           SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -65,20 +67,20 @@ jobs:
           SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
         run: |
-          foreach ($name in @('SIGNPATH_API_TOKEN', 'SIGNPATH_ORGANIZATION_ID', 'SIGNPATH_PROJECT_SLUG', 'SIGNPATH_SIGNING_POLICY_SLUG')) {
-            if (-not [Environment]::GetEnvironmentVariable($name)) {
-              throw "Release blocked: $name is missing. Complete the free SignPath setup in docs/CODE_SIGNING.md. Unsigned releases are not published."
-            }
-          }
+          $names = @('SIGNPATH_API_TOKEN', 'SIGNPATH_ORGANIZATION_ID', 'SIGNPATH_PROJECT_SLUG', 'SIGNPATH_SIGNING_POLICY_SLUG')
+          $missing = @($names | Where-Object { -not [Environment]::GetEnvironmentVariable($_) })
+          if ($missing.Count -eq $names.Count) { "signed=false" >> $env:GITHUB_OUTPUT; Write-Host 'SignPath is not configured – publishing an unsigned release.' }
+          elseif ($missing.Count -gt 0) { throw "SignPath is only partly configured, missing: $($missing -join ', '). See docs/CODE_SIGNING.md." }
+          else { "signed=true" >> $env:GITHUB_OUTPUT }
 
       - name: Build app
-        if: steps.exists.outputs.found == 'false'
+        if: steps.signing.outputs.signed == 'true'
         run: |
           dotnet publish LabWidge/LabWidge.csproj -c Release -o dist/unsigned-app --nologo -v q
           if ($LASTEXITCODE -ne 0) { throw 'Building the app failed' }
 
       - name: Upload app for signing
-        if: steps.exists.outputs.found == 'false'
+        if: steps.signing.outputs.signed == 'true'
         id: unsigned-app
         uses: actions/upload-artifact@v7
         with:
@@ -87,7 +89,7 @@ jobs:
           if-no-files-found: error
 
       - name: Sign app
-        if: steps.exists.outputs.found == 'false'
+        if: steps.signing.outputs.signed == 'true'
         uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -103,11 +105,11 @@ jobs:
             version: "${{ steps.version.outputs.version }}"
 
       - name: Build Setup with verified signed app
-        if: steps.exists.outputs.found == 'false'
+        if: steps.signing.outputs.signed == 'true'
         run: ./scripts/Build-SetupFromSignedApp.ps1 -AppDirectory dist/signed-app -Version '${{ steps.version.outputs.version }}'
 
       - name: Upload Setup for signing
-        if: steps.exists.outputs.found == 'false'
+        if: steps.signing.outputs.signed == 'true'
         id: unsigned-setup
         uses: actions/upload-artifact@v7
         with:
@@ -116,7 +118,7 @@ jobs:
           if-no-files-found: error
 
       - name: Sign Setup
-        if: steps.exists.outputs.found == 'false'
+        if: steps.signing.outputs.signed == 'true'
         uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -132,8 +134,15 @@ jobs:
             version: "${{ steps.version.outputs.version }}"
 
       - name: Verify signed Setup
-        if: steps.exists.outputs.found == 'false'
+        if: steps.signing.outputs.signed == 'true'
         run: ./scripts/Assert-ReleaseSignature.ps1 -Path dist/signed-setup/LabWidge-Setup.exe -Version '${{ steps.version.outputs.version }}'
+
+      - name: Build unsigned Setup
+        if: steps.signing.outputs.signed == 'false'
+        run: |
+          ./install.ps1 -BuildOnly
+          New-Item -ItemType Directory -Force dist/signed-setup | Out-Null
+          Move-Item dist/LabWidge-Setup.exe dist/signed-setup/LabWidge-Setup.exe
 
       - name: Release notes from CHANGELOG.md
         if: steps.exists.outputs.found == 'false'
@@ -146,8 +155,12 @@ jobs:
             for ($i = $start + 1; $i -lt $lines.Count -and -not $lines[$i].StartsWith('## '); $i++) { $notes += $lines[$i] }
           }
           $body = if ($notes -join '' -match '\S') { "## What's new`n" + (($notes -join "`n").Trim()) } else { "Version $version." }
-          $body += "`n`nRun ``LabWidge-Setup-$version.exe``. The installer and LabWidge binaries are digitally signed."
-          $body += "`n`n[Code signing policy](https://github.com/Karalumpas/LabWidge/blob/main/CODE_SIGNING_POLICY.md)"
+          if ('${{ steps.signing.outputs.signed }}' -eq 'true') {
+            $body += "`n`nRun ``LabWidge-Setup-$version.exe``. The installer and LabWidge binaries are digitally signed."
+            $body += "`n`n[Code signing policy](https://github.com/Karalumpas/LabWidge/blob/main/CODE_SIGNING_POLICY.md)"
+          } else {
+            $body += "`n`nRun ``LabWidge-Setup-$version.exe``. It is not code-signed, so Windows may warn: choose `"More info`" → `"Run anyway`"."
+          }
           Set-Content notes.md $body -Encoding utf8
 
       - name: Publish

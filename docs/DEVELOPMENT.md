@@ -88,5 +88,5 @@ With Claude Code: type `/release` (skill in `.claude/skills/release`). Manually:
 The release workflow needs the secret `RELEASES_TOKEN`: a fine-grained personal access token with access to only
 `Karalumpas/labwidge-releases` and the permission **Contents: Read and write**.
 
-Public releases also require the free SignPath signing setup in [CODE_SIGNING.md](CODE_SIGNING.md).
-The workflow signs the app before packaging it, then signs Setup, and refuses to publish unsigned files.
+Releases are unsigned. If the SignPath settings in [CODE_SIGNING.md](CODE_SIGNING.md) are ever configured, the workflow signs
+the app before packaging it, then signs Setup, and refuses to publish if signing fails.

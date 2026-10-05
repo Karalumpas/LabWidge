@@ -2,8 +2,8 @@
 
 Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
 
-> Status: an application to the SignPath Foundation has not yet been submitted. Existing releases through 1.18.0 are unsigned.
-> The release pipeline requires signing before publishing a new version. Activation depends on Foundation approval and account configuration.
+> Status: the SignPath Foundation declined the project for now (not enough public visibility yet), so releases are unsigned.
+> This policy applies if signing is configured later – the release pipeline then signs automatically.
 > See [the setup guide](docs/CODE_SIGNING.md).
 
 ## What is signed
