@@ -44,7 +44,7 @@ const RESOLUTIONS = { PT15M: 15, PT30M: 30, PT60M: 60, P1D: 1440 };
  * Parses a Publication_MarketDocument (documentType A44) into [{ start (ms), minutes, eurPerMwh }].
  * - Points left out (curve type A03) repeat the previous price until the next point.
  * - When several series cover the same time (e.g. hourly and quarter-hourly), the finest resolution wins.
- * - Series for other auctions than day-ahead (contract type other than A01) are skipped.
+ * - Only day-ahead series (contract type A01) are used; untyped series only when none is marked A01.
  * An Acknowledgement_MarketDocument ("no matching data") gives an empty list.
  */
 export function parsePrices(xml) {
@@ -54,12 +54,16 @@ export function parsePrices(xml) {
     throw new Error(`ENTSO-E: ${reason || "request rejected"}`);
   }
   const best = new Map();
-  for (const series of blocks(xml, "TimeSeries")) {
+  const allSeries = blocks(xml, "TimeSeries");
+  // A44 returns every auction when contract_MarketAgreement.type is not filtered – keep the day-ahead one (A01).
+  // The field is optional, so untyped series are used only when no series is marked A01.
+  const contractOf = (series) => tag(series, "contract_MarketAgreement.type");
+  const hasDayAhead = allSeries.some((series) => contractOf(series) === "A01");
+  for (const series of allSeries) {
     const currency = tag(series, "currency_Unit.name");
     if (currency && currency !== "EUR") continue;
-    // A44 returns every auction when contract_MarketAgreement.type is not filtered – keep the day-ahead one (A01)
-    const contract = tag(series, "contract_MarketAgreement.type");
-    if (contract && contract !== "A01") continue;
+    const contract = contractOf(series);
+    if (contract ? contract !== "A01" : hasDayAhead) continue;
     for (const period of blocks(series, "Period")) {
       const start = Date.parse(tag(period, "start"));
       const end = Date.parse(tag(period, "end"));

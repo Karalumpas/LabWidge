@@ -46,6 +46,17 @@ test("only the day-ahead auction (contract type A01) is used", () => {
     .replace("<TimeSeries>", `<TimeSeries><contract_MarketAgreement.type>${type}</contract_MarketAgreement.type>`);
   const prices = parsePrices(doc(withContract("A07", 500) + withContract("A01", 70)));
   assert.deepEqual(prices.map((p) => p.eurPerMwh), [70, 70, 70, 70]);
+
+  // An untyped series may be another auction: with an A01 series present, even a finer one is ignored
+  const untypedQuarter = period("2026-10-02T22:00Z", "2026-10-02T23:00Z", "PT15M", [[1, 900]]);
+  const hourlyA01 = period("2026-10-02T22:00Z", "2026-10-02T23:00Z", "PT60M", [[1, 70]])
+    .replace("<TimeSeries>", "<TimeSeries><contract_MarketAgreement.type>A01</contract_MarketAgreement.type>");
+  assert.deepEqual(parsePrices(doc(untypedQuarter + hourlyA01)).map((p) => p.eurPerMwh), [70]);
+});
+
+test("untyped series are used when no series is marked A01", () => {
+  const prices = parsePrices(doc(period("2026-10-02T22:00Z", "2026-10-02T23:00Z", "PT60M", [[1, 55]])));
+  assert.deepEqual(prices.map((p) => p.eurPerMwh), [55]);
 });
 
 test("no matching data is an empty list, other acknowledgements are errors", () => {
