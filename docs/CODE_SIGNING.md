@@ -2,9 +2,10 @@
 
 ## Current status
 
-The maintainer has not submitted a SignPath Foundation application yet. There is no SignPath account configuration or API token
-in GitHub. Releases through 1.18.0 are unsigned. The integration is ready for configuration, but no trusted signature can be
-issued until the Foundation approves the project. No paid subscription or certificate purchase is required for an approved OSS project.
+The SignPath Foundation declined the application in October 2026: the project does not yet have enough public visibility
+(stars, forks, contributors, external mentions). Reapplying is welcome once it has. LabWidge will not use paid signing, so releases
+are published unsigned. The release workflow signs automatically as soon as all four SignPath settings below are configured,
+and stops if only some of them are.
 
 ## Apply
 
@@ -43,8 +44,8 @@ Future proprietary plugins, commercial dual licensing or a paid edition require 
 4. Under [GitHub Actions settings](https://github.com/Karalumpas/LabWidge/settings/secrets/actions), add the CI API token as the secret
    **SIGNPATH_API_TOKEN**. Add repository variables **SIGNPATH_ORGANIZATION_ID**, **SIGNPATH_PROJECT_SLUG** and
    **SIGNPATH_SIGNING_POLICY_SLUG** using the actual values from SignPath. The existing **RELEASES_TOKEN** stays in place.
-5. After merging the integration, create a new patch release (at least **1.18.1**) through the normal reviewed version-bump process.
-   1.18.0 already exists and will be skipped; do not replace it. Approve the app request, then the installer request, in SignPath.
+5. Create a new release through the normal reviewed version-bump process. It must be newer than the last unsigned release;
+   existing releases are skipped and must never be replaced. Approve the app request, then the installer request, in SignPath.
    Each action waits up to two hours; if this expires, rerun the failed workflow after checking the signing request's status.
 
 ## Build and verification
