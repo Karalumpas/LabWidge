@@ -114,7 +114,8 @@ internal sealed class ElectricityPriceService
         }
         try
         {
-            var samples = await SpotPriceSources.FetchAsync(_http, country.AreaOrDefault(area.Split(':').Last()), DateTime.Today, cancel);
+            var samples = await SpotPriceSources.FetchAsync(_http, country.AreaOrDefault(area.Split(':').Last()), country.Unit.Currency,
+                DateTime.Today, cancel);
             if (samples.Count == 0) throw new InvalidOperationException("The price source returned no prices.");
             Prices = samples.Select(p => new PricePoint(p.StartUtc.ToLocalTime(), p.PerKwh * country.Unit.PerMajor)).ToList();
             FetchedArea = area;

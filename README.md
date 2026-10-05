@@ -100,10 +100,11 @@ only. Uninstall it like any other app under **Settings → Apps**.
 > **"Windows protected your PC"?** LabWidge releases are not code-signed,
 > so SmartScreen may warn about it. Choose **More info → Run anyway**. Every release is built by GitHub Actions from this source code.
 
-## Electricity prices in 14 countries
+## Electricity prices in 26 countries
 
 Choose your country in the installer or under **Settings → Electricity**. All sources are free, need no account and are only
-contacted for the country you choose. "Other country" hides the electricity price.
+contacted for the country you choose. Countries without a free public source get the official ENTSO-E prices through
+LabWidge's own [price service](worker/README.md), so you need no ENTSO-E account either. "Other country" hides the electricity price.
 
 | Country | Price areas | Source | Shown in |
 |---|---|---|---|
@@ -115,8 +116,14 @@ contacted for the country you choose. "Other country" hides the electricity pric
 | 🇳🇱 Netherlands | NL | [EnergyZero](https://www.energyzero.nl/) | ct/kWh |
 | 🇵🇱 Poland | PL | [PSE](https://raporty.pse.pl/) | gr/kWh |
 | 🇪🇸 Spain · 🇵🇹 Portugal | ES, PT | [OMIE](https://www.omie.es/) | ct/kWh |
+| 🇧🇪 Belgium · 🇫🇷 France · 🇸🇰 Slovakia · 🇸🇮 Slovenia · 🇭🇷 Croatia · 🇧🇬 Bulgaria · 🇬🇷 Greece | BE, FR, SK, SI, HR, BG, GR | [ENTSO-E](https://transparency.entsoe.eu/) via LabWidge's price service | ct/kWh |
+| 🇮🇹 Italy | 7 zones (North, Centre-North, Centre-South, South, Calabria, Sicily, Sardinia) | ENTSO-E via LabWidge's price service | ct/kWh |
+| 🇨🇭 Switzerland | CH | ENTSO-E via LabWidge's price service | Rp./kWh |
+| 🇨🇿 Czechia | CZ | ENTSO-E via LabWidge's price service | Kč/kWh |
+| 🇭🇺 Hungary | HU | ENTSO-E via LabWidge's price service | Ft/kWh |
+| 🇷🇴 Romania | RO | ENTSO-E via LabWidge's price service | bani/kWh |
 
-More European countries are coming. Prices are shown in your PC's local time; VAT follows your country's usual rate for
+Prices from the price service are converted from EUR with the ECB's daily reference rates. Prices are shown in your PC's local time; VAT follows your country's usual rate for
 household electricity and can be changed.
 
 ## Tips

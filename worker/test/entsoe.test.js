@@ -41,6 +41,13 @@ test("the finest resolution wins when series overlap", () => {
   assert.deepEqual(parsePrices(xml).map((p) => p.eurPerMwh), [10, 20, 30, 40]);
 });
 
+test("only the day-ahead auction (contract type A01) is used", () => {
+  const withContract = (type, price) => period("2026-10-02T22:00Z", "2026-10-02T23:00Z", "PT15M", [[1, price]])
+    .replace("<TimeSeries>", `<TimeSeries><contract_MarketAgreement.type>${type}</contract_MarketAgreement.type>`);
+  const prices = parsePrices(doc(withContract("A07", 500) + withContract("A01", 70)));
+  assert.deepEqual(prices.map((p) => p.eurPerMwh), [70, 70, 70, 70]);
+});
+
 test("no matching data is an empty list, other acknowledgements are errors", () => {
   const ack = (text) => `<Acknowledgement_MarketDocument><Reason><code>999</code><text>${text}</text></Reason></Acknowledgement_MarketDocument>`;
   assert.deepEqual(parsePrices(ack("No matching data found for Data item Day-ahead Prices")), []);
