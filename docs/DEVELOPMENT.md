@@ -44,8 +44,10 @@ over when the look changes. If Windows Smart App Control blocks a freshly built 
 - Sources and their parsers: `LabWidge/SpotPriceSources.cs`. Each parser is pure and covered by a regression test with a sample answer.
 - Danish tariffs: `DatahubPricelist` – the household tariff is found from the grid company's "Nettarif C" including any discounts.
   Price area from the postal code: 1000–4999 = DK2, the rest = DK1.
-- Countries without a free keyless source will use the Worker in [`worker/`](../worker/README.md), which serves ENTSO-E prices with
-  one shared token and a cache.
+- Countries without a free keyless source (`PriceSource.Entsoe`) use the Worker in [`worker/`](../worker/README.md), which serves
+  ENTSO-E prices with one shared token and a cache. Its address is `SpotPriceSources.PriceWorker`; an area code must be one of
+  the Worker's zones in `worker/src/zones.js`. Ireland (IE-SEM) is left out because ENTSO-E currently publishes no SEM day-ahead prices.
+  `dotnet run --project Tests -- --live` checks every area against the real sources, including the Worker.
 
 ## Translations
 

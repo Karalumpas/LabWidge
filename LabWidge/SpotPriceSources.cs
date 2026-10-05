@@ -14,8 +14,15 @@ internal static class SpotPriceSources
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    /// <summary>Prices from the start of <paramref name="today"/> (local date) and as far ahead as published.</summary>
-    public static async Task<List<SpotSample>> FetchAsync(HttpClient http, PriceArea area, DateTime today, CancellationToken cancel = default)
+    /// <summary>LabWidge's own Cloudflare Worker with ENTSO-E prices (see worker/README.md); it holds the ENTSO-E token.</summary>
+    public const string PriceWorker = "https://labwidge-prices.karalumpas.workers.dev";
+
+    /// <summary>
+    /// Prices from the start of <paramref name="today"/> (local date) and as far ahead as published, in
+    /// <paramref name="currency"/> where the source can convert (the Worker); the other sources deliver their own currency.
+    /// </summary>
+    public static async Task<List<SpotSample>> FetchAsync(HttpClient http, PriceArea area, string currency, DateTime today,
+                                                          CancellationToken cancel = default)
     {
         var fromUtc = today.Date.ToUniversalTime();
         var toUtc = today.Date.AddDays(2).ToUniversalTime();
@@ -40,6 +47,8 @@ internal static class SpotPriceSources
             PriceSource.Omie => await PerDayAsync(http, today,
                 d => $"https://www.omie.es/es/file-download?parents=marginalpdbc&filename=marginalpdbc_{d:yyyyMMdd}.1",
                 text => ParseOmie(text, area.Code == "PT" ? 4 : 5), cancel),
+            PriceSource.Entsoe => ParseWorker(await http.GetStringAsync(
+                $"{PriceWorker}/v1/prices?zone={area.Code}&from={WholeHour(fromUtc)}&to={WholeHour(toUtc)}&currency={currency}", cancel)),
             _ => throw new NotSupportedException($"No source for {area.Code}")
         };
         list.Sort((a, b) => a.StartUtc.CompareTo(b.StartUtc));
@@ -67,6 +76,7 @@ internal static class SpotPriceSources
     }
 
     private static string Iso(DateTime utc) => utc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", Inv);
+    private static string WholeHour(DateTime utc) => utc.ToString("yyyy-MM-dd'T'HH':00Z'", Inv);
     private static long UnixMs(DateTime utc) => new DateTimeOffset(utc, TimeSpan.Zero).ToUnixTimeMilliseconds();
 
     // ---------- Parsers ----------
@@ -137,6 +147,16 @@ internal static class SpotPriceSources
             .Select(e => new SpotSample(
                 DateTime.SpecifyKind(DateTime.ParseExact(e.GetProperty("dtime_utc").GetString()!, "yyyy-MM-dd HH:mm:ss", Inv), DateTimeKind.Utc).AddMinutes(-15),
                 e.GetProperty("rce_pln").GetDouble() / 1000))
+            .ToList();
+    }
+
+    /// <summary>LabWidge's price Worker: prices[] with start in UTC and the price per kWh in the requested currency excl. VAT.</summary>
+    public static List<SpotSample> ParseWorker(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("prices").EnumerateArray()
+            .Select(e => new SpotSample(DateTimeOffset.Parse(e.GetProperty("start").GetString()!, Inv).UtcDateTime,
+                                        e.GetProperty("price").GetDouble()))
             .ToList();
     }
 

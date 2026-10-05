@@ -25,7 +25,7 @@ if (args.Length == 1 && args[0] == "--live")
         {
             try
             {
-                var prices = await SpotPriceSources.FetchAsync(http, area, DateTime.Today);
+                var prices = await SpotPriceSources.FetchAsync(http, area, country.Unit.Currency, DateTime.Today);
                 var first = prices.FirstOrDefault();
                 Console.WriteLine($"{country.Code} {area.Code,-6} {prices.Count,4} prices, first {first.StartUtc.ToLocalTime():dd/MM HH:mm} "
                                   + $"{first.PerKwh * country.Unit.PerMajor:0.0} {country.Unit.PerKwh}");
@@ -51,6 +51,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Prices: OMIE periods count quarter-hours from Spanish midnight", OmieQuarterHours),
     ("Countries: the catalog is complete and Other hides the price", CountryCatalog),
     ("Prices: other countries use their own source, unit and VAT", CountryPrices),
+    ("Prices: ENTSO-E countries ask the Worker for their zone and currency", WorkerPrices),
     ("Installer: a complete directory replaces the previous version and keeps login", InstallSuccess),
     ("Installer: a failed switch restores all original files", InstallRollback),
     ("Installer: rollback keeps the prepared package available for retry", InstallRetry),
@@ -345,6 +346,10 @@ static Task SourceFormats()
 
     var pl = SpotPriceSources.ParsePse("""{"value":[{"rce_pln":695.73,"dtime_utc":"2026-10-02 22:15:00"}]}""");
     Check(pl.Single().StartUtc == utc("2026-10-02T22:00:00") && Math.Abs(pl[0].PerKwh - 0.69573) < 1e-9, "PSE: dtime_utc is the end of the quarter-hour.");
+
+    var worker = SpotPriceSources.ParseWorker(
+        """{"zone":"CZ","currency":"CZK","source":"ENTSO-E Transparency Platform","prices":[{"start":"2026-10-02T22:15:00.000Z","minutes":15,"price":3.415525}]}""");
+    Check(worker.Single() == new SpotSample(utc("2026-10-02T22:15:00"), 3.415525), "Worker: time or price is wrong.");
     return Task.CompletedTask;
 }
 
@@ -418,6 +423,40 @@ static async Task CountryPrices()
     Check(service.NeedsRefresh(settings), "Changing the country must trigger a refresh.");
     await service.RefreshAsync(settings);
     Check(service.Prices.Count == 0 && requests.Count == 0, "Other country must clear prices without any request.");
+}
+
+static async Task WorkerPrices()
+{
+    var requests = new List<string>();
+    var start = DateTime.Today.ToUniversalTime();
+    using var http = new HttpClient(new Handler(request =>
+    {
+        requests.Add(request.RequestUri!.ToString());
+        return Task.FromResult(Json(new
+        {
+            zone = "CZ",
+            currency = "CZK",
+            prices = new[] { new { start = start.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"), minutes = 15, price = 3.5 } }
+        }));
+    }));
+    var service = new ElectricityPriceService(http);
+
+    var settings = new AppSettings { Country = "CZ", PriceArea = "DK1", PriceInclVat = true, PriceShowTotal = true };
+    await service.RefreshAsync(settings);
+    Check(service.LastError == null && service.Prices.Count == 1, "Czechia: prices were not fetched from the Worker.");
+    var url = requests.Single();
+    Check(url.StartsWith(SpotPriceSources.PriceWorker + "/v1/prices?zone=CZ&", StringComparison.Ordinal) && url.EndsWith("&currency=CZK", StringComparison.Ordinal),
+          $"Czechia: the Worker must be asked for zone CZ in CZK, not {url}.");
+    Check(url.Contains($"from={start:yyyy-MM-dd'T'HH}:00Z", StringComparison.Ordinal), "The Worker window must start at local midnight in whole UTC hours.");
+    Check(Math.Abs(service.Prices[0].Spot - 3.5) < 1e-9 && settings.PriceUnit.Symbol == "Kč", "Czechia: prices are shown in Kč/kWh.");
+    Check(Math.Abs(service.Consumer(service.Prices[0].Time, service.Prices[0].Spot, settings) - 3.5 * 1.21) < 1e-9, "Czechia: 21 % VAT is wrong.");
+
+    requests.Clear();
+    settings.Country = "IT";
+    settings.PriceArea = "IT-SICI";
+    await service.RefreshAsync(settings);
+    Check(requests.Single().Contains("zone=IT-SICI&", StringComparison.Ordinal) && requests[0].EndsWith("&currency=EUR", StringComparison.Ordinal),
+          "Italy: the chosen zone must be asked for in EUR.");
 }
 
 static Task InstallSuccess() => InSandbox(root =>

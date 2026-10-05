@@ -18,7 +18,9 @@ The network section also pings a public DNS server to measure latency.
 Electricity price sources – only the one for the country chosen in the settings is contacted, and none if you choose "Other country":
 Denmark `api.energidataservice.dk`, Sweden `www.elprisetjustnu.se`, Norway `www.hvakosterstrommen.no`,
 Finland and the Baltics `dashboard.elering.ee`, Germany, Luxembourg and Austria `api.awattar.de` / `api.awattar.at`,
-the Netherlands `api.energyzero.nl`, Poland `api.raporty.pse.pl`, Spain and Portugal `www.omie.es`.
+the Netherlands `api.energyzero.nl`, Poland `api.raporty.pse.pl`, Spain and Portugal `www.omie.es`, and the other countries
+LabWidge's own price service `labwidge-prices.karalumpas.workers.dev` – a Cloudflare Worker that receives only the price area,
+the time window and the currency (and, like any website, sees your IP address), and fetches the prices from ENTSO-E with its own token.
 
 ## Only if you set it up
 

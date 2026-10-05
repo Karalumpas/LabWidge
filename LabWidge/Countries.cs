@@ -14,7 +14,8 @@ internal enum PriceSource
     Awattar,           // Germany/Luxembourg and Austria
     EnergyZero,        // Netherlands
     Pse,               // Poland
-    Omie               // Spain and Portugal
+    Omie,              // Spain and Portugal
+    Entsoe             // the rest of Europe, via LabWidge's own price Worker (see worker/)
 }
 
 /// <summary>The unit prices are shown in: e.g. øre (1/100 DKK) or ct (1/100 EUR).</summary>
@@ -112,6 +113,10 @@ internal static class Countries
     private static readonly PriceUnit Nok = new PriceUnit("NOK", "øre", 100, 0);
     private static readonly PriceUnit Eur = new PriceUnit("EUR", "ct", 100, 1);
     private static readonly PriceUnit Pln = new PriceUnit("PLN", "gr", 100, 0);
+    private static readonly PriceUnit Czk = new PriceUnit("CZK", "Kč", 1, 2);
+    private static readonly PriceUnit Huf = new PriceUnit("HUF", "Ft", 1, 1);
+    private static readonly PriceUnit Ron = new PriceUnit("RON", "bani", 100, 0);
+    private static readonly PriceUnit Chf = new PriceUnit("CHF", "Rp.", 100, 1);
 
     public static readonly IReadOnlyList<Country> All = new[]
     {
@@ -140,6 +145,26 @@ internal static class Countries
         new Country("PL", "Polska", "Poland", "Polen", Pln, 23, new PriceArea("PL", "", "", PriceSource.Pse)),
         new Country("ES", "España", "Spain", "Spanien", Eur, 21, new PriceArea("ES", "", "", PriceSource.Omie)),
         new Country("PT", "Portugal", "Portugal", "Portugal", Eur, 23, new PriceArea("PT", "", "", PriceSource.Omie)),
+        // Prices from ENTSO-E through the Worker; the codes are the Worker's zones (worker/src/zones.js)
+        new Country("BE", "België", "Belgium", "Belgien", Eur, 6, new PriceArea("BE", "", "", PriceSource.Entsoe)),
+        new Country("FR", "France", "France", "Frankrig", Eur, 20, new PriceArea("FR", "", "", PriceSource.Entsoe)),
+        new Country("IT", "Italia", "Italy", "Italien", Eur, 10,
+            new PriceArea("IT-NORD", "North", "Nord", PriceSource.Entsoe),
+            new PriceArea("IT-CNOR", "Centre-North", "Centrum-nord", PriceSource.Entsoe),
+            new PriceArea("IT-CSUD", "Centre-South", "Centrum-syd", PriceSource.Entsoe),
+            new PriceArea("IT-SUD", "South", "Syd", PriceSource.Entsoe),
+            new PriceArea("IT-CALA", "Calabria", "Calabrien", PriceSource.Entsoe),
+            new PriceArea("IT-SICI", "Sicily", "Sicilien", PriceSource.Entsoe),
+            new PriceArea("IT-SARD", "Sardinia", "Sardinien", PriceSource.Entsoe)),
+        new Country("CH", "Schweiz", "Switzerland", "Schweiz", Chf, 8.1, new PriceArea("CH", "", "", PriceSource.Entsoe)),
+        new Country("CZ", "Česko", "Czechia", "Tjekkiet", Czk, 21, new PriceArea("CZ", "", "", PriceSource.Entsoe)),
+        new Country("SK", "Slovensko", "Slovakia", "Slovakiet", Eur, 23, new PriceArea("SK", "", "", PriceSource.Entsoe)),
+        new Country("HU", "Magyarország", "Hungary", "Ungarn", Huf, 27, new PriceArea("HU", "", "", PriceSource.Entsoe)),
+        new Country("SI", "Slovenija", "Slovenia", "Slovenien", Eur, 22, new PriceArea("SI", "", "", PriceSource.Entsoe)),
+        new Country("HR", "Hrvatska", "Croatia", "Kroatien", Eur, 13, new PriceArea("HR", "", "", PriceSource.Entsoe)),
+        new Country("RO", "România", "Romania", "Rumænien", Ron, 21, new PriceArea("RO", "", "", PriceSource.Entsoe)),
+        new Country("BG", "България", "Bulgaria", "Bulgarien", Eur, 20, new PriceArea("BG", "", "", PriceSource.Entsoe)),
+        new Country("GR", "Ελλάδα", "Greece", "Grækenland", Eur, 6, new PriceArea("GR", "", "", PriceSource.Entsoe)),
     };
 
     /// <summary>The country for a code, or null for <see cref="Other"/> and unknown codes.</summary>
