@@ -458,8 +458,11 @@ internal sealed partial class DashboardForm
             var point = PointToClient(new Point(unchecked((short)m.LParam.ToInt64()), unchecked((short)(m.LParam.ToInt64() >> 16))));
             if (ClientRectangle.Contains(point))
             {
+                // The edges of the content – the transparent part of the rail column is not part of the widget
                 var edge = U(6);
-                var left = point.X < edge; var right = point.X >= ClientSize.Width - edge;
+                var contentLeft = ContentLeft; var contentRight = contentLeft + ClientSize.Width - RailWidth;
+                var left = point.X >= contentLeft && point.X < contentLeft + edge;
+                var right = point.X >= contentRight - edge && point.X < contentRight;
                 var top = point.Y < edge; var bottom = point.Y >= ClientSize.Height - edge;
                 var hit = top ? (left ? 13 : right ? 14 : 12) : bottom ? (left ? 16 : right ? 17 : 15) : left ? 10 : right ? 11 : 0;
                 if (hit != 0) { m.Result = (IntPtr)hit; return; }

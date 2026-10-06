@@ -400,10 +400,13 @@ internal static class LaunchIcons
 internal sealed partial class DashboardForm
 {
     public const string ShortcutsKey = "shortcuts";
-    private const float RailLogicalWidth = 64;
+    private const float RailLogicalWidth = 56;
     private const float RailTile = 44;
     private const float RailGap = 6;
-    private const float RailPad = 4;
+    private const float RailEdge = 14;     // the tab keeps this far from the widget's top and bottom
+    private const float RailPadOut = 7;    // room between the icons and the tab's outer edge
+    private const float RailPadIn = 5;
+    private const float RailPadV = 6;
     private const float RailDockTile = 40;
     private const float RailDockGap = 4;
 
@@ -437,58 +440,46 @@ internal sealed partial class DashboardForm
 
     private void OnLaunchIconsUpdated() => OnDataUpdated();
 
+    /// <summary>
+    /// The tab around the docked rail's icons, laid out as if docked on the left: against the widget's edge, centred on its height
+    /// and growing with the icons up to the full height. The rest of the rail column is transparent.
+    /// </summary>
+    private RectangleF RailTab(float height)
+    {
+        float tile = U(RailDockTile), gap = U(RailDockGap), top = U(RailEdge);
+        var view = height - top * 2;
+        var content = _settings.LaunchItems.Count * (tile + gap) - gap;
+        var tabHeight = Math.Min(content + U(RailPadV) * 2, view);
+        var tabWidth = tile + U(RailPadOut) + U(RailPadIn);
+        return new RectangleF(RailWidth - tabWidth, top + (view - tabHeight) / 2, tabWidth, tabHeight);
+    }
+
     private void DrawRail(Graphics g, float width, float height, float top)
     {
         if (!RailDocked) return;
         var rail = RailWidth;
         var right = _settings.LaunchRailPlacement == RailPlacement.Right;
         var count = _settings.LaunchItems.Count;
-        float tile = U(RailDockTile), gap = U(RailDockGap), pad = U(RailPad), step = tile + gap;
+        float tile = U(RailDockTile), gap = U(RailDockGap), padV = U(RailPadV), step = tile + gap;
 
         // Laid out as if docked on the left; a rail on the right is the mirror image
         RectangleF Box(RectangleF r) => right ? r with { X = width - r.Right } : r;
 
-        // A tab that sits against the line between the rail and the sections, centred on the widget's height,
-        // growing with the icons up to the full height – with room to the widget's edge on the outside
-        var view = height - top * 2;
-        var content = count * step - gap;
-        var tabHeight = Math.Min(content + pad * 2, view);
-        var tabWidth = tile + pad * 2;
-        var tab = new RectangleF(rail - tabWidth, top + (view - tabHeight) / 2, tabWidth, tabHeight);
-        var max = Math.Max(0, content - (tabHeight - pad * 2));
+        var tab = RailTab(height);
+        var max = Math.Max(0, count * step - gap - (tab.Height - padV * 2));
         _railScroll = Math.Clamp(_railScroll, 0, max);
         Action<int>? wheel = max > 0 ? n => { _railScroll = Math.Clamp(_railScroll - n * step, 0, max); Invalidate(); } : null;
 
-        float radius = U(12), fillet = U(6), line = rail - U(0.5f);
-        using (var fill = new GraphicsPath())
-        {
-            fill.AddArc(tab.X, tab.Y, radius * 2, radius * 2, 180, 90);
-            fill.AddLine(tab.X + radius, tab.Y, line - fillet, tab.Y);
-            fill.AddArc(line - fillet * 2, tab.Y - fillet * 2, fillet * 2, fillet * 2, 90, -90);
-            fill.AddArc(line - fillet * 2, tab.Bottom, fillet * 2, fillet * 2, 0, -90);
-            fill.AddLine(line - fillet, tab.Bottom, tab.X + radius, tab.Bottom);
-            fill.AddArc(tab.X, tab.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
-            fill.CloseFigure();
-            using var outline = new GraphicsPath();
-            // The line comes down from the top, curves out around the icons and continues to the bottom
-            outline.AddLine(line, 0, line, tab.Y - fillet);
-            outline.AddArc(line - fillet * 2, tab.Y - fillet * 2, fillet * 2, fillet * 2, 0, 90);
-            outline.AddArc(tab.X, tab.Y, radius * 2, radius * 2, 270, -90);
-            outline.AddArc(tab.X, tab.Bottom - radius * 2, radius * 2, radius * 2, 180, -90);
-            outline.AddArc(line - fillet * 2, tab.Bottom, fillet * 2, fillet * 2, 270, 90);
-            outline.AddLine(line, tab.Bottom + fillet, line, height);
-            if (right)
-            {
-                using var mirror = new Matrix(-1, 0, 0, 1, width, 0);
-                fill.Transform(mirror);
-                outline.Transform(mirror);
-            }
-            using (var brush = new SolidBrush(PillColor)) g.FillPath(brush, fill);
-            using var pen = new Pen(_p.Line, Math.Max(1, DpiScale));
-            g.DrawPath(pen, outline);
-        }
+        // The tab's background is the widget's own shape inside the rail column; its border is the widget's outline
+        var fillState = g.Save();
+        g.SetClip(Box(new RectangleF(0, 0, rail, height)), CombineMode.Intersect);
+        using (var shape = WidgetShape(width, height))
+        using (var brush = new SolidBrush(PillColor))
+            g.FillPath(brush, shape);
+        g.Restore(fillState);
+
         // The wheel scrolls the rail when the icons do not fit; elsewhere the rail moves like the background – or is dragged to dock
-        _hits.Add(new Hit(Box(new RectangleF(0, 0, rail, height)),
+        _hits.Add(new Hit(Box(tab),
             L.T("Drag to dock the shortcuts on the other side or drop them between the sections", "Træk for at docke genvejene i den anden side eller slippe dem mellem sektionerne"),
             null, wheel));
 
@@ -497,7 +488,7 @@ internal sealed partial class DashboardForm
         g.SetClip(clip, CombineMode.Intersect);
         for (var i = 0; i < count; i++)
         {
-            var rect = Box(new RectangleF(tab.X + pad, tab.Y + pad + i * step - _railScroll, tile, tile));
+            var rect = Box(new RectangleF(tab.X + U(RailPadOut), tab.Y + padV + i * step - _railScroll, tile, tile));
             if (rect.Bottom < clip.Top || rect.Top > clip.Bottom) continue;
             DrawLaunchTile(g, rect, i, clip, wheel, _p.Track);
         }

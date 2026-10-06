@@ -286,12 +286,23 @@ internal static partial class UiChecks
         var middle = (tiles.Min(h => h.Rect.Top) + tiles.Max(h => h.Rect.Bottom)) / 2;
         Check(Math.Abs(middle - shot.Height / 2f) <= 2, "The rail's icons are not centred on the widget's height.");
 
+        // Only the tab has a background: the rail column above and below it is see-through, the sections are not
+        using (var window = widget.Compose(shot))
+        {
+            var tab = tiles[0].Rect;
+            Check(window.GetPixel(2, 30).A == 0 && window.GetPixel(2, window.Height - 30).A == 0, "The rail column around the tab is not transparent.");
+            Check(window.GetPixel((int)(tab.X + tab.Width / 2), (int)(tab.Y + tab.Height / 2)).A == 255, "The tab under the icons is not opaque.");
+            Check(window.GetPixel((int)rail + 40, window.Height / 2).A == 255, "The sections are not opaque.");
+            OnDesktop(window, "showcase/widget-rail-desktop.png");
+        }
+
         // Docked on the right: the sections stay on the left, the tiles sit in the right column
         s.LaunchRailPlacement = RailPlacement.Right;
         widget.ApplySettings(s);
         Call(widget, "FitSize");
         using (var right = Frame(widget, "showcase/widget-rail-right-dark.png"))
         {
+            using (var window = widget.Compose(right)) OnDesktop(window, "showcase/widget-rail-right-desktop.png");
             var rightHits = Hits(widget);
             Check(right.Width == shot.Width, "Docking on the right changed the width.");
             Check(rightHits.Count(h => h.Click != null && h.Rect.Left >= right.Width - rail) == 4, "The tiles did not move to the right column.");
@@ -570,6 +581,20 @@ internal static partial class UiChecks
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         bitmap.Save(file, ImageFormat.Png);
         return bitmap;
+    }
+
+    /// <summary>The window's pixels over a colourful wallpaper – shows what is transparent.</summary>
+    private static void OnDesktop(Bitmap window, string name)
+    {
+        using var desktop = new Bitmap(window.Width + 48, window.Height + 48, PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(desktop))
+        {
+            using var wallpaper = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(0, 0, desktop.Width, desktop.Height),
+                Color.FromArgb(214, 120, 64), Color.FromArgb(52, 86, 160), 60f);
+            g.FillRectangle(wallpaper, 0, 0, desktop.Width, desktop.Height);
+            g.DrawImage(window, 24, 24, window.Width, window.Height);
+        }
+        desktop.Save(Path.Combine(Output, name), ImageFormat.Png);
     }
 
     private static List<(RectangleF Rect, string? Tip, object? Click)> Hits(DashboardForm widget) =>
