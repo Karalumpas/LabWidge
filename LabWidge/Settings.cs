@@ -140,6 +140,8 @@ internal sealed class AppSettings
     /// <summary>Websites and programs in the rail, top to bottom.</summary>
     public List<LaunchItem> LaunchItems { get; set; } = new();
     public RailPlacement LaunchRailPlacement { get; set; } = RailPlacement.Left;
+    /// <summary>Where the docked drawer's middle sits, as a share of the widget's height (0.5 = centred).</summary>
+    public double LaunchRailOffset { get; set; } = 0.5;
     public bool CollapsedShortcuts { get; set; }
 
     // System and network

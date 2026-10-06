@@ -249,7 +249,7 @@ internal sealed partial class DashboardForm
             }
         }
         DrawRail(g, width, height, padding);
-        if (_drag != null || _railDrag != null) _hits.Clear(); // nothing can be clicked while something is dragged
+        if (_drag != null || _railDrag != null || _iconDrag != null) _hits.Clear(); // nothing can be clicked while something is dragged
         if (_layout.MiddleHeight > 0 && middle.Count > 0)
         {
             var shadowHeight = Math.Min(U(7), _layout.MiddleHeight);
@@ -266,11 +266,12 @@ internal sealed partial class DashboardForm
                 g.FillRectangle(shadow, rect);
             }
         }
+        DrawOutline(g, width, height);
         DrawRailDrop(g, width, height);
         // A visible size grip; all four edges and corners can be resized.
         using var grip = new Pen(_p.TextDim, Math.Max(1, DpiScale));
         for (var i = 0; i < 3; i++)
-            g.DrawLine(grip, width - U(5 + i * 4), height - U(4), width - U(4), height - U(5 + i * 4));
+            g.DrawLine(grip, contentRight - U(5 + i * 4), height - U(4), contentRight - U(4), height - U(5 + i * 4));
         return new SizeF(width, height);
     }
 

@@ -81,7 +81,8 @@ internal sealed partial class DashboardForm : Form
         BackColor = _p.Bg;
         ContextMenuStrip = menu;
         TopMost = settings.WidgetTopMost;
-        Opacity = Math.Clamp(settings.WidgetOpacity, 40, 100) / 100.0;
+        // Not Form.Opacity: the window sets its own pixels (see WidgetSurface), and the opacity goes along with them
+        _opacity = Math.Clamp(settings.WidgetOpacity, 40, 100) / 100.0;
         Icon = AppIconProvider.GetIcon();
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
 
@@ -120,8 +121,7 @@ internal sealed partial class DashboardForm : Form
         _p = Palette.For(settings.Theme);
         BackColor = _p.Bg;
         TopMost = settings.WidgetTopMost;
-        Opacity = Math.Clamp(settings.WidgetOpacity, 40, 100) / 100.0;
-        ApplyBorderColor();
+        _opacity = Math.Clamp(settings.WidgetOpacity, 40, 100) / 100.0;
         if (Visible) FitSize();
         Invalidate();
     }
@@ -142,6 +142,7 @@ internal sealed partial class DashboardForm : Form
         }
         EnsureOnScreen();
         Show();
+        Present(); // a layered window shows nothing until it has been given its pixels
         if (TopMost) BringToFront();
     }
 
@@ -175,6 +176,7 @@ internal sealed partial class DashboardForm : Form
         {
             var cp = base.CreateParams;
             cp.ExStyle |= 0x80; // WS_EX_TOOLWINDOW: no Alt+Tab / taskbar
+            cp.ExStyle |= 0x80000; // WS_EX_LAYERED: the widget draws its own shape and transparency
             return cp;
         }
     }
@@ -185,6 +187,7 @@ internal sealed partial class DashboardForm : Form
     {
         base.OnVisibleChanged(e);
         if (!Visible) _tip.HideTip();
+        else QueuePresent();
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -192,27 +195,15 @@ internal sealed partial class DashboardForm : Form
         base.OnHandleCreated(e);
         try
         {
-            var round = 2; // DWMWCP_ROUND
+            // The widget draws its own rounded corners and border; Windows must not add its own around the whole window
+            var round = 1; // DWMWCP_DONOTROUND
             DwmSetWindowAttribute(Handle, 33, ref round, sizeof(int));
+            var none = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE
+            DwmSetWindowAttribute(Handle, 34, ref none, sizeof(int));
         }
         catch
         {
-            // Older Windows: square corners.
-        }
-        ApplyBorderColor();
-    }
-
-    private void ApplyBorderColor()
-    {
-        if (!IsHandleCreated) return;
-        try
-        {
-            var border = _p.Line.R | (_p.Line.G << 8) | (_p.Line.B << 16);
-            DwmSetWindowAttribute(Handle, 34, ref border, sizeof(int));
-        }
-        catch
-        {
-            // Not supported.
+            // Older Windows: nothing to turn off.
         }
     }
 
@@ -248,9 +239,11 @@ internal sealed partial class DashboardForm : Form
             _pve.Updated -= OnDataUpdated;
             LaunchIcons.Updated -= OnLaunchIconsUpdated;
             _dragTimer.Dispose();
+            _railTimer.Dispose();
             _drag?.Snapshot.Dispose();
             _ghost?.Dispose();
             _tip.Dispose();
+            _mask?.Dispose();
             _sectionMenu?.Dispose();
             _f.Dispose();
         }
@@ -331,6 +324,12 @@ internal sealed partial class DashboardForm : Form
         base.OnMouseMove(e);
         _mouse = ToContent(e.Location);
 
+        if (_iconDrag != null)
+        {
+            MoveIconDrag(_mouse);
+            return;
+        }
+
         if (_railDrag != null)
         {
             MoveRailDrag(_mouse);
@@ -356,6 +355,12 @@ internal sealed partial class DashboardForm : Form
         {
             _pressed = false;
             _downHit = null;
+            // An icon in the drawer is dragged up or down to sort the shortcuts
+            if (_downTile is int tile)
+            {
+                StartIconDrag(tile, _mouse);
+                return;
+            }
             // The rail – or the shortcuts section's header – is dragged to another side or into the widget
             if (_downRail || _downSection == ShortcutsKey || SectionAtHeader(_downPoint) == ShortcutsKey)
             {
@@ -370,6 +375,7 @@ internal sealed partial class DashboardForm : Form
             return;
         }
 
+        UpdateRailHover(_mouse);
         var hit = _hits.LastOrDefault(h => h.Rect.Contains(_mouse));
         Cursor = SectionHeaderAt(_mouse) != null ? Cursors.SizeNS : hit?.Click != null ? Cursors.Hand : Cursors.Default;
         var key = hit == null ? null : $"{hit.Rect}|{hit.Tip}";
@@ -385,7 +391,8 @@ internal sealed partial class DashboardForm : Form
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        if (_drag != null || _railDrag != null) return;
+        if (_drag != null || _railDrag != null || _iconDrag != null) return;
+        SetRailHover(false);
         _mouse = new Point(-1, -1);
         _hoverKey = null;
         _tip.HideTip();
@@ -401,11 +408,17 @@ internal sealed partial class DashboardForm : Form
         _downHit = _hits.LastOrDefault(h => h.Click != null && h.Rect.Contains(ToContent(e.Location)));
         _downSection = SectionHeaderAt(ToContent(e.Location));
         _downRail = RailColumn().Contains(e.Location);
+        _downTile = _railTiles.Where(t => t.Rect.Contains(e.Location)).Select(t => (int?)t.Index).FirstOrDefault();
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
+        if (_iconDrag != null)
+        {
+            DropIconDrag();
+            return;
+        }
         if (_railDrag != null)
         {
             DropRailDrag();
@@ -475,7 +488,7 @@ internal sealed partial class DashboardForm : Form
     /// <summary>Shows the text left of the widget, at the height of the mouse – so it never covers the content.</summary>
     private void ShowTip(string text, int durationMs = 0)
     {
-        _tip.ShowBeside(this, text, Cursor.Position.Y, _p, Opacity, durationMs);
+        _tip.ShowBeside(this, text, Cursor.Position.Y, _p, _opacity, durationMs);
     }
 
     private void ShowTipAtMouse(string text) => ShowTip(text, 1500);
@@ -572,24 +585,8 @@ internal sealed partial class DashboardForm : Form
 
     // ---------- Drawing ----------
 
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        var g = e.Graphics;
-        g.Clear(_p.Bg);
-        var size = Render(g);
-
-        var height = ViewHeight(size.Height);
-        if (Math.Abs(ClientSize.Height - height) > 1 || Math.Abs(ClientSize.Width - size.Width) > 1)
-        {
-            SetSize(size);
-            Invalidate();
-        }
-        else if (_scroll > MaxScroll)
-        {
-            _scroll = MaxScroll;
-            Invalidate();
-        }
-    }
+    /// <summary>Painting a layered window has no effect – the pixels are handed over in <see cref="Present"/>.</summary>
+    protected override void OnPaint(PaintEventArgs e) => QueuePresent();
 
     private SizeF Render(Graphics g)
     {
@@ -624,6 +621,7 @@ internal sealed partial class DashboardForm : Form
             y = plugin.RenderCompact(this, g, U(Pad), y, width - U(Pad) * 2) + U(8);
         }
         if (y == U(8)) { DrawText(g, "LabWidge", _f.BodyBold, _p.TextPrimary, U(Pad), y); y += U(24); }
+        DrawOutline(g, width, y);
         return new SizeF(width, y);
     }
 
