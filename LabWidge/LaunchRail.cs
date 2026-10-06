@@ -43,7 +43,7 @@ internal static class LaunchIcons
 
     private static string Key(LaunchItem item) =>
         !string.IsNullOrWhiteSpace(item.IconPath) ? "file:" + item.IconPath!.Trim()
-        : LaunchItem.WebUri(item.Target) is { } uri ? "web:" + uri.Host.ToLowerInvariant()
+        : LaunchItem.WebUri(item.Target) is { } uri ? "web:" + uri.Authority.ToLowerInvariant()
         : "file:" + item.LaunchTarget();
 
     /// <summary>The icon if it is ready – otherwise null, and it starts loading.</summary>
@@ -168,7 +168,7 @@ internal static class LaunchIcons
 
     private static async Task<Bitmap?> FromWebAsync(Uri page)
     {
-        var file = Path.Combine(CacheDir, Hash(page.Host.ToLowerInvariant()) + ".png");
+        var file = Path.Combine(CacheDir, Hash(page.Authority.ToLowerInvariant()) + ".png");
         if (File.Exists(file))
         {
             try { return Decode(await File.ReadAllBytesAsync(file)); }
@@ -182,7 +182,8 @@ internal static class LaunchIcons
             var final = response.RequestMessage?.RequestUri ?? page;
             if (response.IsSuccessStatusCode && response.Content.Headers.ContentType?.MediaType?.Contains("html") != false)
             {
-                var html = await ReadStartAsync(response, 768 * 1024);
+                var (bytes, _) = await ReadAtMostAsync(response, 768 * 1024);
+                var html = Encoding.UTF8.GetString(bytes);
                 candidates.AddRange(IconLinks(html, final));
             }
             candidates.Add(new Uri(final, "/apple-touch-icon.png"));
@@ -201,8 +202,11 @@ internal static class LaunchIcons
         {
             try
             {
-                var bytes = await Http.GetByteArrayAsync(url);
-                if (Decode(bytes) is not { } icon) continue;
+                // An icon is a few kB; a site that sends more is not read into memory
+                using var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > MaxIconBytes) continue;
+                var (bytes, complete) = await ReadAtMostAsync(response, MaxIconBytes);
+                if (!complete || Decode(bytes) is not { } icon) continue;
                 Directory.CreateDirectory(CacheDir);
                 icon.Save(file, ImageFormat.Png);
                 return icon;
@@ -215,18 +219,21 @@ internal static class LaunchIcons
         return null;
     }
 
-    private static async Task<string> ReadStartAsync(HttpResponseMessage response, int max)
+    private const int MaxIconBytes = 2 * 1024 * 1024;
+
+    /// <summary>Reads at most <paramref name="max"/> bytes. Complete is false when the response is longer.</summary>
+    private static async Task<(byte[] Bytes, bool Complete)> ReadAtMostAsync(HttpResponseMessage response, int max)
     {
         await using var stream = await response.Content.ReadAsStreamAsync();
-        var buffer = new byte[max];
-        var read = 0;
-        while (read < max)
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        while (buffer.Length < max)
         {
-            var n = await stream.ReadAsync(buffer.AsMemory(read, max - read));
-            if (n == 0) break;
-            read += n;
+            var n = await stream.ReadAsync(chunk.AsMemory(0, (int)Math.Min(chunk.Length, max - buffer.Length)));
+            if (n == 0) return (buffer.ToArray(), true);
+            buffer.Write(chunk, 0, n);
         }
-        return Encoding.UTF8.GetString(buffer, 0, read);
+        return (buffer.ToArray(), await stream.ReadAsync(chunk.AsMemory(0, 1)) == 0);
     }
 
     /// <summary>The icons a page lists in its &lt;link&gt; tags, the largest first. SVG is left out – GDI+ cannot draw it.</summary>
