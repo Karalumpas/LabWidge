@@ -66,49 +66,41 @@ internal sealed partial class DashboardForm
         }
     }
 
-    /// <summary>
-    /// The widget's outline: the rounded content and – when the rail is docked – the tab that bulges out around the icons,
-    /// joined with small curves. Drawn as the border, and used as the window's shape.
-    /// </summary>
+    /// <summary>The rounded content: everything but the rail column.</summary>
+    private RectangleF ContentRect(float width, float height) => new(ContentLeft, 0, width - RailWidth, height);
+
+    /// <summary>The window's shape: the rounded content, and the drawer when the rail is docked. Everything else is transparent.</summary>
     private GraphicsPath WidgetShape(float width, float height)
     {
-        var path = new GraphicsPath();
-        var r = U(CornerRadius);
-        if (!RailDocked)
+        var path = new GraphicsPath(FillMode.Winding);
+        path.AddPath(WidgetIcon.RoundedRect(ContentRect(width, height), U(CornerRadius)), false);
+        if (RailDocked)
         {
-            path.AddPath(WidgetIcon.RoundedRect(new RectangleF(0, 0, width, height), r), false);
-            return path;
-        }
-
-        // Laid out as if docked on the left; a rail on the right is the mirror image
-        float x0 = RailWidth, x1 = width, y0 = 0, y1 = height, f = U(6);
-        var tab = RailTab(height);
-        var t = Math.Min(U(12), tab.Height / 2);
-        path.AddArc(x0, y0, r * 2, r * 2, 180, 90);
-        path.AddArc(x1 - r * 2, y0, r * 2, r * 2, 270, 90);
-        path.AddArc(x1 - r * 2, y1 - r * 2, r * 2, r * 2, 0, 90);
-        path.AddArc(x0, y1 - r * 2, r * 2, r * 2, 90, 90);
-        path.AddArc(x0 - f * 2, tab.Bottom, f * 2, f * 2, 0, -90);
-        path.AddArc(tab.X, tab.Bottom - t * 2, t * 2, t * 2, 90, 90);
-        path.AddArc(tab.X, tab.Y, t * 2, t * 2, 180, 90);
-        path.AddArc(x0 - f * 2, tab.Y - f * 2, f * 2, f * 2, 90, -90);
-        path.CloseFigure();
-        if (_settings.LaunchRailPlacement == RailPlacement.Right)
-        {
-            using var mirror = new Matrix(-1, 0, 0, 1, width, 0);
-            path.Transform(mirror);
+            using var tab = RailTabPath(RailLayout(height).Tab, width);
+            tab.CloseFigure();
+            path.AddPath(tab, false);
         }
         return path;
     }
 
-    /// <summary>The widget's border, drawn last. Half of it lies outside the shape, so a 2 px pen leaves a crisp 1 px line.</summary>
+    /// <summary>
+    /// The border: the drawer's first, then the widget's on top – so the drawer looks like it comes out from behind the widget.
+    /// Both lie half a pixel inside the shape, so they stay crisp.
+    /// </summary>
     private void DrawOutline(Graphics g, float width, float height)
     {
-        using var shape = WidgetShape(width, height);
-        using var pen = new Pen(_p.Line, Math.Max(2f, U(2)));
         var mode = g.SmoothingMode;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.DrawPath(pen, shape);
+        using var pen = new Pen(_p.Line, Math.Max(1f, DpiScale));
+        var half = pen.Width / 2;
+        if (RailDocked)
+        {
+            var tab = RailLayout(height).Tab;
+            using var outline = RailTabPath(new RectangleF(tab.X + half, tab.Y + half, tab.Width - half, tab.Height - half * 2), width);
+            g.DrawPath(pen, outline);
+        }
+        using var content = WidgetIcon.RoundedRect(RectangleF.Inflate(ContentRect(width, height), -half, -half), U(CornerRadius) - half);
+        g.DrawPath(pen, content);
         g.SmoothingMode = mode;
     }
 
@@ -116,7 +108,7 @@ internal sealed partial class DashboardForm
     internal Bitmap Compose(Bitmap frame)
     {
         int w = frame.Width, h = frame.Height;
-        var key = $"{w}x{h}|{RailDocked}|{_settings.LaunchRailPlacement}|{_settings.LaunchItems.Count}|{DeviceDpi}";
+        var key = $"{w}x{h}|{RailDocked}|{_settings.LaunchRailPlacement}|{(RailDocked ? RailLayout(h).Tab : RectangleF.Empty)}|{DeviceDpi}";
         if (_mask == null || _maskKey != key)
         {
             _mask?.Dispose();

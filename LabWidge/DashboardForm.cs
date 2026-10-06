@@ -239,6 +239,7 @@ internal sealed partial class DashboardForm : Form
             _pve.Updated -= OnDataUpdated;
             LaunchIcons.Updated -= OnLaunchIconsUpdated;
             _dragTimer.Dispose();
+            _railTimer.Dispose();
             _drag?.Snapshot.Dispose();
             _ghost?.Dispose();
             _tip.Dispose();
@@ -323,6 +324,12 @@ internal sealed partial class DashboardForm : Form
         base.OnMouseMove(e);
         _mouse = ToContent(e.Location);
 
+        if (_iconDrag != null)
+        {
+            MoveIconDrag(_mouse);
+            return;
+        }
+
         if (_railDrag != null)
         {
             MoveRailDrag(_mouse);
@@ -348,6 +355,12 @@ internal sealed partial class DashboardForm : Form
         {
             _pressed = false;
             _downHit = null;
+            // An icon in the drawer is dragged up or down to sort the shortcuts
+            if (_downTile is int tile)
+            {
+                StartIconDrag(tile, _mouse);
+                return;
+            }
             // The rail – or the shortcuts section's header – is dragged to another side or into the widget
             if (_downRail || _downSection == ShortcutsKey || SectionAtHeader(_downPoint) == ShortcutsKey)
             {
@@ -362,6 +375,7 @@ internal sealed partial class DashboardForm : Form
             return;
         }
 
+        UpdateRailHover(_mouse);
         var hit = _hits.LastOrDefault(h => h.Rect.Contains(_mouse));
         Cursor = SectionHeaderAt(_mouse) != null ? Cursors.SizeNS : hit?.Click != null ? Cursors.Hand : Cursors.Default;
         var key = hit == null ? null : $"{hit.Rect}|{hit.Tip}";
@@ -377,7 +391,8 @@ internal sealed partial class DashboardForm : Form
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        if (_drag != null || _railDrag != null) return;
+        if (_drag != null || _railDrag != null || _iconDrag != null) return;
+        SetRailHover(false);
         _mouse = new Point(-1, -1);
         _hoverKey = null;
         _tip.HideTip();
@@ -393,11 +408,17 @@ internal sealed partial class DashboardForm : Form
         _downHit = _hits.LastOrDefault(h => h.Click != null && h.Rect.Contains(ToContent(e.Location)));
         _downSection = SectionHeaderAt(ToContent(e.Location));
         _downRail = RailColumn().Contains(e.Location);
+        _downTile = _railTiles.Where(t => t.Rect.Contains(e.Location)).Select(t => (int?)t.Index).FirstOrDefault();
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
+        if (_iconDrag != null)
+        {
+            DropIconDrag();
+            return;
+        }
         if (_railDrag != null)
         {
             DropRailDrag();

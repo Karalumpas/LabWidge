@@ -325,6 +325,7 @@ internal sealed partial class DashboardForm
     {
         base.OnMouseCaptureChanged(e);
         if (_railDrag != null && !Capture) DropRailDrag();
+        if (_iconDrag != null && !Capture) DropIconDrag();
         if (_drag != null && !Capture) DropSectionDrag();
     }
 
@@ -453,7 +454,7 @@ internal sealed partial class DashboardForm
                 return;
             }
         }
-        if (m.Msg == 0x0084 /* WM_NCHITTEST */ && !_settings.CompactMode && _drag == null && _railDrag == null)
+        if (m.Msg == 0x0084 /* WM_NCHITTEST */ && !_settings.CompactMode && _drag == null && _railDrag == null && _iconDrag == null)
         {
             var point = PointToClient(new Point(unchecked((short)m.LParam.ToInt64()), unchecked((short)(m.LParam.ToInt64() >> 16))));
             if (ClientRectangle.Contains(point))

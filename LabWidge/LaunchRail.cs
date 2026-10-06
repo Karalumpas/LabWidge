@@ -393,26 +393,37 @@ internal static class LaunchIcons
 }
 
 /// <summary>
-/// The shortcuts: a rail docked on the left or the right of the widget, or a section among the others. The rail is a pill centred
-/// on the widget's height that grows with the number of icons, and scrolls with the wheel when they do not fit. Drag the rail –
-/// or the section's header – to dock it on the other side or to drop it between the sections.
+/// The shortcuts: a drawer docked on the left or the right of the widget, or a section among the others. The drawer is tucked in
+/// behind the widget's edge with small icons and slides out with large ones when the mouse comes over it. Drag an icon to sort
+/// them, the grip to move the drawer up or down, to the other side or into the widget – or the section's header back to an edge.
 /// </summary>
 internal sealed partial class DashboardForm
 {
     public const string ShortcutsKey = "shortcuts";
-    private const float RailLogicalWidth = 56;
-    private const float RailTile = 44;
+    private const float RailLogicalWidth = 60;  // room for the drawer when it is pulled out; the rest is transparent
+    private const float RailTile = 44;          // the shortcuts section and its compact row
     private const float RailGap = 6;
-    private const float RailEdge = 14;     // the tab keeps this far from the widget's top and bottom
-    private const float RailPadOut = 7;    // room between the icons and the tab's outer edge
-    private const float RailPadIn = 5;
-    private const float RailPadV = 6;
-    private const float RailDockTile = 40;
-    private const float RailDockGap = 4;
+    private const float RailEdge = 14;          // the drawer keeps this far from the widget's top and bottom
+    private const double RailOpenMs = 170;
+    private const double RailCloseDelayMs = 350;
 
     private float _railScroll;
     private bool _downRail;
+    private int? _downTile;
     private RailDrag? _railDrag;
+    private IconDrag? _iconDrag;
+
+    /// <summary>0 = tucked in behind the widget with small icons, 1 = pulled out like a drawer with large ones.</summary>
+    private float _railOpen;
+    private bool _railWantOpen;
+    private DateTime _railCloseAt = DateTime.MaxValue;
+    private DateTime _railTick;
+    private readonly System.Windows.Forms.Timer _railTimer = new() { Interval = 15 };
+    private bool _railTimerHooked;
+
+    /// <summary>Where the drawer and its tiles are, in window coordinates – for the mouse.</summary>
+    private RectangleF _railTabRect;
+    private readonly List<(RectangleF Rect, int Index)> _railTiles = new();
 
     private sealed class RailDrag
     {
@@ -421,12 +432,23 @@ internal sealed partial class DashboardForm
         public string? Before;
         public float LineY;
         public Point Mouse;
+        /// <summary>Where the drawer's middle goes, as a share of the widget's height.</summary>
+        public float Offset;
+        /// <summary>The mouse's distance to the drawer's middle when it was grabbed, so the drawer does not jump.</summary>
+        public float Grab;
+    }
+
+    private sealed class IconDrag
+    {
+        public int From;
+        public int To;
+        public float MouseY;
     }
 
     private bool ShowsShortcuts => _settings.ShowLaunchRail && _settings.LaunchItems.Count > 0;
     private bool RailDocked => ShowsShortcuts && _settings.LaunchRailPlacement != RailPlacement.Section && !_settings.CompactMode;
 
-    /// <summary>How wide the docked rail is right now – 0 when it is off, empty, a section or the widget is compact.</summary>
+    /// <summary>How much wider the widget is for the docked rail – 0 when it is off, empty, a section or the widget is compact.</summary>
     private float RailWidth => RailDocked ? U(RailLogicalWidth) : 0;
 
     /// <summary>Where the sections start: after the rail when it is docked on the left.</summary>
@@ -440,65 +462,134 @@ internal sealed partial class DashboardForm
 
     private void OnLaunchIconsUpdated() => OnDataUpdated();
 
-    /// <summary>
-    /// The tab around the docked rail's icons, laid out as if docked on the left: against the widget's edge, centred on its height
-    /// and growing with the icons up to the full height. The rest of the rail column is transparent.
-    /// </summary>
-    private RectangleF RailTab(float height)
+    /// <summary>The drawer's share of the height while it is dragged up or down along its own side, otherwise the saved one.</summary>
+    private float RailOffset => _railDrag is { } d && d.Target == _settings.LaunchRailPlacement ? d.Offset
+        : (float)Math.Clamp(_settings.LaunchRailOffset, 0, 1);
+
+    private readonly record struct RailMetrics(RectangleF Tab, float Tile, float Gap, float PadOut, float PadV, float Grip, float Open)
     {
-        float tile = U(RailDockTile), gap = U(RailDockGap), top = U(RailEdge);
-        var view = height - top * 2;
-        var content = _settings.LaunchItems.Count * (tile + gap) - gap;
-        var tabHeight = Math.Min(content + U(RailPadV) * 2, view);
-        var tabWidth = tile + U(RailPadOut) + U(RailPadIn);
-        return new RectangleF(RailWidth - tabWidth, top + (view - tabHeight) / 2, tabWidth, tabHeight);
+        public float Step => Tile + Gap;
+        public float FirstTop => Tab.Y + PadV + Grip;
+    }
+
+    /// <summary>
+    /// The drawer laid out as if docked on the left: against the widget's edge, its middle at <see cref="RailOffset"/>, and between
+    /// small (tucked in) and large (pulled out) icons as it opens. It grows with the icons up to the full height and then scrolls.
+    /// </summary>
+    private RailMetrics RailLayout(float height)
+    {
+        var t = (float)(_railOpen * _railOpen * (3 - 2 * _railOpen)); // smoothstep
+        float Lerp(float closed, float open) => U(closed + (open - closed) * t);
+        float tile = Lerp(22, 46), gap = Lerp(2, 4), padOut = Lerp(3, 6), padIn = Lerp(2, 4), padV = Lerp(4, 6), grip = Lerp(0, 14);
+        var top = U(RailEdge);
+        var view = Math.Max(U(40), height - top * 2);
+        var count = _settings.LaunchItems.Count;
+        var tabHeight = Math.Min(count * tile + (count - 1) * gap + padV * 2 + grip, view);
+        var tabWidth = padOut + tile + padIn;
+        var middle = Math.Clamp(height * RailOffset, top + tabHeight / 2, Math.Max(top + tabHeight / 2, height - top - tabHeight / 2));
+        return new RailMetrics(new RectangleF(RailWidth - tabWidth, middle - tabHeight / 2, tabWidth, tabHeight), tile, gap, padOut, padV, grip, t);
+    }
+
+    /// <summary>The drawer's outline: rounded on the outside, square where it goes in behind the widget's edge.</summary>
+    private GraphicsPath RailTabPath(RectangleF tab, float width)
+    {
+        var path = new GraphicsPath();
+        var r = Math.Min(U(9), Math.Min(tab.Width, tab.Height) / 2);
+        path.AddLine(tab.Right + U(1), tab.Y, tab.X + r, tab.Y);
+        path.AddArc(tab.X, tab.Y, r * 2, r * 2, 270, -90);
+        path.AddArc(tab.X, tab.Bottom - r * 2, r * 2, r * 2, 180, -90);
+        path.AddLine(tab.X + r, tab.Bottom, tab.Right + U(1), tab.Bottom);
+        if (_settings.LaunchRailPlacement == RailPlacement.Right)
+        {
+            using var mirror = new Matrix(-1, 0, 0, 1, width, 0);
+            path.Transform(mirror);
+        }
+        return path;
     }
 
     private void DrawRail(Graphics g, float width, float height, float top)
     {
+        _railTiles.Clear();
+        _railTabRect = RectangleF.Empty;
         if (!RailDocked) return;
-        var rail = RailWidth;
         var right = _settings.LaunchRailPlacement == RailPlacement.Right;
         var count = _settings.LaunchItems.Count;
-        float tile = U(RailDockTile), gap = U(RailDockGap), padV = U(RailPadV), step = tile + gap;
 
         // Laid out as if docked on the left; a rail on the right is the mirror image
         RectangleF Box(RectangleF r) => right ? r with { X = width - r.Right } : r;
 
-        var tab = RailTab(height);
-        var max = Math.Max(0, count * step - gap - (tab.Height - padV * 2));
+        var m = RailLayout(height);
+        var tab = m.Tab;
+        _railTabRect = Box(tab);
+        var room = tab.Height - m.PadV * 2 - m.Grip;
+        var max = Math.Max(0, count * m.Step - m.Gap - room);
         _railScroll = Math.Clamp(_railScroll, 0, max);
+        var step = m.Step;
         Action<int>? wheel = max > 0 ? n => { _railScroll = Math.Clamp(_railScroll - n * step, 0, max); Invalidate(); } : null;
 
-        // The tab's background is the widget's own shape inside the rail column; its border is the widget's outline
-        var fillState = g.Save();
-        g.SetClip(Box(new RectangleF(0, 0, rail, height)), CombineMode.Intersect);
-        using (var shape = WidgetShape(width, height))
+        using (var path = RailTabPath(tab, width))
         using (var brush = new SolidBrush(PillColor))
-            g.FillPath(brush, shape);
-        g.Restore(fillState);
+            g.FillPath(brush, path);
+        _hits.Add(new Hit(_railTabRect, null, null, wheel));
 
-        // The wheel scrolls the rail when the icons do not fit; elsewhere the rail moves like the background – or is dragged to dock
-        _hits.Add(new Hit(Box(tab),
-            L.T("Drag to dock the shortcuts on the other side or drop them between the sections", "Træk for at docke genvejene i den anden side eller slippe dem mellem sektionerne"),
-            null, wheel));
+        // The grip: drag it to move the drawer up or down, to the other side, or into the widget as a section
+        if (m.Grip > U(4))
+        {
+            var grip = Box(new RectangleF(tab.X, tab.Y + m.PadV / 2, tab.Width, m.Grip + m.PadV / 2));
+            var over = grip.Contains(_mouse) && _railDrag == null && _iconDrag == null;
+            using var dots = new SolidBrush(Color.FromArgb((int)(255 * m.Open), over ? _p.TextSecondary : _p.TextDim));
+            var cx = grip.X + grip.Width / 2;
+            var cy = grip.Y + grip.Height / 2;
+            for (var col = -1; col <= 1; col++)
+                for (var row = 0; row < 2; row++)
+                    g.FillEllipse(dots, cx + col * U(4) - U(1), cy - U(3) + row * U(4), U(2), U(2));
+            _hits.Add(new Hit(grip, L.T("Drag to move the shortcuts up or down – or to the other side, or into the widget as a section",
+                                        "Træk for at flytte genvejene op eller ned – eller til den anden side eller ind i widgetten som en sektion"), null));
+        }
 
-        var clip = Box(RectangleF.Inflate(tab, 0, -U(2)));
+        // While an icon is dragged, the others make room where it will land
+        var order = Enumerable.Range(0, count).ToList();
+        if (_iconDrag is { } drag)
+        {
+            order.Remove(drag.From);
+            order.Insert(Math.Clamp(drag.To, 0, order.Count), drag.From);
+        }
+
+        var clip = Box(new RectangleF(tab.X, m.FirstTop - m.PadV + U(1), tab.Width, room + m.PadV * 2 - U(2)));
         var state = g.Save();
         g.SetClip(clip, CombineMode.Intersect);
-        for (var i = 0; i < count; i++)
+        for (var slot = 0; slot < count; slot++)
         {
-            var rect = Box(new RectangleF(tab.X + U(RailPadOut), tab.Y + padV + i * step - _railScroll, tile, tile));
+            var index = order[slot];
+            var rect = Box(new RectangleF(tab.X + m.PadOut, m.FirstTop + slot * step - _railScroll, m.Tile, m.Tile));
             if (rect.Bottom < clip.Top || rect.Top > clip.Bottom) continue;
-            DrawLaunchTile(g, rect, i, clip, wheel, _p.Track);
+            if (_iconDrag?.From == index)
+            {
+                using var outline = WidgetIcon.RoundedRect(RectangleF.Inflate(rect, -U(1), -U(1)), rect.Width * 0.2f);
+                using var dash = new Pen(Color.FromArgb(130, _p.Blue), Math.Max(1f, DpiScale)) { DashStyle = DashStyle.Dash };
+                g.DrawPath(dash, outline);
+                continue;
+            }
+            DrawLaunchTile(g, rect, index, clip, wheel, _p.Track);
+            _railTiles.Add((RectangleF.Intersect(rect, clip), index));
         }
         g.Restore(state);
 
+        if (_iconDrag is { } lifted)
+        {
+            // The icon being moved follows the mouse along the drawer
+            var y = Math.Clamp(lifted.MouseY - m.Tile / 2, tab.Y + m.Grip, tab.Bottom - m.Tile);
+            var rect = Box(new RectangleF(tab.X + m.PadOut, y, m.Tile, m.Tile));
+            FillRound(g, RectangleF.Inflate(rect, U(2), U(2)) with { Y = rect.Y }, Color.FromArgb(_p.IsDark ? 60 : 30, Color.Black), rect.Width * 0.24f);
+            FillRound(g, rect, _p.Track, rect.Width * 0.2f);
+            DrawLaunchTile(g, rect, lifted.From, rect, null, _p.Track);
+        }
+
         if (max > 0)
         {
-            // A soft fade inside the tab where more icons are hidden
-            var fade = U(14);
-            var inner = Box(new RectangleF(tab.X + U(1), tab.Y + U(1), tab.Width - U(2), tab.Height - U(2)));
+            // A soft fade inside the drawer where more icons are hidden
+            var fade = U(12);
+            var inner = Box(new RectangleF(tab.X + U(1), m.FirstTop - m.PadV + U(1), tab.Width - U(2), room + m.PadV * 2 - U(2)));
             if (_railScroll > 0)
             {
                 using var brush = new LinearGradientBrush(new RectangleF(inner.X, inner.Y - 1, inner.Width, fade + 1), PillColor, Color.FromArgb(0, PillColor), LinearGradientMode.Vertical);
@@ -513,11 +604,62 @@ internal sealed partial class DashboardForm
         }
     }
 
+    // ---------- The drawer opening and closing ----------
+
+    /// <summary>The mouse over the drawer pulls it out; leaving it tucks it back in after a moment.</summary>
+    private void UpdateRailHover(Point mouse)
+    {
+        if (!RailDocked) return;
+        // Once pulled out, a little slack around the drawer keeps it from closing on the way to an icon
+        var area = _railOpen > 0 ? RectangleF.Inflate(_railTabRect, U(6), U(10)) : _railTabRect;
+        SetRailHover(area.Contains(mouse));
+    }
+
+    private void SetRailHover(bool over)
+    {
+        if (over)
+        {
+            _railCloseAt = DateTime.MaxValue;
+            if (!_railWantOpen) { _railWantOpen = true; StartRailTimer(); }
+        }
+        else if (_railWantOpen && _railCloseAt == DateTime.MaxValue)
+        {
+            _railCloseAt = DateTime.Now.AddMilliseconds(RailCloseDelayMs);
+            StartRailTimer();
+        }
+    }
+
+    private void StartRailTimer()
+    {
+        if (!_railTimerHooked)
+        {
+            _railTimer.Tick += (_, _) => OnRailTick();
+            _railTimerHooked = true;
+        }
+        _railTick = DateTime.Now;
+        _railTimer.Start();
+    }
+
+    private void OnRailTick()
+    {
+        var now = DateTime.Now;
+        var elapsed = (float)((now - _railTick).TotalMilliseconds / RailOpenMs);
+        _railTick = now;
+        if (_railWantOpen && now >= _railCloseAt && _iconDrag == null && _railDrag == null) _railWantOpen = false;
+        var target = _railWantOpen ? 1f : 0f;
+        var before = _railOpen;
+        _railOpen = target > _railOpen ? Math.Min(target, _railOpen + elapsed) : Math.Max(target, _railOpen - elapsed);
+        if (Math.Abs(before - _railOpen) > 0.0001f) Invalidate();
+        // Keep ticking while it moves or waits to close
+        if (_railOpen == target && (!_railWantOpen || _railCloseAt == DateTime.MaxValue)) _railTimer.Stop();
+    }
+
     /// <summary>One shortcut: its icon (or letter) on a tile that highlights under the mouse and opens the shortcut when clicked.</summary>
     private void DrawLaunchTile(Graphics g, RectangleF rect, int index, RectangleF clip, Action<int>? wheel, Color hover)
     {
         var item = _settings.LaunchItems[index];
-        if (rect.Contains(_mouse) && _drag == null && _railDrag == null && clip.Contains(_mouse)) FillRound(g, rect, hover, rect.Width * 0.2f);
+        var dragging = _drag != null || _railDrag != null || _iconDrag != null;
+        if (rect.Contains(_mouse) && !dragging && clip.Contains(_mouse)) FillRound(g, rect, hover, rect.Width * 0.2f);
 
         var size = rect.Width * 0.68f;
         var icon = new RectangleF(rect.X + (rect.Width - size) / 2, rect.Y + (rect.Height - size) / 2, size, size);
@@ -534,12 +676,55 @@ internal sealed partial class DashboardForm
         }
         else
         {
-            LaunchIcons.DrawLetter(g, item.DisplayName, icon, rect.Width >= U(40) ? _f.BodyBold : _f.SmallBold);
+            LaunchIcons.DrawLetter(g, item.DisplayName, icon, rect.Width >= U(40) ? _f.BodyBold : rect.Width >= U(30) ? _f.SmallBold : _f.Tiny);
         }
 
         var visible = RectangleF.Intersect(rect, clip);
         if (visible.Width <= 0 || visible.Height <= 0) return;
         _hits.Add(new Hit(visible, item.DisplayName + "\n" + (LaunchItem.WebUri(item.Target)?.Host ?? item.Target), () => LaunchRailItem(index), wheel));
+    }
+
+    // ---------- Sorting the icons ----------
+
+    private void StartIconDrag(int index, Point mouse)
+    {
+        _iconDrag = new IconDrag { From = index, To = index };
+        _tip.HideTip();
+        _hoverKey = null;
+        Capture = true;
+        Cursor = Cursors.SizeNS;
+        MoveIconDrag(mouse);
+    }
+
+    /// <summary>The slot nearest the mouse is where the icon lands.</summary>
+    private void MoveIconDrag(Point mouse)
+    {
+        var d = _iconDrag!;
+        var m = RailLayout(ClientSize.Height);
+        d.MouseY = mouse.Y;
+        var slot = (int)Math.Round((mouse.Y + _railScroll - m.FirstTop - m.Tile / 2) / m.Step);
+        d.To = Math.Clamp(slot, 0, _settings.LaunchItems.Count - 1);
+        Invalidate();
+    }
+
+    private void DropIconDrag()
+    {
+        var d = _iconDrag;
+        if (d == null) return;
+        _iconDrag = null; // first: releasing the capture below calls this again
+        Capture = false;
+        Cursor = Cursors.Default;
+        if (d.To != d.From)
+        {
+            var items = _settings.LaunchItems;
+            var item = items[d.From];
+            items.RemoveAt(d.From);
+            items.Insert(Math.Clamp(d.To, 0, items.Count), item);
+            _saveSettings();
+            Logger.Info($"Rail: moved {item.DisplayName} to place {d.To + 1}.");
+        }
+        UpdateRailHover(PointToClient(System.Windows.Forms.Cursor.Position));
+        Invalidate();
     }
 
     /// <summary>The shortcuts as a section: a header and the icons in centred rows.</summary>
@@ -602,11 +787,12 @@ internal sealed partial class DashboardForm
 
     /// <summary>
     /// Docks the shortcuts or makes them a section. As a section they go in front of <paramref name="before"/>, or after the last
-    /// section in the scrolling middle when it is null.
+    /// section in the scrolling middle when it is null. A docked rail's middle goes to <paramref name="offset"/> of the height.
     /// </summary>
-    private void SetRailPlacement(RailPlacement placement, string? before = null, bool reorder = false)
+    private void SetRailPlacement(RailPlacement placement, string? before = null, bool reorder = false, float? offset = null)
     {
         _settings.LaunchRailPlacement = placement;
+        if (offset is float share && placement != RailPlacement.Section) _settings.LaunchRailOffset = Math.Round(Math.Clamp(share, 0, 1), 3);
         if (placement == RailPlacement.Section && reorder)
         {
             var order = SectionOrder().Where(k => k != ShortcutsKey).ToList();
@@ -626,7 +812,8 @@ internal sealed partial class DashboardForm
         _saveSettings();
         FitSize();
         Invalidate();
-        Logger.Info($"Widget: shortcuts placed {placement}" + (placement == RailPlacement.Section && reorder ? $" before {before ?? "the end"}." : "."));
+        Logger.Info($"Widget: shortcuts placed {placement}" + (placement == RailPlacement.Section && reorder ? $" before {before ?? "the end"}."
+            : placement != RailPlacement.Section ? $" at {_settings.LaunchRailOffset:P0} of the height." : "."));
     }
 
     private void AddRailPlacementItems(ContextMenuStrip menu)
@@ -636,6 +823,12 @@ internal sealed partial class DashboardForm
             var item = new ToolStripMenuItem(PlacementText(placement)) { Checked = _settings.LaunchRailPlacement == placement };
             item.Click += (_, _) => SetRailPlacement(placement, reorder: placement == RailPlacement.Section && _settings.LaunchRailPlacement != RailPlacement.Section);
             menu.Items.Add(item);
+        }
+        if (_settings.LaunchRailPlacement != RailPlacement.Section)
+        {
+            var centre = new ToolStripMenuItem(L.T("Centre vertically", "Centrér lodret")) { Enabled = Math.Abs(_settings.LaunchRailOffset - 0.5) > 0.001 };
+            centre.Click += (_, _) => SetRailPlacement(_settings.LaunchRailPlacement, offset: 0.5f);
+            menu.Items.Add(centre);
         }
     }
 
@@ -651,7 +844,8 @@ internal sealed partial class DashboardForm
 
     private void StartRailDrag(Point mouse)
     {
-        _railDrag = new RailDrag();
+        var middle = RailDocked ? _railTabRect.Y + _railTabRect.Height / 2 : mouse.Y;
+        _railDrag = new RailDrag { Grab = _railTabRect.IsEmpty ? 0 : mouse.Y - middle, Offset = (float)_settings.LaunchRailOffset };
         _tip.HideTip();
         _hoverKey = null;
         Capture = true;
@@ -659,7 +853,10 @@ internal sealed partial class DashboardForm
         MoveRailDrag(mouse);
     }
 
-    /// <summary>Near an edge the rail docks on that side; anywhere else it becomes a section where the line shows.</summary>
+    /// <summary>
+    /// Along its own side the drawer moves up or down; near the other edge it docks there; anywhere else it becomes a section
+    /// where the line shows.
+    /// </summary>
     private void MoveRailDrag(Point mouse)
     {
         var d = _railDrag!;
@@ -667,6 +864,7 @@ internal sealed partial class DashboardForm
         var width = ClientSize.Width;
         var edge = Math.Max(U(64), width * 0.2f);
         d.Target = mouse.X < edge ? RailPlacement.Left : mouse.X > width - edge ? RailPlacement.Right : RailPlacement.Section;
+        d.Offset = Math.Clamp((mouse.Y - d.Grab) / Math.Max(1f, ClientSize.Height), 0, 1);
         if (d.Target == RailPlacement.Section)
         {
             var others = _sectionBounds.Where(b => b.Key != ShortcutsKey && PinOf(b.Key) == SectionPin.None).ToList();
@@ -688,25 +886,32 @@ internal sealed partial class DashboardForm
         var area = ClientRectangle;
         area.Inflate((int)U(40), (int)U(40));
         if (!area.Contains(d.Mouse)) { Invalidate(); return; } // dropped far outside the widget: nothing changes
-        SetRailPlacement(d.Target, d.Before, reorder: d.Target == RailPlacement.Section);
+        SetRailPlacement(d.Target, d.Before, reorder: d.Target == RailPlacement.Section, offset: d.Offset);
+        UpdateRailHover(PointToClient(System.Windows.Forms.Cursor.Position));
     }
 
-    /// <summary>Where the shortcuts land: a dashed column at the side or a line between the sections, and a small card at the mouse.</summary>
+    /// <summary>
+    /// Where the shortcuts land: along their own side the drawer itself follows the mouse; at the other edge a dashed outline shows
+    /// where it docks; in the widget a line shows where the section goes. A small card at the mouse says what happens.
+    /// </summary>
     private void DrawRailDrop(Graphics g, float width, float height)
     {
         var d = _railDrag;
         if (d == null) return;
         var blue = _p.Blue;
-        if (d.Target != RailPlacement.Section)
+        var sameSide = d.Target == _settings.LaunchRailPlacement && RailDocked;
+        if (d.Target != RailPlacement.Section && !sameSide)
         {
             var rail = U(RailLogicalWidth);
-            var rect = new RectangleF(d.Target == RailPlacement.Left ? U(4) : width - rail + U(4), U(8), rail - U(8), height - U(16));
+            var tabHeight = RailDocked ? _railTabRect.Height : U(120);
+            var middle = Math.Clamp(height * d.Offset, U(8) + tabHeight / 2, Math.Max(U(8) + tabHeight / 2, height - U(8) - tabHeight / 2));
+            var rect = new RectangleF(d.Target == RailPlacement.Left ? U(4) : width - rail + U(4), middle - tabHeight / 2, rail - U(8), tabHeight);
             FillRound(g, rect, Color.FromArgb(_p.IsDark ? 40 : 28, blue), U(12));
             using var path = WidgetIcon.RoundedRect(rect, U(12));
             using var dash = new Pen(Color.FromArgb(150, blue), Math.Max(1f, DpiScale)) { DashStyle = DashStyle.Dash };
             g.DrawPath(dash, path);
         }
-        else
+        else if (d.Target == RailPlacement.Section)
         {
             float x1 = ContentLeft + U(Pad), x2 = ContentLeft + U(LayoutWidth) - U(Pad);
             using var pen = new Pen(blue, Math.Max(2f, U(3))) { StartCap = LineCap.Round, EndCap = LineCap.Round };
@@ -715,6 +920,7 @@ internal sealed partial class DashboardForm
             g.FillEllipse(dot, x1 - U(4), d.LineY - U(4), U(8), U(8));
             g.FillEllipse(dot, x2 - U(4), d.LineY - U(4), U(8), U(8));
         }
+        if (sameSide) return; // the drawer itself shows where it goes
 
         // The card: the first icons, and where they will go
         var items = _settings.LaunchItems;

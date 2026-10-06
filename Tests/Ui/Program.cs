@@ -296,6 +296,43 @@ internal static partial class UiChecks
             OnDesktop(window, "showcase/widget-rail-desktop.png");
         }
 
+        // Hovering pulls the drawer out with larger icons; it is still centred
+        var openField = widget.GetType().GetField("_railOpen", Private)!;
+        openField.SetValue(widget, 1f);
+        using (var open = Frame(widget, "showcase/widget-rail-open-dark.png"))
+        {
+            var openTiles = Hits(widget).Where(h => h.Click != null && h.Rect.Right <= rail).ToList();
+            Check(openTiles.Count == 4 && openTiles[0].Rect.Width > tiles[0].Rect.Width * 1.6f, "The drawer did not pull out with larger icons.");
+            using var window = widget.Compose(open);
+            OnDesktop(window, "showcase/widget-rail-open-desktop.png");
+
+            // Dragging the first icon to the bottom puts it last
+            var first = openTiles[0].Rect;
+            Call(widget, "StartIconDrag", 0, new Point((int)(first.X + first.Width / 2), (int)(first.Y + first.Height / 2)));
+            var last = openTiles[^1].Rect;
+            Call(widget, "MoveIconDrag", new Point((int)(last.X + last.Width / 2), (int)(last.Y + last.Height / 2)));
+            Frame(widget, "showcase/widget-rail-sorting.png").Dispose();
+            Call(widget, "DropIconDrag");
+            Check(s.LaunchItems[^1].Name == "Notepad" && s.LaunchItems[0].Name == "Explorer", "Dragging an icon did not sort the shortcuts.");
+            var moved = s.LaunchItems[^1];
+            s.LaunchItems.RemoveAt(s.LaunchItems.Count - 1);
+            s.LaunchItems.Insert(0, moved);
+
+            // Dragging the grip up moves the drawer up along the widget
+            var middleBefore = (openTiles.Min(h => h.Rect.Top) + openTiles.Max(h => h.Rect.Bottom)) / 2;
+            Call(widget, "StartRailDrag", new Point(10, (int)middleBefore));
+            Call(widget, "MoveRailDrag", new Point(10, (int)middleBefore - 150));
+            Call(widget, "DropRailDrag");
+            Check(s.LaunchRailPlacement == RailPlacement.Left && s.LaunchRailOffset < 0.4, "Dragging the drawer up did not move it.");
+            openField.SetValue(widget, 1f);
+            using var up = Frame(widget, "showcase/widget-rail-moved-dark.png");
+            var upTiles = Hits(widget).Where(h => h.Click != null && h.Rect.Right <= rail).ToList();
+            var middleAfter = (upTiles.Min(h => h.Rect.Top) + upTiles.Max(h => h.Rect.Bottom)) / 2;
+            Check(Math.Abs(middleBefore - 150 - middleAfter) <= 2, "The drawer did not follow the mouse up.");
+        }
+        s.LaunchRailOffset = 0.5;
+        openField.SetValue(widget, 0f);
+
         // Docked on the right: the sections stay on the left, the tiles sit in the right column
         s.LaunchRailPlacement = RailPlacement.Right;
         widget.ApplySettings(s);
@@ -315,9 +352,9 @@ internal static partial class UiChecks
         widget.Location = new Point(400, 300);
         s.WidgetLeft = widget.Left;
         var rightLeft = widget.Left;
-        Call(widget, "SetRailPlacement", RailPlacement.Left, null!, false);
+        Call(widget, "SetRailPlacement", RailPlacement.Left, null!, false, null!);
         Check(widget.Left == rightLeft - (int)Math.Round(rail), "Docking on the left did not move the window so the sections stay put.");
-        Call(widget, "SetRailPlacement", RailPlacement.Right, null!, false);
+        Call(widget, "SetRailPlacement", RailPlacement.Right, null!, false, null!);
         Check(widget.Left == rightLeft, "Docking on the right again did not move the window back.");
         placedField.SetValue(widget, false);
         s.WidgetLeft = null;

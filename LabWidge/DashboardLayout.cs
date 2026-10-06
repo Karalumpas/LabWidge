@@ -249,7 +249,7 @@ internal sealed partial class DashboardForm
             }
         }
         DrawRail(g, width, height, padding);
-        if (_drag != null || _railDrag != null) _hits.Clear(); // nothing can be clicked while something is dragged
+        if (_drag != null || _railDrag != null || _iconDrag != null) _hits.Clear(); // nothing can be clicked while something is dragged
         if (_layout.MiddleHeight > 0 && middle.Count > 0)
         {
             var shadowHeight = Math.Min(U(7), _layout.MiddleHeight);

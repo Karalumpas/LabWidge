@@ -819,10 +819,12 @@ internal sealed class ShortcutsPage : SettingsPage
                         "Store ikoner i widgetten, der åbner dine foretrukne hjemmesider og programmer med ét klik – fx YouTube, Instagram, ChatGPT eller Discord.")),
             _show,
             Ui.Row(L.T("Placement", "Placering"), _placement),
-            Ui.Help(L.T("You can also drag the rail to the other side, or into the widget between the sections – and drag the section's header back to an edge. " +
-                        "Right-click the rail for the same choices.",
-                        "Du kan også trække rail'en over i den anden side eller ind i widgetten mellem sektionerne – og trække sektionens overskrift tilbage til en kant. " +
-                        "Højreklik på rail'en for de samme valg.")),
+            Ui.Help(L.T("The rail is tucked in behind the widget with small icons and slides out when you point at it. Drag an icon to change the order, " +
+                        "and drag the grip at the top to move the rail up or down, to the other side, or into the widget as a section – drag the section's header " +
+                        "back to an edge. Right-click the rail for the same choices.",
+                        "Rail'en ligger gemt bag widgetten med små ikoner og glider ud, når du peger på den. Træk et ikon for at ændre rækkefølgen, " +
+                        "og træk i grebet øverst for at flytte rail'en op eller ned, til den anden side eller ind i widgetten som en sektion – træk sektionens overskrift " +
+                        "tilbage til en kant. Højreklik på rail'en for de samme valg.")),
             Ui.Section(L.T("Your shortcuts", "Dine genveje")),
             Ui.Help(L.T("Type a web address (youtube.com), or choose a program or a shortcut from the Start menu. The order is the same as in the rail. " +
                         "Double-click the icon to choose your own.",
