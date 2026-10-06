@@ -2,6 +2,11 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.21.0
+- Drag the shortcut rail to dock it on the right instead, or drop it between the sections to make it a section of its own – and drag it back again.
+- The rail now sits centred in a slim tab that grows with each shortcut you add.
+- Choose where the shortcuts go under Settings → Shortcuts, or right-click the rail.
+
 ## 1.20.0
 - New: a rail of large icons on the left of the widget opens your favourite websites and programs with one click – YouTube, Instagram, ChatGPT, Discord or anything else.
 - Add your shortcuts under Settings → Shortcuts: type a web address, pick a program or a Start menu shortcut, or start with the suggestions.
