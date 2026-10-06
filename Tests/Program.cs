@@ -65,7 +65,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Plugins: legacy activation migrates and configuration survives disable and clone", PluginSettings),
     ("Plugins: cancellation stops price requests before tariff fetching and allows restart", CancelPriceFetch),
     ("Plugins: cancelling an old price fetch keeps a newer request waiting behind it", CancelKeepsNewerPriceRequest),
-    ("Settings: hidden disks match the widget's disk names", HiddenDiskNames)
+    ("Settings: hidden disks match the widget's disk names", HiddenDiskNames),
+    ("Shortcuts: websites, programs and other addresses are told apart and survive cloning", LaunchItems)
 };
 foreach (var test in tests)
 {
@@ -161,6 +162,24 @@ static async Task CancelKeepsNewerPriceRequest()
 static Task HiddenDiskNames()
 {
     Check(AppSettings.DiskName(@"C:\") == "C:" && AppSettings.DiskName("D:") == "D:", "Drive names were not normalized like the widget's.");
+    return Task.CompletedTask;
+}
+
+static Task LaunchItems()
+{
+    Check(LaunchItem.WebUri("youtube.com")?.ToString() == "https://youtube.com/", "A bare domain was not opened as a website.");
+    Check(LaunchItem.WebUri("www.chatgpt.com/c/new")?.Host == "www.chatgpt.com", "A domain with a path was not a website.");
+    Check(LaunchItem.WebUri("http://192.168.0.10:8123") != null, "An http address was not a website.");
+    foreach (var program in new[] { "notepad.exe", @"C:\Program Files\App\app.exe", "discord://", @"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App", "Discord.lnk", "" })
+        Check(LaunchItem.WebUri(program) == null, $"{program} was taken for a website.");
+    Check(new LaunchItem { Target = "https://www.instagram.com" }.DisplayName == "instagram.com", "A website without a name was not named after its host.");
+    Check(new LaunchItem { Target = @"C:\Tools\Notes.lnk" }.DisplayName == "Notes", "A shortcut without a name was not named after its file.");
+
+    var settings = new AppSettings { LaunchItems = LaunchItem.Examples() };
+    var copy = settings.Clone();
+    Check(copy.LaunchItems.Count == 4 && copy.LaunchItems[0].Name == "YouTube" && copy.ShowLaunchRail, "Cloning lost the shortcuts.");
+    copy.LaunchItems[0].Name = "Changed";
+    Check(settings.LaunchItems[0].Name == "YouTube", "Cloned shortcuts were not independent.");
     return Task.CompletedTask;
 }
 

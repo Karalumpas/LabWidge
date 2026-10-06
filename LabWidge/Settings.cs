@@ -131,6 +131,10 @@ internal sealed class AppSettings
     public string[] ForgetWindows { get; set; } = Array.Empty<string>();
     /// <summary>Open the pinned section windows again when LabWidge starts.</summary>
     public bool RestorePinnedWindows { get; set; } = true;
+    /// <summary>Show the rail with <see cref="LaunchItems"/> on the left of the widget.</summary>
+    public bool ShowLaunchRail { get; set; } = true;
+    /// <summary>Websites and programs in the rail, top to bottom.</summary>
+    public List<LaunchItem> LaunchItems { get; set; } = new();
 
     // System and network
     public bool ShowGpu { get; set; } = true;
@@ -321,6 +325,7 @@ internal static class SettingsStore
             loaded.SectionLastPins ??= new();
             loaded.SectionWindows ??= new();
             loaded.Plugins ??= new();
+            loaded.LaunchItems = (loaded.LaunchItems ?? new()).Where(i => !string.IsNullOrWhiteSpace(i?.Target)).ToList();
             // Before 1.18.1 the settings page saved "C:\" while the widget compares with "C:"
             loaded.HiddenDisks = (loaded.HiddenDisks ?? Array.Empty<string>()).Select(AppSettings.DiskName)
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();

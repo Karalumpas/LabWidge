@@ -29,7 +29,7 @@ internal sealed class SettingsWindow : Form
         Ui.Palette = _p; // before the pages are created, so they pick up the theme's colours
 
         _pluginsPage = new PluginsPage();
-        _commonPages = new SettingsPage[] { new GeneralPage(), new WidgetPage(), new WindowsPage(), new NotificationsPage(), _pluginsPage };
+        _commonPages = new SettingsPage[] { new GeneralPage(), new WidgetPage(), new ShortcutsPage(), new WindowsPage(), new NotificationsPage(), _pluginsPage };
         foreach (var page in _commonPages.Append(_aboutPage)) page.LoadFrom(Settings);
         _pluginsPage.ActivationChanged += RebuildPages;
         _pluginsPage.ConfigureRequested += key => { if (_pluginPages.TryGetValue(key, out var page)) _ = ShowPageAsync(Array.IndexOf(_pages, page)); };

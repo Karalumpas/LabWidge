@@ -217,6 +217,7 @@ internal static partial class UiChecks
         Call(widget, "FitSize");
         Frame(widget, "showcase/compact-dark.png").Dispose();
         widget.SetCompact(false);
+        RailChecks(widget, s, shots[0]);
 
         // The hero: both themes side by side on a soft background
         const int pad = 48, gap = 36;
@@ -254,6 +255,40 @@ internal static partial class UiChecks
 
         SectionWindowChecks(fixture);
         SettingsScreens(s);
+    }
+
+    /// <summary>
+    /// The shortcut rail widens the widget on the left without moving the sections' content, and its tiles open the items.
+    /// Only programs on the PC are used, so no website is contacted.
+    /// </summary>
+    private static void RailChecks(DashboardForm widget, AppSettings s, Bitmap withoutRail)
+    {
+        s.LaunchItems = new List<LaunchItem>
+        {
+            new() { Name = "Notepad", Target = "notepad.exe" },
+            new() { Name = "Explorer", Target = @"C:\Windows\explorer.exe" },
+            new() { Name = "Calculator", Target = @"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App" },
+            new() { Name = "Discord", Target = "discord://" }
+        };
+        widget.ApplySettings(s);
+        Call(widget, "FitSize");
+        var until = DateTime.Now.AddSeconds(10);
+        while (DateTime.Now < until && s.LaunchItems.Take(2).Any(i => LaunchIcons.Get(i) == null)) Thread.Sleep(100);
+        using var shot = Frame(widget, "showcase/widget-rail-dark.png");
+        var rail = (float)widget.GetType().GetProperty("RailWidth", Private)!.GetValue(widget)!;
+        Check(rail > 0 && Math.Abs(shot.Width - withoutRail.Width - rail) <= 1, "The rail did not widen the widget by its own width.");
+        var hits = Get<IEnumerable>(widget, "_hits").Cast<object>()
+            .Select(h => (Rect: (RectangleF)h.GetType().GetProperty("Rect")!.GetValue(h)!, Tip: h.GetType().GetProperty("Tip")!.GetValue(h) as string,
+                          Click: h.GetType().GetProperty("Click")!.GetValue(h))).ToList();
+        Check(hits.Count(h => h.Click != null && h.Rect.Right <= rail) == 4 && hits.Any(h => h.Tip?.StartsWith("Notepad") == true),
+            "Every shortcut needs a clickable tile in the rail.");
+        Check(hits.Where(h => h.Rect.Right > rail).All(h => h.Rect.Left >= rail), "Section hit targets reached into the rail.");
+        s.ShowLaunchRail = false;
+        widget.ApplySettings(s);
+        Call(widget, "FitSize");
+        Check(widget.ClientSize.Width == withoutRail.Width, "Turning the rail off did not give the width back.");
+        s.ShowLaunchRail = true;
+        Console.WriteLine("PASS UI: the shortcut rail sits left of the sections with one tile per shortcut");
     }
 
     /// <summary>Renders every settings page in both themes, so the look can be reviewed in the CI artifact.</summary>

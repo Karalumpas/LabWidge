@@ -103,6 +103,7 @@ internal sealed partial class DashboardForm : Form
         _cf.Updated += OnDataUpdated;
         _services.Updated += OnDataUpdated;
         _pve.Updated += OnDataUpdated;
+        LaunchIcons.Updated += OnLaunchIconsUpdated;
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
 
@@ -245,6 +246,7 @@ internal sealed partial class DashboardForm : Form
             _cf.Updated -= OnDataUpdated;
             _services.Updated -= OnDataUpdated;
             _pve.Updated -= OnDataUpdated;
+            LaunchIcons.Updated -= OnLaunchIconsUpdated;
             _dragTimer.Dispose();
             _drag?.Snapshot.Dispose();
             _ghost?.Dispose();
@@ -277,6 +279,7 @@ internal sealed partial class DashboardForm : Form
     }
 
     private bool UserPlaced => _settings.WidgetLeft != null;
+    private int _appliedRail;
 
     private void FitSize()
     {
@@ -291,14 +294,19 @@ internal sealed partial class DashboardForm : Form
         if (ClientSize == target) return;
         var dw = target.Width - ClientSize.Width;
         var dh = target.Height - ClientSize.Height;
+        var rail = (int)Math.Round(RailWidth);
+        var dr = rail - _appliedRail;
+        _appliedRail = rail;
         _settingSize = true;
         try { ClientSize = target; } finally { _settingSize = false; }
         if (!_placed) return;
 
         // Anchored at the bottom: a section that collapses or expands moves the top – not the bottom.
         // Without a stored position the widget is also anchored on the right (by the clock).
+        // The rail grows to the left, so the sections stay where they were when it appears or goes away.
         Top -= dh;
         if (!UserPlaced) Left -= dw;
+        else if (dr != 0) Left -= dr;
         EnsureOnScreen();
         if (UserPlaced) RememberPosition(save: false);
     }
@@ -517,25 +525,26 @@ internal sealed partial class DashboardForm : Form
     {
         var max = MaxScroll;
         if (max <= 0) return;
-        var w = ClientSize.Width;
+        var left = RailWidth;
+        var w = ClientSize.Width - left;
         var h = _layout.MiddleHeight;
         var start = _layout.MiddleTop;
         if (h <= 0) return;
         var fade = U(22);
         if (_scroll > 0)
         {
-            using var top = new LinearGradientBrush(new RectangleF(0, start, w, fade + 1), _p.Bg, Color.FromArgb(0, _p.Bg), LinearGradientMode.Vertical);
-            g.FillRectangle(top, 0, start, w, Math.Min(fade, h));
+            using var top = new LinearGradientBrush(new RectangleF(left, start, w, fade + 1), _p.Bg, Color.FromArgb(0, _p.Bg), LinearGradientMode.Vertical);
+            g.FillRectangle(top, left, start, w, Math.Min(fade, h));
         }
         if (_scroll < max)
         {
-            using var bottom = new LinearGradientBrush(new RectangleF(0, start + h - fade - 1, w, fade + 1), Color.FromArgb(0, _p.Bg), _p.Bg, LinearGradientMode.Vertical);
-            g.FillRectangle(bottom, 0, start + h - Math.Min(fade, h), w, Math.Min(fade, h));
+            using var bottom = new LinearGradientBrush(new RectangleF(left, start + h - fade - 1, w, fade + 1), Color.FromArgb(0, _p.Bg), _p.Bg, LinearGradientMode.Vertical);
+            g.FillRectangle(bottom, left, start + h - Math.Min(fade, h), w, Math.Min(fade, h));
         }
         if (_mouse.X < 0) return;
         var track = Math.Max(1, h - U(16));
         var thumb = Math.Min(track, Math.Max(U(28), track * h / (h + max)));
-        var bar = new RectangleF(w - U(5), start + U(8) + (track - thumb) * _scroll / max, U(3), thumb);
+        var bar = new RectangleF(left + w - U(5), start + U(8) + (track - thumb) * _scroll / max, U(3), thumb);
         FillRound(g, bar, Color.FromArgb(_p.IsDark ? 90 : 70, _p.TextSecondary), bar.Width / 2);
     }
 

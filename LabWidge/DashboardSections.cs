@@ -75,11 +75,11 @@ internal sealed partial class DashboardForm
     }
 
     /// <summary>The section whose header is under the point.</summary>
-    private string? SectionAtHeader(Point p) => _settings.CompactMode ? null
+    private string? SectionAtHeader(Point p) => _settings.CompactMode || p.X < RailWidth ? null
         : _sectionBounds.FirstOrDefault(b => p.Y >= b.Top - U(4) && p.Y <= b.Top + U(20)
             && (PinOf(b.Key) != SectionPin.None || (p.Y >= _layout.MiddleTop && p.Y < _layout.BottomTop)))?.Key;
 
-    private string? SectionHeaderAt(Point p) => p.X >= U(Pad) - U(6) && p.X <= U(Pad) + U(6)
+    private string? SectionHeaderAt(Point p) => p.X >= RailWidth + U(Pad) - U(6) && p.X <= RailWidth + U(Pad) + U(6)
         ? SectionAtHeader(p) : null;
 
     // ---------- Drag ----------
@@ -90,7 +90,7 @@ internal sealed partial class DashboardForm
 
         // A snapshot of the section becomes the card that is dragged around
         var pad = U(8);
-        var snapshot = new Bitmap(ClientSize.Width, (int)Math.Ceiling(bounds.Height + pad * 2));
+        var snapshot = new Bitmap(Math.Max(1, ClientSize.Width - (int)RailWidth), (int)Math.Ceiling(bounds.Height + pad * 2));
         using (var g = Graphics.FromImage(snapshot))
         {
             g.Clear(_p.Bg);
@@ -373,7 +373,7 @@ internal sealed partial class DashboardForm
 
     private void DrawCard(Graphics g, SectionDrag d, float top, float lift)
     {
-        var rect = new RectangleF(0, top - d.SnapshotTop, d.Snapshot.Width, d.Snapshot.Height);
+        var rect = new RectangleF(RailWidth, top - d.SnapshotTop, d.Snapshot.Width, d.Snapshot.Height);
         var radius = U(9);
 
         // Shadow in several layers – softer and further away the higher the card is lifted
@@ -453,7 +453,8 @@ internal sealed partial class DashboardForm
             _resizing = true;
             var r = Marshal.PtrToStructure<RECT>(m.LParam);
             var wa = Screen.FromRectangle(Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom)).WorkingArea;
-            var width = Math.Clamp(r.Right - r.Left, Math.Min((int)U(300), wa.Width), Math.Min((int)U(640), wa.Width));
+            var rail = (int)RailWidth;
+            var width = Math.Clamp(r.Right - r.Left, Math.Min((int)U(300) + rail, wa.Width), Math.Min((int)U(640) + rail, wa.Width));
             var height = Math.Clamp(r.Bottom - r.Top, Math.Min((int)MinimumViewHeight, wa.Height), wa.Height);
             var edge = m.WParam.ToInt32();
             if (edge is 1 or 4 or 7) r.Left = r.Right - width; else r.Right = r.Left + width;
