@@ -2,6 +2,11 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.22.0
+- The shortcut rail is now a drawer tucked in behind the widget with small icons – it slides out with larger ones when you point at it.
+- Drag an icon to change the order, and drag the grip at the top to move the rail up or down along the widget.
+- Around the drawer the widget is see-through, so only the icons have a background.
+
 ## 1.21.0
 - Drag the shortcut rail to dock it on the right instead, or drop it between the sections to make it a section of its own – and drag it back again.
 - The rail now sits centred in a slim tab that grows with each shortcut you add.
