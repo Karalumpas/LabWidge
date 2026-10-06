@@ -291,19 +291,23 @@ internal sealed partial class DashboardForm : Form
     private void SetSize(SizeF size)
     {
         var target = new Size((int)Math.Ceiling(size.Width), (int)Math.Ceiling(ViewHeight(size.Height)));
-        if (ClientSize == target) return;
-        var dw = target.Width - ClientSize.Width;
-        var dh = target.Height - ClientSize.Height;
-        var rail = (int)Math.Round(RailWidth);
+        // Moving the rail from one side to the other keeps the size but still moves where the sections start
+        var rail = (int)Math.Round(ContentLeft);
         var dr = rail - _appliedRail;
         _appliedRail = rail;
-        _settingSize = true;
-        try { ClientSize = target; } finally { _settingSize = false; }
+        if (ClientSize == target && dr == 0) return;
+        var dw = target.Width - ClientSize.Width;
+        var dh = target.Height - ClientSize.Height;
+        if (ClientSize != target)
+        {
+            _settingSize = true;
+            try { ClientSize = target; } finally { _settingSize = false; }
+        }
         if (!_placed) return;
 
         // Anchored at the bottom: a section that collapses or expands moves the top – not the bottom.
         // Without a stored position the widget is also anchored on the right (by the clock).
-        // The rail grows to the left, so the sections stay where they were when it appears or goes away.
+        // A rail on the left grows to the left, so the sections stay where they were when it appears, moves or goes away.
         Top -= dh;
         if (!UserPlaced) Left -= dw;
         else if (dr != 0) Left -= dr;
@@ -327,6 +331,12 @@ internal sealed partial class DashboardForm : Form
         base.OnMouseMove(e);
         _mouse = ToContent(e.Location);
 
+        if (_railDrag != null)
+        {
+            MoveRailDrag(_mouse);
+            return;
+        }
+
         if (_drag != null)
         {
             if (UpdateTearOff()) return;
@@ -346,6 +356,12 @@ internal sealed partial class DashboardForm : Form
         {
             _pressed = false;
             _downHit = null;
+            // The rail – or the shortcuts section's header – is dragged to another side or into the widget
+            if (_downRail || _downSection == ShortcutsKey || SectionAtHeader(_downPoint) == ShortcutsKey)
+            {
+                StartRailDrag(_mouse);
+                return;
+            }
             // Dragging a header moves the section – dragging anywhere else moves the widget. A section that can open
             // in its own window is also dragged sideways, so it can be pulled straight out onto the desktop.
             if (_downSection != null && (SectionWindows.Supports(_downSection) || Math.Abs(e.Y - _downPoint.Y) >= Math.Abs(e.X - _downPoint.X)))
@@ -369,7 +385,7 @@ internal sealed partial class DashboardForm : Form
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        if (_drag != null) return;
+        if (_drag != null || _railDrag != null) return;
         _mouse = new Point(-1, -1);
         _hoverKey = null;
         _tip.HideTip();
@@ -384,11 +400,17 @@ internal sealed partial class DashboardForm : Form
         _downPoint = e.Location;
         _downHit = _hits.LastOrDefault(h => h.Click != null && h.Rect.Contains(ToContent(e.Location)));
         _downSection = SectionHeaderAt(ToContent(e.Location));
+        _downRail = RailColumn().Contains(e.Location);
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
+        if (_railDrag != null)
+        {
+            DropRailDrag();
+            return;
+        }
         if (_drag != null)
         {
             DropSectionDrag();
@@ -525,8 +547,8 @@ internal sealed partial class DashboardForm : Form
     {
         var max = MaxScroll;
         if (max <= 0) return;
-        var left = RailWidth;
-        var w = ClientSize.Width - left;
+        var left = ContentLeft;
+        var w = ClientSize.Width - RailWidth;
         var h = _layout.MiddleHeight;
         var start = _layout.MiddleTop;
         if (h <= 0) return;
@@ -588,8 +610,16 @@ internal sealed partial class DashboardForm : Form
     {
         float y = U(8);
         var width = U(LayoutWidth);
+        // Docked shortcuts have no rail in the compact view – they come first as a row of small icons instead
+        if (ShowsShortcuts && _settings.LaunchRailPlacement != RailPlacement.Section)
+            y = DrawShortcutsCompact(g, U(Pad), y, width - U(Pad) * 2) + U(8);
         foreach (var section in VisibleSections())
         {
+            if (section.Key == ShortcutsKey)
+            {
+                y = DrawShortcutsCompact(g, U(Pad), y, width - U(Pad) * 2) + U(8);
+                continue;
+            }
             var plugin = WidgetPlugins.Find(section.Key)!;
             y = plugin.RenderCompact(this, g, U(Pad), y, width - U(Pad) * 2) + U(8);
         }

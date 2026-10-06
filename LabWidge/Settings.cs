@@ -8,6 +8,10 @@ internal enum WidgetTheme { System, Light, Dark }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum SectionPin { None, Top, Bottom }
 
+/// <summary>Where the shortcuts are: docked as a rail on one side of the widget, or as a section among the others.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum RailPlacement { Left, Right, Section }
+
 /// <summary>Where a section window was and whether it is pinned. Stored per section in the settings.</summary>
 internal sealed class SectionWindowState
 {
@@ -135,6 +139,8 @@ internal sealed class AppSettings
     public bool ShowLaunchRail { get; set; } = true;
     /// <summary>Websites and programs in the rail, top to bottom.</summary>
     public List<LaunchItem> LaunchItems { get; set; } = new();
+    public RailPlacement LaunchRailPlacement { get; set; } = RailPlacement.Left;
+    public bool CollapsedShortcuts { get; set; }
 
     // System and network
     public bool ShowGpu { get; set; } = true;

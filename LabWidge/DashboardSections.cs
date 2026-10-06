@@ -11,7 +11,7 @@ using System.Windows.Forms;
 internal sealed partial class DashboardForm
 {
     /// <summary>The default order – and the order new sections are inserted in.</summary>
-    public static readonly string[] DefaultSectionOrder = WidgetPlugins.All.Select(p => p.Key).ToArray();
+    public static readonly string[] DefaultSectionOrder = WidgetPlugins.All.Select(p => p.Key).Append(ShortcutsKey).ToArray();
 
     private const float SectionGap = 22;      // space between sections; the line sits 10 px down
     private const float EdgeSnap = 20;        // how close to the edge the widget snaps in
@@ -48,9 +48,19 @@ internal sealed partial class DashboardForm
 
     private List<Section> VisibleSections()
     {
-        return SectionOrder().Select(WidgetPlugins.Find).OfType<IWidgetPlugin>()
-            .Where(p => _settings.IsPluginEnabled(p.Key) && p.IsVisible(this, _settings))
-            .Select(p => new Section(p.Key, (g, x, y, w) => p.RenderExpanded(this, g, x, y, w))).ToList();
+        var sections = new List<Section>();
+        foreach (var key in SectionOrder())
+        {
+            if (key == ShortcutsKey)
+            {
+                if (ShowsShortcuts && _settings.LaunchRailPlacement == RailPlacement.Section) sections.Add(new Section(key, DrawShortcutsSection));
+            }
+            else if (WidgetPlugins.Find(key) is { } p && _settings.IsPluginEnabled(p.Key) && p.IsVisible(this, _settings))
+            {
+                sections.Add(new Section(p.Key, (g, x, y, w) => p.RenderExpanded(this, g, x, y, w)));
+            }
+        }
+        return sections;
     }
 
     /// <summary>The saved order, plus sections added since.</summary>
@@ -75,11 +85,11 @@ internal sealed partial class DashboardForm
     }
 
     /// <summary>The section whose header is under the point.</summary>
-    private string? SectionAtHeader(Point p) => _settings.CompactMode || p.X < RailWidth ? null
+    private string? SectionAtHeader(Point p) => _settings.CompactMode || p.X < ContentLeft || p.X >= ContentLeft + U(LayoutWidth) ? null
         : _sectionBounds.FirstOrDefault(b => p.Y >= b.Top - U(4) && p.Y <= b.Top + U(20)
             && (PinOf(b.Key) != SectionPin.None || (p.Y >= _layout.MiddleTop && p.Y < _layout.BottomTop)))?.Key;
 
-    private string? SectionHeaderAt(Point p) => p.X >= RailWidth + U(Pad) - U(6) && p.X <= RailWidth + U(Pad) + U(6)
+    private string? SectionHeaderAt(Point p) => p.X >= ContentLeft + U(Pad) - U(6) && p.X <= ContentLeft + U(Pad) + U(6)
         ? SectionAtHeader(p) : null;
 
     // ---------- Drag ----------
@@ -314,6 +324,7 @@ internal sealed partial class DashboardForm
     protected override void OnMouseCaptureChanged(EventArgs e)
     {
         base.OnMouseCaptureChanged(e);
+        if (_railDrag != null && !Capture) DropRailDrag();
         if (_drag != null && !Capture) DropSectionDrag();
     }
 
@@ -373,7 +384,7 @@ internal sealed partial class DashboardForm
 
     private void DrawCard(Graphics g, SectionDrag d, float top, float lift)
     {
-        var rect = new RectangleF(RailWidth, top - d.SnapshotTop, d.Snapshot.Width, d.Snapshot.Height);
+        var rect = new RectangleF(ContentLeft, top - d.SnapshotTop, d.Snapshot.Width, d.Snapshot.Height);
         var radius = U(9);
 
         // Shadow in several layers – softer and further away the higher the card is lifted
@@ -429,6 +440,12 @@ internal sealed partial class DashboardForm
         {
             var point = m.LParam.ToInt64() == -1 ? PointToClient(Cursor.Position)
                 : PointToClient(new Point(unchecked((short)m.LParam.ToInt64()), unchecked((short)(m.LParam.ToInt64() >> 16))));
+            if (RailColumn().Contains(point))
+            {
+                ShowRailMenu(point);
+                m.Result = IntPtr.Zero;
+                return;
+            }
             if (SectionAtHeader(point) is { } key)
             {
                 ShowSectionMenu(key, point);
@@ -436,7 +453,7 @@ internal sealed partial class DashboardForm
                 return;
             }
         }
-        if (m.Msg == 0x0084 /* WM_NCHITTEST */ && !_settings.CompactMode && _drag == null)
+        if (m.Msg == 0x0084 /* WM_NCHITTEST */ && !_settings.CompactMode && _drag == null && _railDrag == null)
         {
             var point = PointToClient(new Point(unchecked((short)m.LParam.ToInt64()), unchecked((short)(m.LParam.ToInt64() >> 16))));
             if (ClientRectangle.Contains(point))
