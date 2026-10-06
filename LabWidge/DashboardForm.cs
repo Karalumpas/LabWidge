@@ -291,14 +291,18 @@ internal sealed partial class DashboardForm : Form
     private void SetSize(SizeF size)
     {
         var target = new Size((int)Math.Ceiling(size.Width), (int)Math.Ceiling(ViewHeight(size.Height)));
-        if (ClientSize == target) return;
-        var dw = target.Width - ClientSize.Width;
-        var dh = target.Height - ClientSize.Height;
+        // Moving the rail from one side to the other keeps the size but still moves where the sections start
         var rail = (int)Math.Round(ContentLeft);
         var dr = rail - _appliedRail;
         _appliedRail = rail;
-        _settingSize = true;
-        try { ClientSize = target; } finally { _settingSize = false; }
+        if (ClientSize == target && dr == 0) return;
+        var dw = target.Width - ClientSize.Width;
+        var dh = target.Height - ClientSize.Height;
+        if (ClientSize != target)
+        {
+            _settingSize = true;
+            try { ClientSize = target; } finally { _settingSize = false; }
+        }
         if (!_placed) return;
 
         // Anchored at the bottom: a section that collapses or expands moves the top – not the bottom.

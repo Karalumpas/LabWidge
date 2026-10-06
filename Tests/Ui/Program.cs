@@ -298,6 +298,19 @@ internal static partial class UiChecks
             Check(rightHits.Where(h => h.Rect.Left < right.Width - rail - 1).All(h => h.Rect.Right <= right.Width - rail + 1), "Section hit targets reached into the right rail.");
         }
 
+        // A widget the user has placed keeps its sections still when the rail swaps sides at the same size
+        var placedField = widget.GetType().GetField("_placed", Private)!;
+        placedField.SetValue(widget, true);
+        widget.Location = new Point(400, 300);
+        s.WidgetLeft = widget.Left;
+        var rightLeft = widget.Left;
+        Call(widget, "SetRailPlacement", RailPlacement.Left, null!, false);
+        Check(widget.Left == rightLeft - (int)Math.Round(rail), "Docking on the left did not move the window so the sections stay put.");
+        Call(widget, "SetRailPlacement", RailPlacement.Right, null!, false);
+        Check(widget.Left == rightLeft, "Docking on the right again did not move the window back.");
+        placedField.SetValue(widget, false);
+        s.WidgetLeft = null;
+
         // As a section: no rail column, and the tiles are drawn among the sections
         s.LaunchRailPlacement = RailPlacement.Section;
         s.CollapsedShortcuts = false;
