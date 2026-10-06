@@ -78,7 +78,7 @@ internal sealed partial class DashboardForm
     {
         base.OnResize(e);
         if (!_resizing || _settingSize || _settings.CompactMode) return;
-        _settings.WidgetWidth = (int)Math.Round(ClientSize.Width / DpiScale);
+        _settings.WidgetWidth = (int)Math.Round((ClientSize.Width - RailWidth) / DpiScale);
         _settings.WidgetHeight = (int)Math.Round(ClientSize.Height / DpiScale);
         Invalidate();
     }
@@ -190,7 +190,7 @@ internal sealed partial class DashboardForm
 
     private SizeF RenderPinned(Graphics g)
     {
-        float width = U(LayoutWidth), x = U(Pad), w = width - U(Pad) * 2, padding = U(14);
+        float rail = RailWidth, width = rail + U(LayoutWidth), x = rail + U(Pad), w = U(LayoutWidth) - U(Pad) * 2, padding = U(14);
         var sections = VisibleSections();
         var top = sections.Where(s => PinOf(s.Key) == SectionPin.Top).ToList();
         var middle = sections.Where(s => PinOf(s.Key) == SectionPin.None).ToList();
@@ -220,13 +220,13 @@ internal sealed partial class DashboardForm
 
         // The middle is drawn first. All hit areas are clipped to the same window as the pixels.
         PaintGroup(g, middle, x, _layout.MiddleTop, w,
-            new RectangleF(0, _layout.MiddleTop, width, _layout.MiddleHeight), _scroll, SectionPin.None);
+            new RectangleF(rail, _layout.MiddleTop, width - rail, _layout.MiddleHeight), _scroll, SectionPin.None);
         DrawScrollHints(g);
         using var bg = new SolidBrush(_p.Bg);
         if (top.Count > 0)
         {
-            g.FillRectangle(bg, 0, 0, width, _layout.MiddleTop);
-            PaintGroup(g, top, x, padding, w, new RectangleF(0, 0, width, _layout.MiddleTop), 0, SectionPin.Top);
+            g.FillRectangle(bg, rail, 0, width - rail, _layout.MiddleTop);
+            PaintGroup(g, top, x, padding, w, new RectangleF(rail, 0, width - rail, _layout.MiddleTop), 0, SectionPin.Top);
             if (middle.Count > 0)
             {
                 using var line = new Pen(_p.Line, Math.Max(1, DpiScale));
@@ -235,9 +235,9 @@ internal sealed partial class DashboardForm
         }
         if (bottom.Count > 0)
         {
-            g.FillRectangle(bg, 0, _layout.BottomTop, width, height - _layout.BottomTop);
+            g.FillRectangle(bg, rail, _layout.BottomTop, width - rail, height - _layout.BottomTop);
             var start = _layout.BottomTop + bottomGap;
-            PaintGroup(g, bottom, x, start, w, new RectangleF(0, _layout.BottomTop, width,
+            PaintGroup(g, bottom, x, start, w, new RectangleF(rail, _layout.BottomTop, width - rail,
                 height - _layout.BottomTop), 0, SectionPin.Bottom);
             if (bottomGap > 0)
             {
@@ -245,19 +245,20 @@ internal sealed partial class DashboardForm
                 g.DrawLine(line, x, _layout.BottomTop + U(8), x + w, _layout.BottomTop + U(8));
             }
         }
-        if (_drag != null) _hits.Clear();
+        DrawRail(g, height, padding);
+        if (_drag != null) _hits.Clear(); // nothing can be clicked while a section is dragged
         if (_layout.MiddleHeight > 0 && middle.Count > 0)
         {
             var shadowHeight = Math.Min(U(7), _layout.MiddleHeight);
             if (top.Count > 0)
             {
-                var rect = new RectangleF(0, _layout.MiddleTop, width, shadowHeight);
+                var rect = new RectangleF(rail, _layout.MiddleTop, width - rail, shadowHeight);
                 using var shadow = new LinearGradientBrush(rect, Color.FromArgb(28, Color.Black), Color.Transparent, 90f);
                 g.FillRectangle(shadow, rect);
             }
             if (bottom.Count > 0)
             {
-                var rect = new RectangleF(0, _layout.BottomTop - shadowHeight, width, shadowHeight);
+                var rect = new RectangleF(rail, _layout.BottomTop - shadowHeight, width - rail, shadowHeight);
                 using var shadow = new LinearGradientBrush(rect, Color.Transparent, Color.FromArgb(28, Color.Black), 90f);
                 g.FillRectangle(shadow, rect);
             }

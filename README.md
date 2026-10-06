@@ -66,6 +66,10 @@ It is small, fast and private – no account, no ads and no telemetry.
 - **Drag a section out of the widget** to drop it on the desktop as a window – or click the window button in its header.
 - **Pin a window** to keep it open; it remembers where it was and comes back when LabWidge starts.
 
+**🚀 Shortcuts**
+- A rail of large icons on the left of the widget opens your favourite websites and programs with one click – YouTube, Instagram,
+  ChatGPT, Discord or anything else. Add them under **Settings → Shortcuts**; programs use their Windows icon, websites their own.
+
 **✨ Made to stay out of your way**
 - Collapse, reorder and pin sections; resize the widget; double-click for compact plugin summaries.
 - Dark and light theme (or follow Windows), adjustable opacity, always on top if you want.

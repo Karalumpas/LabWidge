@@ -729,6 +729,224 @@ internal sealed class WidgetPage : SettingsPage
 
 // ---------------------------------------------------------------------------
 
+internal sealed class ShortcutsPage : SettingsPage
+{
+    private readonly CheckBox _show = Ui.Check(L.T("Show the shortcuts in a rail on the left of the widget", "Vis genvejene i en rail i venstre side af widgetten"));
+    private readonly DataGridView _grid = new()
+    {
+        Width = Ui.ContentWidth,
+        Height = 230,
+        AllowUserToAddRows = false,
+        AllowUserToDeleteRows = false,
+        AllowUserToResizeRows = false,
+        RowHeadersVisible = false,
+        SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+        MultiSelect = false,
+        EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2,
+        BorderStyle = BorderStyle.FixedSingle,
+        AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+        Margin = new Padding(0, 4, 0, 4)
+    };
+    private readonly Button _addWeb = new() { Text = L.T("Add website", "Tilføj hjemmeside"), AutoSize = true };
+    private readonly Button _addProgram = new() { Text = L.T("Add program …", "Tilføj program …"), AutoSize = true };
+    private readonly Button _examples = new() { Text = L.T("Add suggestions", "Tilføj forslag"), AutoSize = true };
+    private readonly Button _icon = new() { Text = L.T("Choose icon …", "Vælg ikon …"), AutoSize = true };
+    private readonly Button _defaultIcon = new() { Text = L.T("Automatic icon", "Automatisk ikon"), AutoSize = true };
+    private readonly Button _up = new() { Text = L.T("Move up", "Flyt op"), AutoSize = true };
+    private readonly Button _down = new() { Text = L.T("Move down", "Flyt ned"), AutoSize = true };
+    private readonly Button _remove = new() { Text = L.T("Remove", "Fjern"), AutoSize = true };
+    private readonly Button _reload = new() { Text = L.T("Fetch the icons again", "Hent ikonerne igen"), AutoSize = true };
+    private readonly Dictionary<string, Bitmap> _letters = new();
+
+    public override string Title => L.T("Shortcuts", "Genveje");
+    public override string Glyph => "";
+
+    public ShortcutsPage()
+    {
+        _grid.RowTemplate.Height = 30;
+        _grid.Columns.Add(new DataGridViewImageColumn { HeaderText = "", FillWeight = 9, ReadOnly = true, ImageLayout = DataGridViewImageCellLayout.Zoom });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = L.T("Name", "Navn"), FillWeight = 30 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = L.T("Website or program", "Hjemmeside eller program"), FillWeight = 61 });
+        _grid.Columns[0].DefaultCellStyle.Padding = new Padding(4);
+        _grid.CellEndEdit += (_, e) => { if (e.RowIndex >= 0) UpdateRow(_grid.Rows[e.RowIndex]); };
+        _grid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0 && e.ColumnIndex == 0) PickIcon(); };
+
+        _addWeb.Click += (_, _) =>
+        {
+            var row = AddRow(new LaunchItem { Target = "https://" });
+            _grid.CurrentCell = row.Cells[2];
+            _grid.BeginEdit(false);
+            if (_grid.EditingControl is TextBox box) box.SelectionStart = box.TextLength;
+        };
+        _addProgram.Click += (_, _) => AddProgram();
+        _examples.Click += (_, _) =>
+        {
+            var existing = Items().Select(i => i.DisplayName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in LaunchItem.Examples().Where(i => !existing.Contains(i.DisplayName))) AddRow(item);
+        };
+        _icon.Click += (_, _) => PickIcon();
+        _defaultIcon.Click += (_, _) =>
+        {
+            if (_grid.CurrentRow is not { } row || row.Tag is not LaunchItem item) return;
+            item.IconPath = null;
+            UpdateRow(row);
+        };
+        _up.Click += (_, _) => MoveRow(-1);
+        _down.Click += (_, _) => MoveRow(1);
+        _remove.Click += (_, _) => { if (_grid.CurrentRow is { } row) _grid.Rows.Remove(row); };
+        _reload.Click += (_, _) =>
+        {
+            foreach (DataGridViewRow row in _grid.Rows) row.Cells[0].Value = null; // the old bitmaps are disposed
+            LaunchIcons.Reload();
+            RefreshIcons();
+        };
+        LaunchIcons.Updated += OnIconsUpdated;
+        Disposed += (_, _) =>
+        {
+            LaunchIcons.Updated -= OnIconsUpdated;
+            foreach (var letter in _letters.Values) letter.Dispose();
+        };
+
+        Add(Ui.Heading(L.T("Shortcuts", "Genveje")),
+            Ui.Help(L.T("Large icons on the left of the widget that open your favourite websites and programs with one click – e.g. YouTube, Instagram, ChatGPT or Discord.",
+                        "Store ikoner i venstre side af widgetten, der åbner dine foretrukne hjemmesider og programmer med ét klik – fx YouTube, Instagram, ChatGPT eller Discord.")),
+            _show,
+            Ui.Section(L.T("Your shortcuts", "Dine genveje")),
+            Ui.Help(L.T("Type a web address (youtube.com), or choose a program or a shortcut from the Start menu. The order is the same as in the rail. " +
+                        "Double-click the icon to choose your own.",
+                        "Skriv en webadresse (youtube.com), eller vælg et program eller en genvej fra Start-menuen. Rækkefølgen er den samme som i rail'en. " +
+                        "Dobbeltklik på ikonet for at vælge dit eget.")),
+            _grid,
+            Buttons(_addWeb, _addProgram, _examples),
+            Buttons(_up, _down, _remove),
+            Ui.Section(L.T("Icons", "Ikoner")),
+            Buttons(_icon, _defaultIcon),
+            Ui.Help(L.T("Programs use their Windows icon. A website's icon is fetched from the website itself once and kept on the PC. " +
+                        "If a site has no usable icon, its first letter is shown.",
+                        "Programmer bruger deres Windows-ikon. En hjemmesides ikon hentes én gang fra hjemmesiden selv og gemmes på pc'en. " +
+                        "Har en side intet brugbart ikon, vises dens forbogstav.")),
+            Buttons(_reload));
+    }
+
+    /// <summary>A row of buttons under the list, starting at its left edge.</summary>
+    private static FlowLayoutPanel Buttons(params Button[] buttons)
+    {
+        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 2, 0, 4) };
+        foreach (var button in buttons)
+        {
+            button.Margin = new Padding(0, 0, 8, 0);
+            row.Controls.Add(button);
+        }
+        return row;
+    }
+
+    private IEnumerable<LaunchItem> Items() => _grid.Rows.Cast<DataGridViewRow>().Select(r => r.Tag).OfType<LaunchItem>();
+
+    private DataGridViewRow AddRow(LaunchItem item)
+    {
+        var index = _grid.Rows.Add(null, item.Name, item.Target);
+        var row = _grid.Rows[index];
+        row.Tag = new LaunchItem { Name = item.Name, Target = item.Target, Arguments = item.Arguments, IconPath = item.IconPath };
+        UpdateRow(row);
+        return row;
+    }
+
+    /// <summary>Copies the cells into the row's item and shows its icon.</summary>
+    private void UpdateRow(DataGridViewRow row)
+    {
+        if (row.Tag is not LaunchItem item) return;
+        item.Name = (row.Cells[1].Value as string ?? "").Trim();
+        item.Target = (row.Cells[2].Value as string ?? "").Trim();
+        row.Cells[0].Value = IconFor(item);
+        row.Cells[0].ToolTipText = item.IconPath ?? L.T("Double-click to choose an icon", "Dobbeltklik for at vælge et ikon");
+    }
+
+    private Image? IconFor(LaunchItem item)
+    {
+        if (string.IsNullOrWhiteSpace(item.Target) || item.Target == "https://") return null;
+        if (LaunchIcons.Get(item) is { } icon) return icon;
+        var name = item.DisplayName;
+        if (!_letters.TryGetValue(name, out var letter))
+        {
+            letter = new Bitmap(48, 48);
+            using var g = Graphics.FromImage(letter);
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using var font = new Font("Segoe UI Semibold", 22, FontStyle.Regular, GraphicsUnit.Pixel);
+            LaunchIcons.DrawLetter(g, name, new RectangleF(0, 0, 48, 48), font);
+            _letters[name] = letter;
+        }
+        return letter;
+    }
+
+    private void OnIconsUpdated()
+    {
+        if (IsHandleCreated && !IsDisposed) BeginInvoke(new Action(RefreshIcons));
+    }
+
+    private void RefreshIcons()
+    {
+        foreach (DataGridViewRow row in _grid.Rows)
+            if (row.Tag is LaunchItem item) row.Cells[0].Value = IconFor(item);
+    }
+
+    private void AddProgram()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = L.T("Choose a program or a shortcut", "Vælg et program eller en genvej"),
+            Filter = L.T("Programs and shortcuts", "Programmer og genveje") + "|*.exe;*.lnk;*.url;*.bat;*.cmd;*.appref-ms|"
+                     + L.T("All files", "Alle filer") + "|*.*",
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Programs),
+            DereferenceLinks = false // keep the shortcut, so its icon, arguments and folder come along
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        var row = AddRow(new LaunchItem { Name = Path.GetFileNameWithoutExtension(dialog.FileName), Target = dialog.FileName });
+        _grid.CurrentCell = row.Cells[1];
+    }
+
+    private void PickIcon()
+    {
+        if (_grid.CurrentRow is not { } row || row.Tag is not LaunchItem item) return;
+        using var dialog = new OpenFileDialog
+        {
+            Title = L.T("Choose an icon", "Vælg et ikon"),
+            Filter = L.T("Images and programs", "Billeder og programmer") + "|*.png;*.ico;*.jpg;*.jpeg;*.gif;*.bmp;*.exe;*.lnk|"
+                     + L.T("All files", "Alle filer") + "|*.*"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        item.IconPath = dialog.FileName;
+        UpdateRow(row);
+    }
+
+    private void MoveRow(int delta)
+    {
+        if (_grid.CurrentRow is not { } row) return;
+        var to = row.Index + delta;
+        if (to < 0 || to >= _grid.Rows.Count) return;
+        _grid.Rows.RemoveAt(row.Index);
+        _grid.Rows.Insert(to, row);
+        _grid.CurrentCell = row.Cells[1];
+    }
+
+    public override void LoadFrom(AppSettings s)
+    {
+        _show.Checked = s.ShowLaunchRail;
+        _grid.Rows.Clear();
+        foreach (var item in s.LaunchItems) AddRow(item);
+    }
+
+    public override string? SaveTo(AppSettings s)
+    {
+        _grid.EndEdit();
+        foreach (DataGridViewRow row in _grid.Rows) UpdateRow(row);
+        s.ShowLaunchRail = _show.Checked;
+        s.LaunchItems = Items().Where(i => i.Target.Length > 0 && i.Target != "https://").ToList();
+        return null;
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 internal sealed class WindowsPage : SettingsPage
 {
     private readonly CheckBox _restore = Ui.Check(L.T("Open pinned windows again when LabWidge starts", "Åbn fastgjorte vinduer igen, når LabWidge starter"));
