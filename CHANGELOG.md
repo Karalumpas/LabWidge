@@ -2,6 +2,11 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.20.0
+- New: a rail of large icons on the left of the widget opens your favourite websites and programs with one click – YouTube, Instagram, ChatGPT, Discord or anything else.
+- Add your shortcuts under Settings → Shortcuts: type a web address, pick a program or a Start menu shortcut, or start with the suggestions.
+- Programs show their own Windows icon and websites their own logo; you can also choose your own icon.
+
 ## 1.19.0
 - Electricity prices in 12 more countries: Belgium, France, Italy, Switzerland, Czechia, Slovakia, Hungary, Slovenia, Croatia, Romania, Bulgaria and Greece
 - Italy has all 7 price zones to choose from, and prices are shown in your own currency – Kč, Ft, bani or Rp. where the euro isn't used
