@@ -400,10 +400,12 @@ internal static class LaunchIcons
 internal sealed partial class DashboardForm
 {
     public const string ShortcutsKey = "shortcuts";
-    private const float RailLogicalWidth = 58;
+    private const float RailLogicalWidth = 64;
     private const float RailTile = 44;
     private const float RailGap = 6;
-    private const float RailPad = 5;
+    private const float RailPad = 4;
+    private const float RailDockTile = 40;
+    private const float RailDockGap = 4;
 
     private float _railScroll;
     private bool _downRail;
@@ -439,34 +441,63 @@ internal sealed partial class DashboardForm
     {
         if (!RailDocked) return;
         var rail = RailWidth;
-        var left = _settings.LaunchRailPlacement == RailPlacement.Left ? 0 : width - rail;
+        var right = _settings.LaunchRailPlacement == RailPlacement.Right;
         var count = _settings.LaunchItems.Count;
-        float tile = U(RailTile), gap = U(RailGap), pad = U(RailPad), step = tile + gap;
+        float tile = U(RailDockTile), gap = U(RailDockGap), pad = U(RailPad), step = tile + gap;
 
-        // The pill is centred on the widget's height and grows with the icons, up to the full height
+        // Laid out as if docked on the left; a rail on the right is the mirror image
+        RectangleF Box(RectangleF r) => right ? r with { X = width - r.Right } : r;
+
+        // A tab that sits against the line between the rail and the sections, centred on the widget's height,
+        // growing with the icons up to the full height – with room to the widget's edge on the outside
         var view = height - top * 2;
         var content = count * step - gap;
-        var pillHeight = Math.Min(content + pad * 2, view);
-        var pill = new RectangleF(left + (rail - tile - pad * 2) / 2, top + (view - pillHeight) / 2, tile + pad * 2, pillHeight);
-        var max = Math.Max(0, content - (pillHeight - pad * 2));
+        var tabHeight = Math.Min(content + pad * 2, view);
+        var tabWidth = tile + pad * 2;
+        var tab = new RectangleF(rail - tabWidth, top + (view - tabHeight) / 2, tabWidth, tabHeight);
+        var max = Math.Max(0, content - (tabHeight - pad * 2));
         _railScroll = Math.Clamp(_railScroll, 0, max);
         Action<int>? wheel = max > 0 ? n => { _railScroll = Math.Clamp(_railScroll - n * step, 0, max); Invalidate(); } : null;
 
-        FillRound(g, pill, PillColor, U(12));
-        using (var path = WidgetIcon.RoundedRect(pill, U(12)))
-        using (var pen = new Pen(_p.Line, Math.Max(1, DpiScale)))
-            g.DrawPath(pen, path);
+        float radius = U(12), fillet = U(6), line = rail - U(0.5f);
+        using (var fill = new GraphicsPath())
+        {
+            fill.AddArc(tab.X, tab.Y, radius * 2, radius * 2, 180, 90);
+            fill.AddLine(tab.X + radius, tab.Y, line - fillet, tab.Y);
+            fill.AddArc(line - fillet * 2, tab.Y - fillet * 2, fillet * 2, fillet * 2, 90, -90);
+            fill.AddArc(line - fillet * 2, tab.Bottom, fillet * 2, fillet * 2, 0, -90);
+            fill.AddLine(line - fillet, tab.Bottom, tab.X + radius, tab.Bottom);
+            fill.AddArc(tab.X, tab.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
+            fill.CloseFigure();
+            using var outline = new GraphicsPath();
+            // The line comes down from the top, curves out around the icons and continues to the bottom
+            outline.AddLine(line, 0, line, tab.Y - fillet);
+            outline.AddArc(line - fillet * 2, tab.Y - fillet * 2, fillet * 2, fillet * 2, 0, 90);
+            outline.AddArc(tab.X, tab.Y, radius * 2, radius * 2, 270, -90);
+            outline.AddArc(tab.X, tab.Bottom - radius * 2, radius * 2, radius * 2, 180, -90);
+            outline.AddArc(line - fillet * 2, tab.Bottom, fillet * 2, fillet * 2, 270, 90);
+            outline.AddLine(line, tab.Bottom + fillet, line, height);
+            if (right)
+            {
+                using var mirror = new Matrix(-1, 0, 0, 1, width, 0);
+                fill.Transform(mirror);
+                outline.Transform(mirror);
+            }
+            using (var brush = new SolidBrush(PillColor)) g.FillPath(brush, fill);
+            using var pen = new Pen(_p.Line, Math.Max(1, DpiScale));
+            g.DrawPath(pen, outline);
+        }
         // The wheel scrolls the rail when the icons do not fit; elsewhere the rail moves like the background – or is dragged to dock
-        _hits.Add(new Hit(new RectangleF(left, 0, rail, height),
+        _hits.Add(new Hit(Box(new RectangleF(0, 0, rail, height)),
             L.T("Drag to dock the shortcuts on the other side or drop them between the sections", "Træk for at docke genvejene i den anden side eller slippe dem mellem sektionerne"),
             null, wheel));
 
-        var clip = RectangleF.Inflate(pill, 0, -U(2));
+        var clip = Box(RectangleF.Inflate(tab, 0, -U(2)));
         var state = g.Save();
         g.SetClip(clip, CombineMode.Intersect);
         for (var i = 0; i < count; i++)
         {
-            var rect = new RectangleF(pill.X + pad, pill.Y + pad + i * step - _railScroll, tile, tile);
+            var rect = Box(new RectangleF(tab.X + pad, tab.Y + pad + i * step - _railScroll, tile, tile));
             if (rect.Bottom < clip.Top || rect.Top > clip.Bottom) continue;
             DrawLaunchTile(g, rect, i, clip, wheel, _p.Track);
         }
@@ -474,9 +505,9 @@ internal sealed partial class DashboardForm
 
         if (max > 0)
         {
-            // A soft fade inside the pill where more icons are hidden
+            // A soft fade inside the tab where more icons are hidden
             var fade = U(14);
-            var inner = new RectangleF(pill.X + U(1), pill.Y + U(1), pill.Width - U(2), pill.Height - U(2));
+            var inner = Box(new RectangleF(tab.X + U(1), tab.Y + U(1), tab.Width - U(2), tab.Height - U(2)));
             if (_railScroll > 0)
             {
                 using var brush = new LinearGradientBrush(new RectangleF(inner.X, inner.Y - 1, inner.Width, fade + 1), PillColor, Color.FromArgb(0, PillColor), LinearGradientMode.Vertical);
