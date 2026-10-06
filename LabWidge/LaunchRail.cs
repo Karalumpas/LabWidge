@@ -392,87 +392,165 @@ internal static class LaunchIcons
     private static extern int SearchPathW(string? path, string file, string? extension, int length, StringBuilder buffer, IntPtr filePart);
 }
 
-/// <summary>The rail on the left of the widget with the user's shortcuts. Scrolls with the wheel when they do not fit.</summary>
+/// <summary>
+/// The shortcuts: a rail docked on the left or the right of the widget, or a section among the others. The rail is a pill centred
+/// on the widget's height that grows with the number of icons, and scrolls with the wheel when they do not fit. Drag the rail –
+/// or the section's header – to dock it on the other side or to drop it between the sections.
+/// </summary>
 internal sealed partial class DashboardForm
 {
+    public const string ShortcutsKey = "shortcuts";
     private const float RailLogicalWidth = 58;
     private const float RailTile = 44;
     private const float RailGap = 6;
+    private const float RailPad = 5;
 
     private float _railScroll;
+    private bool _downRail;
+    private RailDrag? _railDrag;
 
-    /// <summary>How wide the rail is right now – 0 when it is off, empty or the widget is compact.</summary>
-    private float RailWidth => _settings.ShowLaunchRail && _settings.LaunchItems.Count > 0 && !_settings.CompactMode ? U(RailLogicalWidth) : 0;
+    private sealed class RailDrag
+    {
+        public RailPlacement Target;
+        /// <summary>The section the shortcuts are dropped in front of; null = after the last one.</summary>
+        public string? Before;
+        public float LineY;
+        public Point Mouse;
+    }
+
+    private bool ShowsShortcuts => _settings.ShowLaunchRail && _settings.LaunchItems.Count > 0;
+    private bool RailDocked => ShowsShortcuts && _settings.LaunchRailPlacement != RailPlacement.Section && !_settings.CompactMode;
+
+    /// <summary>How wide the docked rail is right now – 0 when it is off, empty, a section or the widget is compact.</summary>
+    private float RailWidth => RailDocked ? U(RailLogicalWidth) : 0;
+
+    /// <summary>Where the sections start: after the rail when it is docked on the left.</summary>
+    private float ContentLeft => RailDocked && _settings.LaunchRailPlacement == RailPlacement.Left ? RailWidth : 0;
+
+    private RectangleF RailColumn() => !RailDocked ? RectangleF.Empty
+        : _settings.LaunchRailPlacement == RailPlacement.Left ? new RectangleF(0, 0, RailWidth, ClientSize.Height)
+        : new RectangleF(ClientSize.Width - RailWidth, 0, RailWidth, ClientSize.Height);
+
+    private Color PillColor => _p.IsDark ? Color.FromArgb(27, 32, 41) : Color.FromArgb(240, 243, 247);
 
     private void OnLaunchIconsUpdated() => OnDataUpdated();
 
-    private void DrawRail(Graphics g, float height, float top)
+    private void DrawRail(Graphics g, float width, float height, float top)
     {
+        if (!RailDocked) return;
         var rail = RailWidth;
-        if (rail <= 0) return;
-        var items = _settings.LaunchItems;
-        var area = new RectangleF(0, 0, rail, height);
-        using (var line = new Pen(_p.Line, Math.Max(1, DpiScale)))
-            g.DrawLine(line, rail - U(0.5f), top - U(2), rail - U(0.5f), height - top + U(2));
+        var left = _settings.LaunchRailPlacement == RailPlacement.Left ? 0 : width - rail;
+        var count = _settings.LaunchItems.Count;
+        float tile = U(RailTile), gap = U(RailGap), pad = U(RailPad), step = tile + gap;
 
-        var tile = U(RailTile);
-        var step = tile + U(RailGap);
+        // The pill is centred on the widget's height and grows with the icons, up to the full height
         var view = height - top * 2;
-        var content = items.Count * step - U(RailGap);
-        var max = Math.Max(0, content - view);
+        var content = count * step - gap;
+        var pillHeight = Math.Min(content + pad * 2, view);
+        var pill = new RectangleF(left + (rail - tile - pad * 2) / 2, top + (view - pillHeight) / 2, tile + pad * 2, pillHeight);
+        var max = Math.Max(0, content - (pillHeight - pad * 2));
         _railScroll = Math.Clamp(_railScroll, 0, max);
-        // The wheel scrolls the rail when the icons do not fit; otherwise the rail just moves the widget like the background
-        _hits.Add(new Hit(area, null, null, max > 0 ? n => { _railScroll = Math.Clamp(_railScroll - n * step, 0, max); Invalidate(); } : null));
+        Action<int>? wheel = max > 0 ? n => { _railScroll = Math.Clamp(_railScroll - n * step, 0, max); Invalidate(); } : null;
 
+        FillRound(g, pill, PillColor, U(12));
+        using (var path = WidgetIcon.RoundedRect(pill, U(12)))
+        using (var pen = new Pen(_p.Line, Math.Max(1, DpiScale)))
+            g.DrawPath(pen, path);
+        // The wheel scrolls the rail when the icons do not fit; elsewhere the rail moves like the background – or is dragged to dock
+        _hits.Add(new Hit(new RectangleF(left, 0, rail, height),
+            L.T("Drag to dock the shortcuts on the other side or drop them between the sections", "Træk for at docke genvejene i den anden side eller slippe dem mellem sektionerne"),
+            null, wheel));
+
+        var clip = RectangleF.Inflate(pill, 0, -U(2));
         var state = g.Save();
-        g.SetClip(new RectangleF(0, top - U(4), rail, view + U(8)), CombineMode.Intersect);
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        var x = (rail - tile) / 2;
-        for (var i = 0; i < items.Count; i++)
+        g.SetClip(clip, CombineMode.Intersect);
+        for (var i = 0; i < count; i++)
         {
-            var item = items[i];
-            var rect = new RectangleF(x, top + i * step - _railScroll, tile, tile);
-            if (rect.Bottom < top - U(4) || rect.Top > top + view + U(4)) continue;
-            var hovered = rect.Contains(_mouse) && _drag == null;
-            if (hovered) FillRound(g, rect, _p.HoverBg, U(9));
-
-            var size = U(30);
-            var icon = new RectangleF(rect.X + (tile - size) / 2, rect.Y + (tile - size) / 2, size, size);
-            if (LaunchIcons.Get(item) is { } image)
-            {
-                // Keep the aspect ratio – some sites only offer a wide logo
-                var scale = Math.Min(size / image.Width, size / image.Height);
-                var w = image.Width * scale; var h = image.Height * scale;
-                g.DrawImage(image, icon.X + (size - w) / 2, icon.Y + (size - h) / 2, w, h);
-            }
-            else
-            {
-                LaunchIcons.DrawLetter(g, item.DisplayName, icon, _f.BodyBold);
-            }
-
-            var visible = RectangleF.Intersect(rect, new RectangleF(0, top - U(4), rail, view + U(8)));
-            var index = i;
-            _hits.Add(new Hit(visible, item.DisplayName + "\n" + (LaunchItem.WebUri(item.Target)?.Host ?? item.Target), () => LaunchRailItem(index),
-                max > 0 ? n => { _railScroll = Math.Clamp(_railScroll - n * step, 0, max); Invalidate(); } : null));
+            var rect = new RectangleF(pill.X + pad, pill.Y + pad + i * step - _railScroll, tile, tile);
+            if (rect.Bottom < clip.Top || rect.Top > clip.Bottom) continue;
+            DrawLaunchTile(g, rect, i, clip, wheel, _p.Track);
         }
         g.Restore(state);
 
         if (max > 0)
         {
-            // A soft fade where more icons are hidden
-            var fade = U(16);
+            // A soft fade inside the pill where more icons are hidden
+            var fade = U(14);
+            var inner = new RectangleF(pill.X + U(1), pill.Y + U(1), pill.Width - U(2), pill.Height - U(2));
             if (_railScroll > 0)
             {
-                using var brush = new LinearGradientBrush(new RectangleF(0, top - U(4), rail, fade + 1), _p.Bg, Color.FromArgb(0, _p.Bg), LinearGradientMode.Vertical);
-                g.FillRectangle(brush, 0, top - U(4), rail - U(1), fade);
+                using var brush = new LinearGradientBrush(new RectangleF(inner.X, inner.Y - 1, inner.Width, fade + 1), PillColor, Color.FromArgb(0, PillColor), LinearGradientMode.Vertical);
+                g.FillRectangle(brush, inner.X, inner.Y, inner.Width, fade);
             }
             if (_railScroll < max)
             {
-                var y = top + view + U(4) - fade;
-                using var brush = new LinearGradientBrush(new RectangleF(0, y - 1, rail, fade + 1), Color.FromArgb(0, _p.Bg), _p.Bg, LinearGradientMode.Vertical);
-                g.FillRectangle(brush, 0, y, rail - U(1), fade);
+                var y = inner.Bottom - fade;
+                using var brush = new LinearGradientBrush(new RectangleF(inner.X, y - 1, inner.Width, fade + 1), Color.FromArgb(0, PillColor), PillColor, LinearGradientMode.Vertical);
+                g.FillRectangle(brush, inner.X, y, inner.Width, fade);
             }
         }
+    }
+
+    /// <summary>One shortcut: its icon (or letter) on a tile that highlights under the mouse and opens the shortcut when clicked.</summary>
+    private void DrawLaunchTile(Graphics g, RectangleF rect, int index, RectangleF clip, Action<int>? wheel, Color hover)
+    {
+        var item = _settings.LaunchItems[index];
+        if (rect.Contains(_mouse) && _drag == null && _railDrag == null && clip.Contains(_mouse)) FillRound(g, rect, hover, rect.Width * 0.2f);
+
+        var size = rect.Width * 0.68f;
+        var icon = new RectangleF(rect.X + (rect.Width - size) / 2, rect.Y + (rect.Height - size) / 2, size, size);
+        if (LaunchIcons.Get(item) is { } image)
+        {
+            // Keep the aspect ratio – some sites only offer a wide logo
+            var scale = Math.Min(size / image.Width, size / image.Height);
+            var w = image.Width * scale;
+            var h = image.Height * scale;
+            var mode = g.InterpolationMode;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.DrawImage(image, icon.X + (size - w) / 2, icon.Y + (size - h) / 2, w, h);
+            g.InterpolationMode = mode;
+        }
+        else
+        {
+            LaunchIcons.DrawLetter(g, item.DisplayName, icon, rect.Width >= U(40) ? _f.BodyBold : _f.SmallBold);
+        }
+
+        var visible = RectangleF.Intersect(rect, clip);
+        if (visible.Width <= 0 || visible.Height <= 0) return;
+        _hits.Add(new Hit(visible, item.DisplayName + "\n" + (LaunchItem.WebUri(item.Target)?.Host ?? item.Target), () => LaunchRailItem(index), wheel));
+    }
+
+    /// <summary>The shortcuts as a section: a header and the icons in centred rows.</summary>
+    internal float DrawShortcutsSection(Graphics g, float x, float y, float w)
+    {
+        var s = _settings;
+        var count = s.LaunchItems.Count;
+        y = Header(g, "", L.T("SHORTCUTS", "GENVEJE"),
+            s.CollapsedShortcuts ? L.T(count == 1 ? "1 shortcut" : $"{count} shortcuts", count == 1 ? "1 genvej" : $"{count} genveje") : null,
+            null, x, y, w, s.CollapsedShortcuts, () => ToggleCollapsed(() => s.CollapsedShortcuts, v => s.CollapsedShortcuts = v));
+        if (s.CollapsedShortcuts) return y - U(6);
+        return DrawShortcutGrid(g, x, y + U(2), w, U(RailTile), U(RailGap));
+    }
+
+    /// <summary>In the compact view the shortcuts are a row of smaller icons.</summary>
+    private float DrawShortcutsCompact(Graphics g, float x, float y, float w) => DrawShortcutGrid(g, x, y, w, U(34), U(4));
+
+    private float DrawShortcutGrid(Graphics g, float x, float y, float w, float tile, float gap)
+    {
+        var count = _settings.LaunchItems.Count;
+        var perRow = Math.Max(1, (int)((w + gap) / (tile + gap)));
+        for (var start = 0; start < count; start += perRow)
+        {
+            var inRow = Math.Min(perRow, count - start);
+            var rowX = x + (w - (inRow * tile + (inRow - 1) * gap)) / 2;
+            for (var i = 0; i < inRow; i++)
+            {
+                var rect = new RectangleF(rowX + i * (tile + gap), y, tile, tile);
+                DrawLaunchTile(g, rect, start + i, rect, null, _p.HoverBg);
+            }
+            y += tile + gap;
+        }
+        return y - gap;
     }
 
     private void LaunchRailItem(int index)
@@ -489,5 +567,156 @@ internal sealed partial class DashboardForm
             ShowTipAtMouse(L.T($"Could not open {item.DisplayName}", $"Kunne ikke åbne {item.DisplayName}"));
             Logger.Error($"Rail: could not open {item.Target}: {ex.Message}");
         }
+    }
+
+    // ---------- Placement ----------
+
+    private static string PlacementText(RailPlacement placement) => placement switch
+    {
+        RailPlacement.Left => L.T("Dock on the left", "Dock i venstre side"),
+        RailPlacement.Right => L.T("Dock on the right", "Dock i højre side"),
+        _ => L.T("Show as a section", "Vis som sektion")
+    };
+
+    /// <summary>
+    /// Docks the shortcuts or makes them a section. As a section they go in front of <paramref name="before"/>, or after the last
+    /// section in the scrolling middle when it is null.
+    /// </summary>
+    private void SetRailPlacement(RailPlacement placement, string? before = null, bool reorder = false)
+    {
+        _settings.LaunchRailPlacement = placement;
+        if (placement == RailPlacement.Section && reorder)
+        {
+            var order = SectionOrder().Where(k => k != ShortcutsKey).ToList();
+            var index = before != null ? order.IndexOf(before) : -1;
+            if (index < 0)
+            {
+                var last = VisibleSections().LastOrDefault(s => s.Key != ShortcutsKey && PinOf(s.Key) == SectionPin.None);
+                index = last != null ? order.IndexOf(last.Key) + 1 : order.Count;
+            }
+            order.Insert(index, ShortcutsKey);
+            _settings.SectionOrder = order.ToArray();
+            _settings.SectionPins.Remove(ShortcutsKey);
+            _settings.CollapsedShortcuts = false;
+        }
+        _railScroll = 0;
+        _hoverKey = null;
+        _saveSettings();
+        FitSize();
+        Invalidate();
+        Logger.Info($"Widget: shortcuts placed {placement}" + (placement == RailPlacement.Section && reorder ? $" before {before ?? "the end"}." : "."));
+    }
+
+    private void AddRailPlacementItems(ContextMenuStrip menu)
+    {
+        foreach (var placement in new[] { RailPlacement.Left, RailPlacement.Right, RailPlacement.Section })
+        {
+            var item = new ToolStripMenuItem(PlacementText(placement)) { Checked = _settings.LaunchRailPlacement == placement };
+            item.Click += (_, _) => SetRailPlacement(placement, reorder: placement == RailPlacement.Section && _settings.LaunchRailPlacement != RailPlacement.Section);
+            menu.Items.Add(item);
+        }
+    }
+
+    private void ShowRailMenu(Point point)
+    {
+        _sectionMenu?.Dispose(); // see ShowSectionMenu
+        var menu = _sectionMenu = new ContextMenuStrip();
+        AddRailPlacementItems(menu);
+        menu.Show(this, point);
+    }
+
+    // ---------- Dragging the rail ----------
+
+    private void StartRailDrag(Point mouse)
+    {
+        _railDrag = new RailDrag();
+        _tip.HideTip();
+        _hoverKey = null;
+        Capture = true;
+        Cursor = Cursors.SizeAll;
+        MoveRailDrag(mouse);
+    }
+
+    /// <summary>Near an edge the rail docks on that side; anywhere else it becomes a section where the line shows.</summary>
+    private void MoveRailDrag(Point mouse)
+    {
+        var d = _railDrag!;
+        d.Mouse = mouse;
+        var width = ClientSize.Width;
+        var edge = Math.Max(U(64), width * 0.2f);
+        d.Target = mouse.X < edge ? RailPlacement.Left : mouse.X > width - edge ? RailPlacement.Right : RailPlacement.Section;
+        if (d.Target == RailPlacement.Section)
+        {
+            var others = _sectionBounds.Where(b => b.Key != ShortcutsKey && PinOf(b.Key) == SectionPin.None).ToList();
+            var next = others.FirstOrDefault(b => mouse.Y < (b.Top + b.Bottom) / 2);
+            d.Before = next?.Key;
+            d.LineY = next != null ? next.Top - U(11) : others.Count > 0 ? others[^1].Bottom + U(11) : _layout.MiddleTop + U(4);
+            d.LineY = Math.Clamp(d.LineY, _layout.MiddleTop + U(2), Math.Max(_layout.MiddleTop + U(2), _layout.BottomTop - U(2)));
+        }
+        Invalidate();
+    }
+
+    private void DropRailDrag()
+    {
+        var d = _railDrag;
+        if (d == null) return;
+        _railDrag = null; // first: releasing the capture below calls this again
+        Capture = false;
+        Cursor = Cursors.Default;
+        var area = ClientRectangle;
+        area.Inflate((int)U(40), (int)U(40));
+        if (!area.Contains(d.Mouse)) { Invalidate(); return; } // dropped far outside the widget: nothing changes
+        SetRailPlacement(d.Target, d.Before, reorder: d.Target == RailPlacement.Section);
+    }
+
+    /// <summary>Where the shortcuts land: a dashed column at the side or a line between the sections, and a small card at the mouse.</summary>
+    private void DrawRailDrop(Graphics g, float width, float height)
+    {
+        var d = _railDrag;
+        if (d == null) return;
+        var blue = _p.Blue;
+        if (d.Target != RailPlacement.Section)
+        {
+            var rail = U(RailLogicalWidth);
+            var rect = new RectangleF(d.Target == RailPlacement.Left ? U(4) : width - rail + U(4), U(8), rail - U(8), height - U(16));
+            FillRound(g, rect, Color.FromArgb(_p.IsDark ? 40 : 28, blue), U(12));
+            using var path = WidgetIcon.RoundedRect(rect, U(12));
+            using var dash = new Pen(Color.FromArgb(150, blue), Math.Max(1f, DpiScale)) { DashStyle = DashStyle.Dash };
+            g.DrawPath(dash, path);
+        }
+        else
+        {
+            float x1 = ContentLeft + U(Pad), x2 = ContentLeft + U(LayoutWidth) - U(Pad);
+            using var pen = new Pen(blue, Math.Max(2f, U(3))) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawLine(pen, x1, d.LineY, x2, d.LineY);
+            using var dot = new SolidBrush(blue);
+            g.FillEllipse(dot, x1 - U(4), d.LineY - U(4), U(8), U(8));
+            g.FillEllipse(dot, x2 - U(4), d.LineY - U(4), U(8), U(8));
+        }
+
+        // The card: the first icons, and where they will go
+        var items = _settings.LaunchItems;
+        var shown = Math.Min(3, items.Count);
+        var tile = U(26);
+        var label = PlacementText(d.Target);
+        var labelSize = Measure(g, label, _f.Small);
+        var card = new RectangleF(d.Mouse.X + U(14), d.Mouse.Y + U(10), U(12) + shown * (tile + U(4)) + labelSize.Width + U(6), tile + U(12));
+        card.X = Math.Clamp(card.X, U(4), Math.Max(U(4), width - card.Width - U(4)));
+        card.Y = Math.Clamp(card.Y, U(4), Math.Max(U(4), height - card.Height - U(4)));
+        for (var i = 3; i >= 1; i--)
+            FillRound(g, RectangleF.Inflate(card, U(i * 1.5f), U(i * 1.5f)) with { Y = card.Y - U(i * 1.5f) + U(3) }, Color.FromArgb(_p.IsDark ? 30 : 16, Color.Black), U(10 + i));
+        FillRound(g, card, PillColor, U(10));
+        using (var path = WidgetIcon.RoundedRect(card, U(10)))
+        using (var border = new Pen(Color.FromArgb(160, blue), Math.Max(1f, U(1.2f))))
+            g.DrawPath(border, path);
+        var ix = card.X + U(6);
+        for (var i = 0; i < shown; i++)
+        {
+            var icon = new RectangleF(ix, card.Y + U(6), tile, tile);
+            if (LaunchIcons.Get(items[i]) is { } image) g.DrawImage(image, icon);
+            else LaunchIcons.DrawLetter(g, items[i].DisplayName, icon, _f.SmallBold);
+            ix += tile + U(4);
+        }
+        DrawText(g, label, _f.Small, _p.TextPrimary, ix + U(2), card.Y + (card.Height - labelSize.Height) / 2);
     }
 }

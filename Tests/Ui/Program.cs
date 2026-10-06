@@ -263,6 +263,7 @@ internal static partial class UiChecks
     /// </summary>
     private static void RailChecks(DashboardForm widget, AppSettings s, Bitmap withoutRail)
     {
+        var savedOrder = s.SectionOrder;
         s.LaunchItems = new List<LaunchItem>
         {
             new() { Name = "Notepad", Target = "notepad.exe" },
@@ -277,12 +278,59 @@ internal static partial class UiChecks
         using var shot = Frame(widget, "showcase/widget-rail-dark.png");
         var rail = (float)widget.GetType().GetProperty("RailWidth", Private)!.GetValue(widget)!;
         Check(rail > 0 && Math.Abs(shot.Width - withoutRail.Width - rail) <= 1, "The rail did not widen the widget by its own width.");
-        var hits = Get<IEnumerable>(widget, "_hits").Cast<object>()
-            .Select(h => (Rect: (RectangleF)h.GetType().GetProperty("Rect")!.GetValue(h)!, Tip: h.GetType().GetProperty("Tip")!.GetValue(h) as string,
-                          Click: h.GetType().GetProperty("Click")!.GetValue(h))).ToList();
+        var hits = Hits(widget);
         Check(hits.Count(h => h.Click != null && h.Rect.Right <= rail) == 4 && hits.Any(h => h.Tip?.StartsWith("Notepad") == true),
             "Every shortcut needs a clickable tile in the rail.");
         Check(hits.Where(h => h.Rect.Right > rail).All(h => h.Rect.Left >= rail), "Section hit targets reached into the rail.");
+        var tiles = hits.Where(h => h.Click != null && h.Rect.Right <= rail).ToList();
+        var middle = (tiles.Min(h => h.Rect.Top) + tiles.Max(h => h.Rect.Bottom)) / 2;
+        Check(Math.Abs(middle - shot.Height / 2f) <= 2, "The rail's icons are not centred on the widget's height.");
+
+        // Docked on the right: the sections stay on the left, the tiles sit in the right column
+        s.LaunchRailPlacement = RailPlacement.Right;
+        widget.ApplySettings(s);
+        Call(widget, "FitSize");
+        using (var right = Frame(widget, "showcase/widget-rail-right-dark.png"))
+        {
+            var rightHits = Hits(widget);
+            Check(right.Width == shot.Width, "Docking on the right changed the width.");
+            Check(rightHits.Count(h => h.Click != null && h.Rect.Left >= right.Width - rail) == 4, "The tiles did not move to the right column.");
+            Check(rightHits.Where(h => h.Rect.Left < right.Width - rail - 1).All(h => h.Rect.Right <= right.Width - rail + 1), "Section hit targets reached into the right rail.");
+        }
+
+        // As a section: no rail column, and the tiles are drawn among the sections
+        s.LaunchRailPlacement = RailPlacement.Section;
+        s.CollapsedShortcuts = false;
+        widget.ApplySettings(s);
+        Call(widget, "FitSize");
+        using (var section = Frame(widget, "showcase/widget-rail-section-dark.png"))
+        {
+            Check(section.Width == withoutRail.Width, "The shortcuts section kept the rail's width.");
+            Check(Hits(widget).Count(h => h.Click != null && h.Tip?.Contains('\n') == true && new[] { "Notepad", "Explorer", "Calculator", "Discord" }.Any(n => h.Tip!.StartsWith(n))) == 4,
+                "The shortcuts section did not show a tile per shortcut.");
+        }
+
+        // Dragging: to the right edge docks it there, to the middle makes it a section, to the left edge docks it on the left
+        void DragRail(int x, int y)
+        {
+            Call(widget, "StartRailDrag", new Point(x, y));
+            Call(widget, "DropRailDrag");
+        }
+        Call(widget, "StartRailDrag", new Point(widget.ClientSize.Width / 2, 520));
+        Frame(widget, "showcase/widget-rail-drag-section.png").Dispose();
+        Call(widget, "MoveRailDrag", new Point(widget.ClientSize.Width - 6, 300));
+        Frame(widget, "showcase/widget-rail-drag-right.png").Dispose();
+        Call(widget, "DropRailDrag");
+        DragRail(widget.ClientSize.Width - 6, 200);
+        Check(s.LaunchRailPlacement == RailPlacement.Right, "Dropping at the right edge did not dock the rail there.");
+        DragRail(widget.ClientSize.Width / 2, 5);
+        Check(s.LaunchRailPlacement == RailPlacement.Section && s.SectionOrder![0] == DashboardForm.ShortcutsKey,
+            "Dropping above the first section did not make the shortcuts the first section.");
+        DragRail(4, 200);
+        Check(s.LaunchRailPlacement == RailPlacement.Left, "Dropping at the left edge did not dock the rail there.");
+        Call(widget, "FitSize");
+        Check(widget.ClientSize.Width == shot.Width, "Docking on the left again did not give the rail its width back.");
+        s.SectionOrder = savedOrder;
         s.ShowLaunchRail = false;
         widget.ApplySettings(s);
         Call(widget, "FitSize");
@@ -510,6 +558,11 @@ internal static partial class UiChecks
         bitmap.Save(file, ImageFormat.Png);
         return bitmap;
     }
+
+    private static List<(RectangleF Rect, string? Tip, object? Click)> Hits(DashboardForm widget) =>
+        Get<IEnumerable>(widget, "_hits").Cast<object>()
+            .Select(h => ((RectangleF)h.GetType().GetProperty("Rect")!.GetValue(h)!, h.GetType().GetProperty("Tip")!.GetValue(h) as string,
+                          h.GetType().GetProperty("Click")!.GetValue(h))).ToList();
 
     private static bool Equal(Bitmap first, Bitmap second, int top, int bottom)
     {

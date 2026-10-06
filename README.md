@@ -69,6 +69,7 @@ It is small, fast and private – no account, no ads and no telemetry.
 **🚀 Shortcuts**
 - A rail of large icons on the left of the widget opens your favourite websites and programs with one click – YouTube, Instagram,
   ChatGPT, Discord or anything else. Add them under **Settings → Shortcuts**; programs use their Windows icon, websites their own.
+- **Drag the rail** to dock it on the right instead, or drop it between the sections to make it a section of its own.
 
 **✨ Made to stay out of your way**
 - Collapse, reorder and pin sections; resize the widget; double-click for compact plugin summaries.

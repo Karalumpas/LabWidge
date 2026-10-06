@@ -731,7 +731,8 @@ internal sealed class WidgetPage : SettingsPage
 
 internal sealed class ShortcutsPage : SettingsPage
 {
-    private readonly CheckBox _show = Ui.Check(L.T("Show the shortcuts in a rail on the left of the widget", "Vis genvejene i en rail i venstre side af widgetten"));
+    private readonly CheckBox _show = Ui.Check(L.T("Show the shortcuts in the widget", "Vis genvejene i widgetten"));
+    private readonly ComboBox _placement = new() { Width = 220, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly DataGridView _grid = new()
     {
         Width = Ui.ContentWidth,
@@ -807,10 +808,21 @@ internal sealed class ShortcutsPage : SettingsPage
             foreach (var letter in _letters.Values) letter.Dispose();
         };
 
+        _placement.Items.AddRange(new object[]
+        {
+            L.T("Rail on the left", "Rail i venstre side"), L.T("Rail on the right", "Rail i højre side"), L.T("A section in the widget", "En sektion i widgetten")
+        });
+        _show.CheckedChanged += (_, _) => _placement.Enabled = _show.Checked;
+
         Add(Ui.Heading(L.T("Shortcuts", "Genveje")),
-            Ui.Help(L.T("Large icons on the left of the widget that open your favourite websites and programs with one click – e.g. YouTube, Instagram, ChatGPT or Discord.",
-                        "Store ikoner i venstre side af widgetten, der åbner dine foretrukne hjemmesider og programmer med ét klik – fx YouTube, Instagram, ChatGPT eller Discord.")),
+            Ui.Help(L.T("Large icons in the widget that open your favourite websites and programs with one click – e.g. YouTube, Instagram, ChatGPT or Discord.",
+                        "Store ikoner i widgetten, der åbner dine foretrukne hjemmesider og programmer med ét klik – fx YouTube, Instagram, ChatGPT eller Discord.")),
             _show,
+            Ui.Row(L.T("Placement", "Placering"), _placement),
+            Ui.Help(L.T("You can also drag the rail to the other side, or into the widget between the sections – and drag the section's header back to an edge. " +
+                        "Right-click the rail for the same choices.",
+                        "Du kan også trække rail'en over i den anden side eller ind i widgetten mellem sektionerne – og trække sektionens overskrift tilbage til en kant. " +
+                        "Højreklik på rail'en for de samme valg.")),
             Ui.Section(L.T("Your shortcuts", "Dine genveje")),
             Ui.Help(L.T("Type a web address (youtube.com), or choose a program or a shortcut from the Start menu. The order is the same as in the rail. " +
                         "Double-click the icon to choose your own.",
@@ -931,6 +943,8 @@ internal sealed class ShortcutsPage : SettingsPage
     public override void LoadFrom(AppSettings s)
     {
         _show.Checked = s.ShowLaunchRail;
+        _placement.SelectedIndex = (int)s.LaunchRailPlacement;
+        _placement.Enabled = s.ShowLaunchRail;
         _grid.Rows.Clear();
         foreach (var item in s.LaunchItems) AddRow(item);
     }
@@ -940,6 +954,11 @@ internal sealed class ShortcutsPage : SettingsPage
         _grid.EndEdit();
         foreach (DataGridViewRow row in _grid.Rows) UpdateRow(row);
         s.ShowLaunchRail = _show.Checked;
+        var placement = (RailPlacement)Math.Max(0, _placement.SelectedIndex);
+        // A section chosen here is placed after the last section, unless the user has already put it somewhere
+        if (placement == RailPlacement.Section && s.LaunchRailPlacement != RailPlacement.Section && s.SectionOrder != null)
+            s.SectionOrder = s.SectionOrder.Where(k => k != DashboardForm.ShortcutsKey).Append(DashboardForm.ShortcutsKey).ToArray();
+        s.LaunchRailPlacement = placement;
         s.LaunchItems = Items().Where(i => i.Target.Length > 0 && i.Target != "https://").ToList();
         return null;
     }

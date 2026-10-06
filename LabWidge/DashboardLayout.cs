@@ -96,6 +96,7 @@ internal sealed partial class DashboardForm
         "network" => _settings.CollapsedNetwork, "audio" => _settings.CollapsedAudio,
         "ha" => _settings.CollapsedHomeAssistant,
         "cloudflare" => _settings.CollapsedCloudflare, "proxmox" => _settings.CollapsedProxmox,
+        ShortcutsKey => _settings.CollapsedShortcuts,
         _ => true
     };
 
@@ -110,6 +111,7 @@ internal sealed partial class DashboardForm
             case "ha": _settings.CollapsedHomeAssistant = value; break;
             case "cloudflare": _settings.CollapsedCloudflare = value; break;
             case "proxmox": _settings.CollapsedProxmox = value; break;
+            case ShortcutsKey: _settings.CollapsedShortcuts = value; break;
         }
     }
 
@@ -190,7 +192,8 @@ internal sealed partial class DashboardForm
 
     private SizeF RenderPinned(Graphics g)
     {
-        float rail = RailWidth, width = rail + U(LayoutWidth), x = rail + U(Pad), w = U(LayoutWidth) - U(Pad) * 2, padding = U(14);
+        float rail = ContentLeft, width = RailWidth + U(LayoutWidth), x = rail + U(Pad), w = U(LayoutWidth) - U(Pad) * 2, padding = U(14);
+        var contentRight = rail + U(LayoutWidth);
         var sections = VisibleSections();
         var top = sections.Where(s => PinOf(s.Key) == SectionPin.Top).ToList();
         var middle = sections.Where(s => PinOf(s.Key) == SectionPin.None).ToList();
@@ -220,13 +223,13 @@ internal sealed partial class DashboardForm
 
         // The middle is drawn first. All hit areas are clipped to the same window as the pixels.
         PaintGroup(g, middle, x, _layout.MiddleTop, w,
-            new RectangleF(rail, _layout.MiddleTop, width - rail, _layout.MiddleHeight), _scroll, SectionPin.None);
+            new RectangleF(rail, _layout.MiddleTop, contentRight - rail, _layout.MiddleHeight), _scroll, SectionPin.None);
         DrawScrollHints(g);
         using var bg = new SolidBrush(_p.Bg);
         if (top.Count > 0)
         {
-            g.FillRectangle(bg, rail, 0, width - rail, _layout.MiddleTop);
-            PaintGroup(g, top, x, padding, w, new RectangleF(rail, 0, width - rail, _layout.MiddleTop), 0, SectionPin.Top);
+            g.FillRectangle(bg, rail, 0, contentRight - rail, _layout.MiddleTop);
+            PaintGroup(g, top, x, padding, w, new RectangleF(rail, 0, contentRight - rail, _layout.MiddleTop), 0, SectionPin.Top);
             if (middle.Count > 0)
             {
                 using var line = new Pen(_p.Line, Math.Max(1, DpiScale));
@@ -235,9 +238,9 @@ internal sealed partial class DashboardForm
         }
         if (bottom.Count > 0)
         {
-            g.FillRectangle(bg, rail, _layout.BottomTop, width - rail, height - _layout.BottomTop);
+            g.FillRectangle(bg, rail, _layout.BottomTop, contentRight - rail, height - _layout.BottomTop);
             var start = _layout.BottomTop + bottomGap;
-            PaintGroup(g, bottom, x, start, w, new RectangleF(rail, _layout.BottomTop, width - rail,
+            PaintGroup(g, bottom, x, start, w, new RectangleF(rail, _layout.BottomTop, contentRight - rail,
                 height - _layout.BottomTop), 0, SectionPin.Bottom);
             if (bottomGap > 0)
             {
@@ -245,24 +248,25 @@ internal sealed partial class DashboardForm
                 g.DrawLine(line, x, _layout.BottomTop + U(8), x + w, _layout.BottomTop + U(8));
             }
         }
-        DrawRail(g, height, padding);
-        if (_drag != null) _hits.Clear(); // nothing can be clicked while a section is dragged
+        DrawRail(g, width, height, padding);
+        if (_drag != null || _railDrag != null) _hits.Clear(); // nothing can be clicked while something is dragged
         if (_layout.MiddleHeight > 0 && middle.Count > 0)
         {
             var shadowHeight = Math.Min(U(7), _layout.MiddleHeight);
             if (top.Count > 0)
             {
-                var rect = new RectangleF(rail, _layout.MiddleTop, width - rail, shadowHeight);
+                var rect = new RectangleF(rail, _layout.MiddleTop, contentRight - rail, shadowHeight);
                 using var shadow = new LinearGradientBrush(rect, Color.FromArgb(28, Color.Black), Color.Transparent, 90f);
                 g.FillRectangle(shadow, rect);
             }
             if (bottom.Count > 0)
             {
-                var rect = new RectangleF(rail, _layout.BottomTop - shadowHeight, width - rail, shadowHeight);
+                var rect = new RectangleF(rail, _layout.BottomTop - shadowHeight, contentRight - rail, shadowHeight);
                 using var shadow = new LinearGradientBrush(rect, Color.Transparent, Color.FromArgb(28, Color.Black), 90f);
                 g.FillRectangle(shadow, rect);
             }
         }
+        DrawRailDrop(g, width, height);
         // A visible size grip; all four edges and corners can be resized.
         using var grip = new Pen(_p.TextDim, Math.Max(1, DpiScale));
         for (var i = 0; i < 3; i++)
@@ -297,6 +301,11 @@ internal sealed partial class DashboardForm
         // the item click. Keep it alive until the next opening or form disposal.
         _sectionMenu?.Dispose();
         var menu = _sectionMenu = new ContextMenuStrip();
+        if (key == ShortcutsKey)
+        {
+            AddRailPlacementItems(menu);
+            menu.Items.Add(new ToolStripSeparator());
+        }
         if (SectionWindows.Supports(key))
         {
             menu.Items.Add(new ToolStripMenuItem(L.T("Open in a window", "Åbn i et vindue"), null, (_, _) => SectionWindows.Toggle(key, Bounds))
