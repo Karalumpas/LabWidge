@@ -26,7 +26,7 @@ the time window and the currency (and, like any website, sees your IP address), 
 
 | Service | Purpose | Data sent |
 |---|---|---|
-| [Cloudflare](https://www.cloudflare.com/privacypolicy/) (`api.cloudflare.com`) | Update your DNS A-records and show tunnel status | Your API token, zone ID and current IP address |
+| [Cloudflare](https://www.cloudflare.com/privacypolicy/) (`api.cloudflare.com`) | Read your DNS records and show tunnel status | Your API token, zone ID and account ID |
 | Your own Home Assistant server | Show and control the entities you selected | Your long-lived access token |
 | Your own Proxmox server | Show and control your virtual machines | Your API token |
 | The websites you add as shortcuts | Fetch the site's icon once (it is then kept in `%LOCALAPPDATA%\LabWidgeData\icons`) | A normal web request to the site |

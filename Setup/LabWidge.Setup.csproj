@@ -15,7 +15,7 @@
     <RootNamespace>LabWidgeSetup</RootNamespace>
     <ApplicationIcon>..\LabWidge\Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.22.0</Version>
+    <Version>1.22.1</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>LabWidge</Product>
     <AssemblyTitle>LabWidge Setup</AssemblyTitle>

@@ -21,7 +21,7 @@ Only active plugins appear in settings navigation. Temporarily switching a plugi
 Disabled plugin pages are not validated or written when saving, so a disabled integration does not require credentials.
 
 Activation is stored by section key in `AppSettings.Plugins`. Missing entries fall back to legacy preferences. In particular,
-a configured Cloudflare integration remains active even if its section was hidden, preserving existing DNS automation.
+a configured Cloudflare integration remains active even if its section was hidden, preserving status monitoring.
 Existing settings keys, credential storage, section order, pins and window state are preserved.
 
 ## Lifecycle

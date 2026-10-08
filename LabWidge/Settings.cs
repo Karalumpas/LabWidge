@@ -79,9 +79,6 @@ internal sealed class AppSettings
     // Cloudflare (optional)
     public bool CloudflareEnabled { get; set; }
     public string? ZoneId { get; set; }
-    public bool CloudflareAutoUpdate { get; set; } = true;
-    public bool UpdateAllARecords { get; set; } = true;
-    public string[] IncludedHosts { get; set; } = Array.Empty<string>();
     /// <summary>Account id for tunnels. Empty = looked up through the zone, if the token may read it.</summary>
     public string? CloudflareAccountId { get; set; }
     public bool ShowCloudflare { get; set; } = true;
@@ -323,7 +320,6 @@ internal static class SettingsStore
             var loaded = JsonSerializer.Deserialize<AppSettings>(json);
             if (loaded == null) return false;
 
-            loaded.IncludedHosts ??= Array.Empty<string>();
             loaded.IgnoredServices ??= Array.Empty<string>();
             loaded.NetTariffCodes ??= Array.Empty<string>();
             loaded.HomeAssistantEntities ??= Array.Empty<string>();

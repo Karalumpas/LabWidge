@@ -42,10 +42,9 @@ if (args.Length == 1 && args[0] == "--live")
 
 var tests = new (string Name, Func<Task> Run)[]
 {
-    ("DNS: empty and whitespace-only host lists make no requests", EmptyHosts),
-    ("DNS: selected hosts and all hosts remain distinct", SelectedHosts),
-    ("DNS: failed updates are retried and successful updates stop retrying", RetryDns),
-    ("DNS: settings changed during a request remain pending", ChangedDnsSettings),
+    ("Cloudflare: private and tunnel DNS records are fetched without writes", ReadOnlyDns),
+    ("Cloudflare: all API writes are blocked before transport", BlockCloudflareWrites),
+    ("Cloudflare: legacy DNS automation settings cannot survive migration", LegacyCloudflareSettings),
     ("Prices: concurrent settings changes are coalesced and applied", ChangedTariff),
     ("Prices: each source's format is parsed into UTC and price per kWh", SourceFormats),
     ("Prices: OMIE periods count quarter-hours from Spanish midnight", OmieQuarterHours),
@@ -242,60 +241,63 @@ static async Task InstallerWorkingDirectory()
     finally { Directory.Delete(root, true); }
 }
 
-static async Task EmptyHosts()
+static async Task ReadOnlyDns()
 {
-    using var http = new HttpClient(new Handler(_ => throw new Exception("An empty selection must not contact DNS.")));
-    Check(await CloudflareClient.UpdateAllARecordsAsync("zone", "test", "203.0.113.1", Array.Empty<string>(), http) == 0, "Empty list updated records.");
-    Check(await CloudflareClient.UpdateAllARecordsAsync("zone", "test", "203.0.113.1", new[] { " ", "\t" }, http) == 0, "Whitespace updated records.");
-}
-
-static async Task SelectedHosts()
-{
-    var changed = new List<string>();
-    using var http = new HttpClient(new Handler(request =>
+    var requests = 0;
+    using var http = new HttpClient(new CloudflareReadOnlyHandler(new Handler(request =>
     {
-        if (request.Method == HttpMethod.Get)
-            return Task.FromResult(Json(new { success = true, result = new[]
-            {
-                new { id = "one", type = "A", name = "one.example.test", content = "192.0.2.1", ttl = 1, proxied = false },
-                new { id = "two", type = "A", name = "two.example.test", content = "192.0.2.1", ttl = 1, proxied = false }
-            } }));
-        changed.Add(request.RequestUri!.Segments[^1]);
-        return Task.FromResult(Json(new { success = true }));
-    }));
-    Check(await CloudflareClient.UpdateAllARecordsAsync("zone", "test", "203.0.113.1", new[] { " ONE.example.test ", "one.example.test" }, http) == 1, "Selection did not update exactly one record.");
-    Check(changed.SequenceEqual(new[] { "one" }), "An unselected record changed.");
-    changed.Clear();
-    Check(await CloudflareClient.UpdateAllARecordsAsync("zone", "test", "203.0.113.1", null, http) == 2, "All-host mode did not update both records.");
-}
-
-static async Task RetryDns()
-{
-    var sync = new CloudflareDnsSync();
-    const string ip = "203.0.113.1";
-    var calls = 0;
-    Check(sync.NeedsUpdate(ip), "First lookup must sync.");
-    try
+        Check(request.Method == HttpMethod.Get && request.Content == null, "DNS refresh attempted to write.");
+        Check(request.Headers.Authorization?.Parameter == "test", "DNS authentication missing.");
+        requests++;
+        return Task.FromResult(Json(new { success = true, result = new[]
+        {
+            new { id = "private", type = "A", name = "seer.example.test", content = "192.168.0.25", ttl = 60, proxied = false },
+            new { id = "vpn", type = "A", name = "vpn.example.test", content = "203.0.113.1", ttl = 60, proxied = false },
+            new { id = "tunnel", type = "CNAME", name = "cloud.example.test", content = "id.cfargotunnel.com", ttl = 1, proxied = true }
+        } }));
+    })));
+    for (var i = 0; i < 2; i++)
     {
-        await sync.SyncAsync(ip, () => { calls++; throw new HttpRequestException("offline"); });
-        throw new Exception("Expected the DNS request to fail.");
+        var records = await CloudflareClient.GetRecordsAsync("zone", "test", "A,CNAME", http);
+        Check(records.Length == 3 && records[0].Content == "192.168.0.25"
+              && records[1].Content == "203.0.113.1" && records[2].Content == "id.cfargotunnel.com",
+              "Refresh lost the configured private, VPN or tunnel destination.");
     }
-    catch (HttpRequestException) { }
-    Check(sync.NeedsUpdate(ip), "A failure suppressed retry for the same IP.");
-    await sync.SyncAsync(ip, () => { calls++; return Task.FromResult(0); });
-    Check(calls == 2 && !sync.NeedsUpdate(ip), "A successful no-change response must stop retries.");
-    Check(sync.NeedsUpdate("203.0.113.2"), "A new IP must sync.");
+    Check(requests == 2, "Refresh made extra requests.");
 }
 
-static async Task ChangedDnsSettings()
+static async Task BlockCloudflareWrites()
 {
-    var sync = new CloudflareDnsSync();
-    var done = new TaskCompletionSource<int>();
-    var request = sync.SyncAsync("203.0.113.1", () => done.Task);
-    sync.Invalidate();
-    done.SetResult(1);
-    await request;
-    Check(sync.NeedsUpdate("203.0.113.1"), "The old request marked new settings as synced.");
+    var calls = 0;
+    using var http = new HttpClient(new CloudflareReadOnlyHandler(new Handler(_ =>
+    {
+        calls++;
+        return Task.FromResult(Json(new { success = true }));
+    })));
+    foreach (var method in new[] { HttpMethod.Put, HttpMethod.Post, HttpMethod.Patch, HttpMethod.Delete })
+    {
+        using var request = new HttpRequestMessage(method, "https://API.CLOUDFLARE.COM/client/v4/zones/zone/dns_records/record");
+        try
+        {
+            await http.SendAsync(request);
+            throw new Exception("A Cloudflare write was accepted.");
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "Cloudflare monitoring is read-only.") { }
+    }
+    Check(calls == 0, "A blocked write reached the transport.");
+    using var read = await http.GetAsync("https://api.cloudflare.com/client/v4/zones/zone/dns_records");
+    using var otherService = await http.PostAsync("http://homeassistant.example.test/api/services/light/toggle", null);
+    Check(calls == 2, "Read-only guard blocked monitoring or another integration.");
+}
+
+static Task LegacyCloudflareSettings()
+{
+    var old = JsonSerializer.Deserialize<AppSettings>("""{"CloudflareEnabled":true,"ZoneId":"zone","CloudflareAutoUpdate":true,"UpdateAllARecords":true,"IncludedHosts":["vpn.example.test"]}""")!;
+    Check(old.HasCloudflare && old.ZoneId == "zone", "Migration discarded the monitoring connection.");
+    var saved = JsonSerializer.Serialize(old);
+    Check(!saved.Contains("CloudflareAutoUpdate") && !saved.Contains("UpdateAllARecords") && !saved.Contains("IncludedHosts"),
+          "Legacy DNS automation remained in the saved settings.");
+    return Task.CompletedTask;
 }
 
 static async Task ChangedTariff()

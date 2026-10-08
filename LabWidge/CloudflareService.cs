@@ -218,12 +218,6 @@ internal sealed class CloudflareService
         }
     }
 
-    /// <summary>A records the widget keeps updated – all of them, or only the ones the user chose.</summary>
-    public IReadOnlyList<CloudflareRecord> ManagedRecords(AppSettings settings)
-    {
-        if (settings.UpdateAllARecords) return ARecords;
-        return ARecords.Where(r => settings.IncludedHosts.Contains(r.Name, StringComparer.OrdinalIgnoreCase)).ToList();
-    }
 
     public string DashboardUrl(string section = "")
     {

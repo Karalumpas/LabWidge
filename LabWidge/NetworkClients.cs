@@ -41,31 +41,6 @@ internal static class CloudflareClient
         return doc.RootElement.GetProperty("result").GetArrayLength();
     }
 
-    public static async Task UpdateRecordAsync(string zoneId, string token, string recordId, CloudflareRecord recordInfo, string newIp, HttpClient? http = null, CancellationToken cancel = default)
-    {
-        var update = new CloudflareUpdateRequest
-        {
-            Type = recordInfo.Type,
-            Name = recordInfo.Name,
-            Content = newIp,
-            Ttl = recordInfo.Ttl,
-            Proxied = recordInfo.Proxied
-        };
-
-        var updateJson = JsonSerializer.Serialize(update);
-        using var put = new HttpRequestMessage(HttpMethod.Put, $"https://api.cloudflare.com/client/v4/zones/{zoneId}/dns_records/{recordId}");
-        put.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-        put.Content = new StringContent(updateJson, System.Text.Encoding.UTF8, "application/json");
-
-        using var putResp = await (http ?? Client).SendAsync(put, cancel).ConfigureAwait(true);
-        if (!putResp.IsSuccessStatusCode)
-        {
-            var errorJson = await putResp.Content.ReadAsStringAsync();
-            var errorMsg = ParseCloudflareError(errorJson) ?? $"Status: {putResp.StatusCode}";
-            throw new HttpRequestException(L.T("Cloudflare error: ", "Cloudflare-fejl: ") + errorMsg);
-        }
-    }
-
     private static string? ParseCloudflareError(string json)
     {
         try
@@ -87,48 +62,19 @@ internal static class CloudflareClient
             return null;
         }
     }
+}
 
-    public static async Task<int> UpdateAllARecordsAsync(string zoneId, string token, string ip, string[]? allowedHosts, HttpClient? http = null, CancellationToken cancel = default)
+/// <summary>Cloudflare is a monitoring integration. Refuse writes before any network request is sent.</summary>
+internal sealed class CloudflareReadOnlyHandler : DelegatingHandler
+{
+    public CloudflareReadOnlyHandler(HttpMessageHandler inner) : base(inner) { }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancel)
     {
-        var allowed = NormalizeHosts(allowedHosts);
-        if (allowed is { Length: 0 }) return 0;
-
-        var records = await GetRecordsAsync(zoneId, token, "A", http, cancel);
-        if (records.Length == 0) return 0;
-
-        var updated = 0;
-
-        foreach (var record in records)
-        {
-            if (allowed != null && !allowed.Contains(record.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (string.Equals(record.Content, ip, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            await UpdateRecordAsync(zoneId, token, record.Id, record, ip, http, cancel);
-            updated++;
-        }
-
-        return updated;
-    }
-
-    private static string[]? NormalizeHosts(string[]? hosts)
-    {
-        if (hosts == null)
-        {
-            return null;
-        }
-
-        return hosts
-            .Select(h => h.Trim())
-            .Where(h => h.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        if (string.Equals(request.RequestUri?.Host, "api.cloudflare.com", StringComparison.OrdinalIgnoreCase)
+            && request.Method != HttpMethod.Get)
+            throw new InvalidOperationException("Cloudflare monitoring is read-only.");
+        return base.SendAsync(request, cancel);
     }
 }
 
@@ -148,7 +94,7 @@ internal static class HttpClientFactory
             handler.Proxy.Credentials = CredentialCache.DefaultCredentials;
         }
 
-        var client = new HttpClient(handler)
+        var client = new HttpClient(new CloudflareReadOnlyHandler(handler))
         {
             Timeout = timeout
         };
@@ -214,24 +160,6 @@ internal sealed class CloudflareRecord
 
     [JsonPropertyName("type")]
     public string Type { get; set; } = string.Empty;
-
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-
-    [JsonPropertyName("content")]
-    public string Content { get; set; } = string.Empty;
-
-    [JsonPropertyName("ttl")]
-    public int Ttl { get; set; }
-
-    [JsonPropertyName("proxied")]
-    public bool? Proxied { get; set; }
-}
-
-internal sealed class CloudflareUpdateRequest
-{
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = "A";
 
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;

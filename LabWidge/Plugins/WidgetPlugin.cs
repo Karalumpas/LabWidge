@@ -55,7 +55,6 @@ internal sealed class PluginServices
     public Func<bool> WidgetVisible { get; set; } = () => true;
     public Action PriceTick { get; set; } = () => { };
     public Func<CancellationToken, Task> RefreshIp { get; set; } = _ => Task.CompletedTask;
-    public Func<CancellationToken, Task> RefreshDns { get; set; } = _ => Task.CompletedTask;
     public Func<CancellationToken, Task> CheckServices { get; set; } = _ => Task.CompletedTask;
     public Action RefreshAudio { get; set; } = () => { };
     public Func<CancellationToken, Task> RefreshBatteries { get; set; } = _ => Task.CompletedTask;

@@ -21,7 +21,6 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _updateTimer;
     private readonly SemaphoreSlim _updateLock = new(1, 1);
     private readonly SemaphoreSlim _cloudflareLock = new(1, 1);
-    private readonly CloudflareDnsSync _dnsSync = new();
     private readonly SemaphoreSlim _versionCheckLock = new(1, 1);
     private readonly SynchronizationContext? _ui;
     private readonly System.Windows.Forms.Timer _installTimer = new() { Interval = 60_000 };
@@ -48,7 +47,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private string? _lastToastedCloudflareError;
     private DateTime _lastUpdate = DateTime.MinValue;
     private DateTime _lastSuccessfulIpUpdate = DateTime.MinValue;
-    private DateTime _lastCloudflareUpdate = DateTime.MinValue;
+    private DateTime _lastCloudflareRefresh = DateTime.MinValue;
     private PriceLevel? _iconLevel;
     private bool _iconInitialized;
     private bool _dialogOpen;
@@ -94,7 +93,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _cloudflareItem.DropDownItems.AddRange(new ToolStripItem[]
         {
             new ToolStripMenuItem(L.T("IP && DNS records...", "IP && DNS-records..."), null, (_, _) => ShowPopup()),
-            new ToolStripMenuItem(L.T("Update A records now", "Opdatér A-records nu"), null, async (_, _) => await UpdateCloudflareAsync(force: true)),
+            new ToolStripMenuItem(L.T("Refresh Cloudflare status", "Opfrisk Cloudflare-status"), null, async (_, _) => await RefreshCloudflareAsync()),
             new ToolStripMenuItem(L.T("Open Cloudflare dashboard", "Åbn Cloudflare-dashboard"), null, (_, _) => OpenCloudflare())
         });
 
@@ -138,7 +137,7 @@ internal sealed class TrayAppContext : ApplicationContext
         };
 
         _dashboard = new DashboardForm(_prices, _system, _network, _audio, _homeAssistant, _cloudflare, _services, _proxmox, _settings, () => SettingsStore.Save(_settings),
-            () => _lastIp, BuildCloudflareWidgetStatus, () => UpdateCloudflareAsync(force: true), _menu,
+            () => _lastIp, BuildCloudflareWidgetStatus, () => RefreshCloudflareAsync(), _menu,
             () => (_lastSuccessfulIpUpdate, _lastError));
 
         _cloudflare.Updated += () =>
@@ -169,7 +168,6 @@ internal sealed class TrayAppContext : ApplicationContext
         var pluginServices = _dashboard.Services;
         pluginServices.PriceTick = () => { ApplyUiState(); CheckPriceAlerts(); };
         pluginServices.RefreshIp = ct => UpdateIpAsync(manual: false, ct);
-        pluginServices.RefreshDns = ct => UpdateCloudflareAsync(force: false, ct);
         pluginServices.CheckServices = CheckServicesAsync;
         pluginServices.RefreshAudio = () => { if (_audio.Refresh()) FallBackToStandardAudio(); };
         pluginServices.RefreshBatteries = RefreshBatteriesAsync;
@@ -445,7 +443,6 @@ internal sealed class TrayAppContext : ApplicationContext
 
         _dashboard.ApplySettings(_settings);
         StartupRegistration.Apply(_settings.StartWithWindows);
-        _dnsSync.Invalidate();
         _tunnelStatus.Clear();
         _plugins.ApplySettings(_dashboard.Services, _settings);
         if (_settings.RestorePinnedWindows) SectionWindows.RestorePinned(_settings);
@@ -870,9 +867,6 @@ internal sealed class TrayAppContext : ApplicationContext
                     ShowWidgetFromToast, expireAfter: TimeSpan.FromMinutes(2));
             }
 
-            // First lookup after start or a new IP: sync Cloudflare.
-            // The sync only remembers the IP after a successful DNS call.
-            if (_settings.HasCloudflare) await UpdateCloudflareAsync(force: false, _plugins.TokenFor("cloudflare"));
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
         catch (Exception ex)
@@ -915,70 +909,34 @@ internal sealed class TrayAppContext : ApplicationContext
             onUpdate: async () => await UpdateIpAsync(manual: true),
             onCloudflare: OpenCloudflare,
             onSettings: OpenSettings,
-            onUpdateCloudflare: async () => await UpdateCloudflareAsync(force: true));
+            onRefreshCloudflare: async () => await RefreshCloudflareAsync());
     }
 
-    private async Task UpdateCloudflareAsync(bool force, CancellationToken cancel = default)
+    private async Task RefreshCloudflareAsync(CancellationToken cancel = default)
     {
         if (!_settings.HasCloudflare) return;
         if (!cancel.CanBeCanceled) cancel = _plugins.TokenFor("cloudflare");
-        if (cancel.IsCancellationRequested) return;
-        if (string.IsNullOrWhiteSpace(_lastIp))
-        {
-            PopupForm.SetStatus(L.T("No IP yet.", "Ingen IP endnu."), StatusLevel.Warning);
-            return;
-        }
-        if (!_settings.CloudflareAutoUpdate && !force) return;
-        if (!force && !_dnsSync.NeedsUpdate(_lastIp)) return;
-
-        var token = CredentialStore.ReadToken();
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            SetCloudflareError(L.T("The Cloudflare token is missing", "Cloudflare-token mangler"));
-            return;
-        }
-
-        if (!await _cloudflareLock.WaitAsync(0))
-        {
-            PopupForm.SetStatus(L.T("A Cloudflare update is already running.", "Cloudflare-opdatering kører allerede."), StatusLevel.Info);
-            return;
-        }
-
+        if (cancel.IsCancellationRequested || !await _cloudflareLock.WaitAsync(0)) return;
         try
         {
-            PopupForm.SetStatus(L.T("Updating Cloudflare A records...", "Opdaterer Cloudflare A-records..."), StatusLevel.Info);
-            var ip = _lastIp;
-            var zone = _settings.ZoneId!;
-            var hosts = _settings.UpdateAllARecords ? null : _settings.IncludedHosts.ToArray();
-            var updated = await _dnsSync.SyncAsync(ip, () =>
-                CloudflareClient.UpdateAllARecordsAsync(zone, token, ip, hosts, cancel: cancel));
+            PopupForm.SetStatus(L.T("Fetching Cloudflare status...", "Henter Cloudflare-status..."), StatusLevel.Info);
+            await _cloudflare.RefreshAsync(_settings, cancel);
             cancel.ThrowIfCancellationRequested();
-
-            _lastCloudflareError = null;
-            _lastToastedCloudflareError = null;
-            _lastCloudflareUpdate = DateTime.Now;
-            PopupForm.SetStatus(updated == 0
-                    ? L.T("Cloudflare: no A records changed.", "Cloudflare: ingen A-records ændret.")
-                    : L.T($"Cloudflare: updated {updated} A records.", $"Cloudflare: opdateret {updated} A-records."),
-                updated == 0 ? StatusLevel.Warning : StatusLevel.Success);
-            Logger.Info($"Cloudflare updated: {updated} A records.");
+            _lastCloudflareError = _cloudflare.DnsError ?? _cloudflare.TunnelError;
+            _lastCloudflareRefresh = DateTime.Now;
+            if (_lastCloudflareError != null) SetCloudflareError(_lastCloudflareError);
+            else
+            {
+                _lastToastedCloudflareError = null;
+                PopupForm.SetStatus(L.T("Cloudflare status refreshed. No records changed.", "Cloudflare-status opfrisket. Ingen poster ændret."), StatusLevel.Success);
+            }
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-        catch (Exception ex)
-        {
-            SetCloudflareError(ex.Message);
-        }
+        catch (Exception ex) { SetCloudflareError(ex.Message); }
         finally
         {
             _cloudflareLock.Release();
             ApplyUiState();
-        }
-
-        // The widget's DNS line must show the result at once
-        if (_settings.HasCloudflare && !cancel.IsCancellationRequested)
-        {
-            try { await _cloudflare.RefreshAsync(_settings, cancel); }
-            catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
         }
     }
 
@@ -1059,16 +1017,16 @@ internal sealed class TrayAppContext : ApplicationContext
     private void SetCloudflareError(string message)
     {
         _lastCloudflareError = message;
-        _lastCloudflareUpdate = DateTime.Now;
+        _lastCloudflareRefresh = DateTime.Now;
         PopupForm.SetStatus(L.T("Cloudflare error. See the log.", "Cloudflare-fejl. Se log."), StatusLevel.Error);
         Logger.Error($"Cloudflare update failed: {message}");
 
         if (_settings.NotifyCloudflareError && _lastToastedCloudflareError != message)
         {
             _lastToastedCloudflareError = message;
-            ToastHelper.Show("cloudflare", L.T("Cloudflare could not be updated", "Cloudflare kunne ikke opdateres"), message,
-                L.T("Your A records may point to an old IP", "Dine A-records peger måske på en gammel IP"),
-                new (string, Action)[] { (L.T("Try again", "Prøv igen"), () => _ = UpdateCloudflareAsync(force: true)), (L.T("Settings", "Indstillinger"), OpenSettings) },
+            ToastHelper.Show("cloudflare", L.T("Cloudflare status could not be fetched", "Cloudflare-status kunne ikke hentes"), message,
+                L.T("Cloudflare records have not been changed", "Cloudflare-poster er ikke blevet ændret"),
+                new (string, Action)[] { (L.T("Try again", "Prøv igen"), () => _ = RefreshCloudflareAsync()), (L.T("Settings", "Indstillinger"), OpenSettings) },
                 ShowPopup, silent: false);
         }
     }
@@ -1076,12 +1034,11 @@ internal sealed class TrayAppContext : ApplicationContext
     private string? BuildCloudflareWidgetStatus()
     {
         if (!_settings.HasCloudflare) return null;
-        if (!_settings.CloudflareAutoUpdate) return L.T("auto-update off", "auto-opdatering slået fra");
-        if (_lastCloudflareUpdate == DateTime.MinValue) return L.T("no update yet", "ingen opdatering endnu");
+        if (_lastCloudflareRefresh == DateTime.MinValue) return L.T("not checked yet", "ikke tjekket endnu");
 
-        var when = _lastCloudflareUpdate.ToString("HH:mm");
+        var when = _lastCloudflareRefresh.ToString("HH:mm");
         return _lastCloudflareError == null
-            ? L.T($"updated at {when}", $"opdateret kl. {when}")
+            ? L.T($"checked at {when}", $"tjekket kl. {when}")
             : L.T($"error: {_lastCloudflareError} ({when})", $"fejl: {_lastCloudflareError} ({when})");
     }
 

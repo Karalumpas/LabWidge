@@ -2,6 +2,11 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.22.1
+- Cloudflare monitoring is now read-only: LabWidge never overwrites DNS records when your IP changes, when the app starts or when you refresh status.
+- Private and VPN addresses are no longer incorrectly marked as outdated.
+- Existing Cloudflare connections keep working; a token with DNS Read permission is sufficient.
+
 ## 1.22.0
 - The shortcut rail is now a drawer tucked in behind the widget with small icons – it slides out with larger ones when you point at it.
 - Drag an icon to change the order, and drag the grip at the top to move the rail up or down along the widget.

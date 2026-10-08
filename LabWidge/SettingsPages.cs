@@ -1113,9 +1113,6 @@ internal sealed class CloudflarePage : SettingsPage
     private readonly TextBox _token = new() { Width = 290, UseSystemPasswordChar = true };
     private readonly Label _tokenStatus = Ui.Inline("");
     private readonly Button _deleteToken = new() { Text = L.T("Delete", "Slet"), AutoSize = true };
-    private readonly CheckBox _autoUpdate = Ui.Check(L.T("Update automatically when my IP changes", "Opdatér automatisk når min IP skifter"));
-    private readonly CheckBox _updateAll = Ui.Check(L.T("Update all A records in the zone", "Opdatér alle A-records i zonen"));
-    private readonly TextBox _hosts = new() { Width = 290, Height = 70, Multiline = true, ScrollBars = ScrollBars.Vertical };
     private readonly Button _test = new() { Text = L.T("Test connection", "Test forbindelse"), AutoSize = true };
     private readonly Label _testResult = Ui.Inline("");
 
@@ -1141,35 +1138,31 @@ internal sealed class CloudflarePage : SettingsPage
             Ui.Row(L.T("Account ID (for tunnels)", "Account ID (til tunnels)"), _accountId),
             Ui.Row(L.T("API token", "API-token"), _token),
             Ui.Row("", _tokenStatus, _deleteToken),
-            Ui.Help(L.T("Create a token under My Profile → API Tokens with the permission Zone → DNS → Edit. " +
+            Ui.Help(L.T("Create a token under My Profile → API Tokens with the permission Zone → DNS → Read. " +
                         "For the widget to show your tunnels too, also give it Account → Cloudflare Tunnel → Read and fill in the Account ID " +
                         "(found under Overview in the Cloudflare dashboard). The token is stored safely in Windows Credential Manager. " +
                         "Leave the field empty to keep the saved token.",
-                        "Opret et token under My Profile → API Tokens med rettigheden Zone → DNS → Edit. " +
+                        "Opret et token under My Profile → API Tokens med rettigheden Zone → DNS → Read. " +
                         "Skal widgetten også vise dine tunnels, så giv det desuden Account → Cloudflare Tunnel → Read og udfyld Account ID " +
                         "(står under Overview i Cloudflare-dashboardet). Tokenet gemmes sikkert i Windows Credential Manager. " +
                         "Lad feltet stå tomt for at beholde det gemte token."), 440),
             _showInWidget,
             Ui.Row(L.T("Tunnel check interval", "Interval for tunnel-tjek"), _interval, Ui.Inline(L.T("minutes", "minutter"))),
             _serviceChecks,
-            _autoUpdate,
-            _updateAll,
-            Ui.Row(L.T("Only these hosts\n(one per line)", "Kun disse hosts\n(én pr. linje)"), _hosts),
             Ui.Row("", _test, _testResult)
         });
 
         Add(Ui.Heading(L.T("Cloudflare (optional)", "Cloudflare (valgfrit)")),
-            Ui.Help(L.T("If you host a website or server at home with DNS at Cloudflare, the app can update your A records when your external IP changes, " +
-                        "and show whether your Cloudflare Tunnels are up. " +
+            Ui.Help(L.T("LabWidge reads your DNS records without changing them, " +
+                        "and shows whether your Cloudflare Tunnels are up. " +
                         "If you don't use Cloudflare, just skip this step – everything else works without it.",
-                        "Har du en hjemmeside eller server hjemme med DNS hos Cloudflare, kan appen opdatere dine A-records, når din eksterne IP skifter, " +
+                        "LabWidge læser dine DNS-poster uden at ændre dem, " +
                         "og vise om dine Cloudflare Tunnels er oppe. " +
                         "Bruger du ikke Cloudflare, så spring bare dette trin over – alt andet virker uden.")),
             _enabled,
             _details);
 
         _enabled.CheckedChanged += (_, _) => _details.Enabled = _enabled.Checked;
-        _updateAll.CheckedChanged += (_, _) => _hosts.Enabled = !_updateAll.Checked;
         _deleteToken.Click += (_, _) =>
         {
             if (MessageBox.Show(this, L.T("Delete the saved Cloudflare token?", "Slet det gemte Cloudflare-token?"), "Cloudflare", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
@@ -1240,10 +1233,6 @@ internal sealed class CloudflarePage : SettingsPage
         _interval.Value = Math.Clamp(s.CloudflareRefreshMinutes, 1, 60);
         _showInWidget.Checked = s.ShowCloudflare;
         _serviceChecks.Checked = s.ServiceChecksEnabled;
-        _autoUpdate.Checked = s.CloudflareAutoUpdate;
-        _updateAll.Checked = s.UpdateAllARecords;
-        _hosts.Enabled = !s.UpdateAllARecords;
-        _hosts.Text = string.Join(Environment.NewLine, s.IncludedHosts);
         UpdateTokenStatus();
     }
 
@@ -1264,11 +1253,6 @@ internal sealed class CloudflarePage : SettingsPage
         s.CloudflareRefreshMinutes = (int)_interval.Value;
         s.ShowCloudflare = _showInWidget.Checked;
         s.ServiceChecksEnabled = _serviceChecks.Checked;
-        s.CloudflareAutoUpdate = _autoUpdate.Checked;
-        s.UpdateAllARecords = _updateAll.Checked;
-        s.IncludedHosts = _updateAll.Checked
-            ? Array.Empty<string>()
-            : _hosts.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(h => h.Trim()).Where(h => h.Length > 0).ToArray();
 
         if (newToken.Length > 0)
         {
