@@ -102,7 +102,7 @@ internal sealed class PopupForm : Form
     private readonly DataGridView _dnsGrid;
     private readonly string _currentIp;
 
-    private PopupForm(string ip, string timestamp, AppSettings settings, Action onCopy, Func<Task> onUpdate, Action onCloudflare, Action onSettings, Func<Task> onUpdateCloudflare)
+    private PopupForm(string ip, string timestamp, AppSettings settings, Action onCopy, Func<Task> onUpdate, Action onCloudflare, Action onSettings, Func<Task> onRefreshCloudflare)
     {
         _settings = settings;
         _currentIp = ip;
@@ -167,7 +167,7 @@ internal sealed class PopupForm : Form
         });
 
         var btnCf = CreateButton(L.T("Open Cloudflare", "Åbn Cloudflare"), 20, 180, onCloudflare);
-        var btnUpdateCf = CreateButtonAsync(L.T("Run auto-update", "Kør auto-opdatering"), 130, 180, onUpdateCloudflare);
+        var btnUpdateCf = CreateButtonAsync(L.T("Refresh status", "Opfrisk status"), 130, 180, onRefreshCloudflare);
 
         _statusLabel = new Label
         {
@@ -198,6 +198,7 @@ internal sealed class PopupForm : Form
             BackgroundColor = Color.White,
             BorderStyle = BorderStyle.None,
             RowHeadersVisible = false,
+            ReadOnly = true,
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
             AllowUserToResizeRows = false,
@@ -210,30 +211,6 @@ internal sealed class PopupForm : Form
         _dnsGrid.Columns.Add("Name", "Host");
         _dnsGrid.Columns.Add("Content", L.T("Content", "Indhold"));
         _dnsGrid.Columns.Add("Proxied", "Proxy");
-
-        var btnCol = new DataGridViewButtonColumn
-        {
-            Name = "Action",
-            HeaderText = L.T("Action", "Handling"),
-            Text = L.T("Update", "Opdatér"),
-            UseColumnTextForButtonValue = true
-        };
-        _dnsGrid.Columns.Add(btnCol);
-
-        _dnsGrid.CellClick += async (s, e) =>
-        {
-            if (e.RowIndex >= 0 && e.ColumnIndex == _dnsGrid.Columns["Action"].Index)
-            {
-                var row = _dnsGrid.Rows[e.RowIndex];
-                var recordId = row.Tag as string;
-                var recordName = row.Cells["Name"].Value?.ToString() ?? L.T("unknown", "ukendt");
-
-                if (recordId != null)
-                {
-                    await UpdateSingleRecord(recordId, recordName);
-                }
-            }
-        };
 
         // Load the records when the tab is selected
         tabs.SelectedIndexChanged += async (s, e) =>
@@ -299,10 +276,10 @@ internal sealed class PopupForm : Form
         return btn;
     }
 
-    public static void ShowPopup(string ip, string timestamp, AppSettings settings, Action onCopy, Func<Task> onUpdate, Action onCloudflare, Action onSettings, Func<Task> onUpdateCloudflare)
+    public static void ShowPopup(string ip, string timestamp, AppSettings settings, Action onCopy, Func<Task> onUpdate, Action onCloudflare, Action onSettings, Func<Task> onRefreshCloudflare)
     {
         _instance?.Close();
-        _instance = new PopupForm(ip, timestamp, settings, onCopy, onUpdate, onCloudflare, onSettings, onUpdateCloudflare);
+        _instance = new PopupForm(ip, timestamp, settings, onCopy, onUpdate, onCloudflare, onSettings, onRefreshCloudflare);
 
         var cursor = Cursor.Position;
         var screen = Screen.FromPoint(cursor);
@@ -330,15 +307,7 @@ internal sealed class PopupForm : Form
             var records = await CloudflareClient.GetRecordsAsync(_settings.ZoneId, token, "A,CNAME");
             foreach (var r in records)
             {
-                var actionText = r.Type == "A" ? L.T("Update IP", "Opdatér IP") : L.T("Edit", "Redigér");
-                var rowIndex = _dnsGrid.Rows.Add(r.Type, r.Name, r.Content, (r.Proxied ?? false) ? "Proxied" : "DNS Only", actionText);
-                _dnsGrid.Rows[rowIndex].Tag = r.Id; // Store ID for update
-                
-                // Highlight if different (only for A records matching current IP logic)
-                if (r.Type == "A" && !string.Equals(r.Content, _currentIp, StringComparison.Ordinal))
-                {
-                     _dnsGrid.Rows[rowIndex].DefaultCellStyle.BackColor = Color.FromArgb(255, 245, 235); // Slight orange
-                }
+                _dnsGrid.Rows.Add(r.Type, r.Name, r.Content, (r.Proxied ?? false) ? "Proxied" : "DNS Only");
             }
         }
         catch (Exception ex)
@@ -347,40 +316,6 @@ internal sealed class PopupForm : Form
         }
     }
 
-    private async Task UpdateSingleRecord(string recordId, string recordName)
-    {
-        var token = CredentialStore.ReadToken();
-        if (string.IsNullOrWhiteSpace(_settings.ZoneId) || string.IsNullOrWhiteSpace(token)) return;
-
-        try
-        {
-            SetStatus(L.T($"Updating {recordName}...", $"Opdaterer {recordName}..."), StatusLevel.Info);
-            
-            // We need full record info, simpler to fetch again or store it. 
-            // For now, let's just fetch everything to find the one we want to be safe.
-            
-            var records = await CloudflareClient.GetRecordsAsync(_settings.ZoneId, token, "A,CNAME");
-            var record = records.FirstOrDefault(r => r.Id == recordId);
-            
-            if (record != null)
-            {
-                if (record.Type == "A")
-                {
-                    await CloudflareClient.UpdateRecordAsync(_settings.ZoneId, token, recordId, record, _currentIp);
-                    SetStatus(L.T($"{recordName} updated!", $"{recordName} opdateret!"), StatusLevel.Success);
-                }
-                else
-                {
-                   SetStatus(L.T("Only A records can be updated automatically.", "Kun A-records kan opdateres automatisk."), StatusLevel.Warning);
-                }
-                await LoadDnsRecords(); // Refresh list
-            }
-        }
-        catch (Exception ex)
-        {
-            SetStatus(L.T("Error: ", "Fejl: ") + ex.Message, StatusLevel.Error);
-        }
-    }
 
     public static void SetStatus(string message, StatusLevel level = StatusLevel.Info)
     {

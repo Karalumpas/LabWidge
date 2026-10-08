@@ -7,9 +7,7 @@ internal sealed partial class DashboardForm
     {
         var s = _settings;
         var tunnels = _cf.Tunnels;
-        var ip = _externalIp();
-        var records = _cf.ManagedRecords(s);
-        var stale = ip == null ? 0 : records.Count(r => r.Content != ip);
+        var records = _cf.ARecords;
         var hosts = s.ServiceChecksEnabled ? ServiceMonitor.CheckableHosts(tunnels, s) : Array.Empty<string>();
         var down = _services.Down(hosts);
 
@@ -38,8 +36,8 @@ internal sealed partial class DashboardForm
         }
         else
         {
-            right = stale > 0 ? L.T($"⚠ {stale} A records outdated", $"⚠ {stale} A-poster forældet") : L.T($"{records.Count} A record{(records.Count == 1 ? "" : "s")} up to date", $"{records.Count} A-poster ajour");
-            rightColor = stale > 0 ? _p.Amber : _p.TextSecondary;
+            right = L.T($"{records.Count} A records", $"{records.Count} A-poster");
+            rightColor = _p.TextSecondary;
         }
         y = Header(g, "", "CLOUDFLARE", right, rightColor, x, y, w,
                    s.CollapsedCloudflare, () => ToggleCollapsed(() => s.CollapsedCloudflare, v => s.CollapsedCloudflare = v));
@@ -115,31 +113,27 @@ internal sealed partial class DashboardForm
             y += U(21);
         }
 
-        // DNS: do the A records point to the IP we have now?
+        // Show configured records without assuming they should use the external IP.
         DrawText(g, "DNS", _f.Body, _p.TextSecondary, x, y);
         string dns;
         Color dnsColor;
         if (_cf.DnsError != null) { dns = "⚠ " + _cf.DnsError; dnsColor = _p.Amber; }
-        else if (_cf.LastFetch == DateTime.MinValue || ip == null) { dns = L.T("fetching…", "henter…"); dnsColor = _p.TextDim; }
-        else if (records.Count == 0) { dns = L.T("no A records", "ingen A-poster"); dnsColor = _p.TextSecondary; }
-        else if (stale == 0) { dns = L.T($"✓ {records.Count} A record{(records.Count == 1 ? "" : "s")} = {ip}", $"✓ {records.Count} A-poster = {ip}"); dnsColor = _p.Green; }
-        else { dns = L.T($"⚠ {stale} of {records.Count} point to an old IP", $"⚠ {stale} af {records.Count} peger på gammel IP"); dnsColor = _p.Amber; }
+        else if (_cf.LastFetch == DateTime.MinValue) { dns = L.T("fetching…", "henter…"); dnsColor = _p.TextDim; }
+        else { dns = L.T($"{records.Count} A records · read-only", $"{records.Count} A-poster · kun læsning"); dnsColor = _p.TextSecondary; }
 
-        var button = _dnsUpdating ? L.T("updating…", "opdaterer…") : L.T("Update", "Opdatér");
+        var button = _cloudflareRefreshing ? L.T("fetching…", "henter…") : L.T("Refresh", "Opfrisk");
         var bs = Measure(g, button, _f.Small);
         var btn = new RectangleF(x + w - bs.Width - U(20), y - U(2), bs.Width + U(24), U(20));
-        var btnHover = !_dnsUpdating && btn.Contains(_mouse);
+        var btnHover = !_cloudflareRefreshing && btn.Contains(_mouse);
         if (btnHover) FillRound(g, btn, _p.HoverBg, U(4));
         DrawText(g, "", _f.IconSmall, btnHover ? _p.Blue : _p.TextDim, btn.X + U(4), y + U(3));
         DrawText(g, button, _f.Small, btnHover ? _p.Blue : _p.TextSecondary, btn.X + U(18), y + U(1));
         DrawText(g, Fit(g, dns, _f.Body, btn.X - x - keyW - U(6)), _f.Body, dnsColor, x + keyW, y);
 
-        var staleList = ip == null ? "" : string.Join("\n", records.Where(r => r.Content != ip).Take(6).Select(r => $"{r.Name} → {r.Content}"));
-        var dnsTip = dns + (staleList.Length > 0 ? "\n" + staleList : "")
-                     + (_cloudflareStatus() is string status ? L.T("\nAutomatic update: ", "\nAutomatisk opdatering: ") + status : "")
-                     + L.T("\nClick for all A records", "\nKlik for alle A-poster");
+        var dnsTip = dns + (_cloudflareStatus() is string status ? "\n" + status : "")
+                     + L.T("\nClick for all A records. LabWidge never changes Cloudflare.", "\nKlik for alle A-poster. LabWidge ændrer aldrig Cloudflare.");
         _hits.Add(new Hit(new RectangleF(x, y - U(2), btn.X - x - U(4), U(20)), dnsTip, openPanel));
-        _hits.Add(new Hit(btn, L.T("Point the A records at your current IP now", "Sæt A-posterne til din nuværende IP nu"), _dnsUpdating ? null : () => _ = UpdateDnsAsync()));
+        _hits.Add(new Hit(btn, L.T("Fetch DNS records and tunnel status without changing Cloudflare", "Hent DNS-poster og tunnelstatus uden at ændre Cloudflare"), _cloudflareRefreshing ? null : () => _ = RefreshCloudflareStatusAsync()));
         y += U(21);
 
         if (_cloudflareStatus() is string cfStatus && cfStatus.StartsWith(L.T("error", "fejl"), StringComparison.OrdinalIgnoreCase))

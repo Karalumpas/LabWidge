@@ -81,9 +81,7 @@ internal sealed class CloudflarePanel : PopupPanel
         y = Divider(g, x, y, w);
 
         // DNS
-        var ip = _externalIp();
         var records = _cf.ARecords;
-        var managed = _cf.ManagedRecords(Settings);
         y = Subheading(g, L.T("DNS  ·  A RECORDS", "DNS  ·  A-POSTER"), x, y);
         if (_cf.DnsError != null)
         {
@@ -95,9 +93,7 @@ internal sealed class CloudflarePanel : PopupPanel
         }
         foreach (var r in records.Take(MaxRecords))
         {
-            var isManaged = managed.Contains(r);
-            var current = ip != null && r.Content == ip;
-            var color = !isManaged ? P.TextSecondary : current ? P.Green : P.Amber;
+            var color = P.TextSecondary;
             var row = new RectangleF(x - U(6), y - U(3), w + U(12), U(22));
             var hovered = row.Contains(Mouse);
             if (hovered) FillRound(g, row, P.HoverBg, U(5));
@@ -107,8 +103,7 @@ internal sealed class CloudflarePanel : PopupPanel
 
             var tip = $"{r.Name} → {r.Content}"
                       + (r.Proxied == true ? L.T("\nTraffic goes through Cloudflare (proxied)", "\nTrafikken går via Cloudflare (proxied)") : L.T("\nDNS only (not proxied)", "\nKun DNS (ikke proxied)"))
-                      + (!isManaged ? L.T("\nNot updated by the widget", "\nOpdateres ikke af widgetten")
-                         : current ? L.T("\nPoints to your current IP", "\nPeger på din nuværende IP") : L.T("\nDoes NOT point to your current IP", "\nPeger IKKE på din nuværende IP"))
+                      + L.T("\nRead-only: the widget never changes this record", "\nKun læsning: widgetten ændrer aldrig denne post")
                       + L.T("\nClick to open DNS in Cloudflare", "\nKlik for at åbne DNS i Cloudflare");
             AddHit(row, tip, () => Open(_cf.DashboardUrl("dns/records")));
             y += U(22);

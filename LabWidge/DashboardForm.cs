@@ -31,8 +31,8 @@ internal sealed partial class DashboardForm : Form
     private readonly ProxmoxService _pve;
     private readonly Func<string?> _externalIp;
     private readonly Func<string?> _cloudflareStatus;
-    private readonly Func<Task> _updateDns;
-    private bool _dnsUpdating;
+    private readonly Func<Task> _refreshCloudflare;
+    private bool _cloudflareRefreshing;
     private readonly Action _saveSettings;
     private readonly WidgetTip _tip = new();
     private readonly List<Hit> _hits = new();
@@ -54,13 +54,13 @@ internal sealed partial class DashboardForm : Form
 
     public DashboardForm(ElectricityPriceService el, SystemMonitor sys, NetworkMonitor net, AudioService audio, HomeAssistantService ha,
                          CloudflareService cf, ServiceMonitor services, ProxmoxService pve, AppSettings settings, Action saveSettings,
-                         Func<string?> externalIp, Func<string?> cloudflareStatus, Func<Task> updateDns, ContextMenuStrip menu,
+                         Func<string?> externalIp, Func<string?> cloudflareStatus, Func<Task> refreshCloudflare, ContextMenuStrip menu,
                          Func<(DateTime Time, string? Error)>? networkState = null)
     {
         _cf = cf;
         _services = services;
         _pve = pve;
-        _updateDns = updateDns;
+        _refreshCloudflare = refreshCloudflare;
         _el = el;
         _sys = sys;
         _net = net;
@@ -870,23 +870,23 @@ internal sealed partial class DashboardForm : Form
 
     private bool ShowsCloudflare => _settings.ShowCloudflare && _settings.HasCloudflare;
 
-    /// <summary>Tunnels with status, whether the A records point to the current IP, and a shortcut to the details.</summary>
+    /// <summary>Tunnels with status, configured DNS records and a shortcut to the details.</summary>
 
 
     /// <summary>The Proxmox host: CPU, RAM and storage, and how many machines are running. Click for the list of machines.</summary>
 
 
-    private async Task UpdateDnsAsync()
+    private async Task RefreshCloudflareStatusAsync()
     {
-        _dnsUpdating = true;
+        _cloudflareRefreshing = true;
         Invalidate();
         try
         {
-            await _updateDns();
+            await _refreshCloudflare();
         }
         finally
         {
-            _dnsUpdating = false;
+            _cloudflareRefreshing = false;
             Invalidate();
         }
     }

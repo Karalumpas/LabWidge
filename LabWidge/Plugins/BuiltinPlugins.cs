@@ -38,7 +38,7 @@ internal sealed class CloudflarePlugin : WidgetPlugin
     public override string Key => "cloudflare";
     public override string Title => "Cloudflare";
     public override string Glyph => "";
-    public override string Description => L.T("DNS updates, tunnels and service monitoring.", "DNS-opdateringer, tunneller og overvågning af tjenester.");
+    public override string Description => L.T("Read-only DNS, tunnels and service monitoring.", "Læsning af DNS, tunneller og overvågning af tjenester.");
     public override bool IsVisible(DashboardForm h, AppSettings s) => s.ShowCloudflare && s.HasCloudflare;
     public override float RenderExpanded(DashboardForm h, Graphics g, float x, float y, float w) => h.DrawCloudflare(g, x, y, w);
     public override PopupPanel? CreateWindow(DashboardForm h, AppSettings s, Action save) => s.HasCloudflare ? new CloudflarePanel(h.Services.Cloudflare, h.Services.ServiceMonitor, s, save, h.Services.ExternalIp) : null;
@@ -47,7 +47,6 @@ internal sealed class CloudflarePlugin : WidgetPlugin
     {
         if (!s.HasCloudflare) yield break;
         yield return new("tunnels", Math.Clamp(s.CloudflareRefreshMinutes, 1, 60) * 60_000, ct => c.Cloudflare.RefreshAsync(s, ct));
-        yield return new("dns", 300_000, async ct => { await c.RefreshIp(ct); ct.ThrowIfCancellationRequested(); await c.RefreshDns(ct); });
         if (s.ServiceChecksEnabled) yield return new("services", 30_000, c.CheckServices);
     }
 }

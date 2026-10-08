@@ -57,7 +57,7 @@ It is small, fast and private – no account, no ads and no telemetry.
 **🏠 Your home lab (optional)**
 - **Home Assistant** – lights, switches and sensors you choose, or a full Home Assistant dashboard in a pop-up panel.
 - **Proxmox VE** – CPU, RAM and storage of your server, and start, shut down or reboot VMs and containers.
-- **Cloudflare** – keeps your DNS A records up to date when your IP changes, and shows whether your tunnels and the services
+- **Cloudflare** – reads your DNS records without changing them, and shows whether your tunnels and the services
   behind them are up.
 
 **🪟 Detail windows**
@@ -168,10 +168,9 @@ under **Settings → Proxmox**. Self-signed certificates can be trusted from the
 <details>
 <summary><b>Cloudflare DNS and tunnels</b></summary>
 
-Create a token under **My Profile → API Tokens** with **Zone → DNS → Edit**, and enter it with your zone ID under
+Create a token under **My Profile → API Tokens** with **Zone → DNS → Read**, and enter it with your zone ID under
 **Settings → Cloudflare**. To see your tunnels too, add **Account → Cloudflare Tunnel → Read** and the account ID.
-LabWidge updates all A records in the zone – or only the hosts you pick – when your external IP changes, and retries failed updates.
-CNAME records are never changed.
+LabWidge only reads DNS records and tunnel configuration. Refreshing status, restarting the app or changing your external IP never changes Cloudflare.
 </details>
 
 ## FAQ

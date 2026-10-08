@@ -9,7 +9,22 @@ internal static partial class UiChecks
         var widget = fixture.Widget;
         Check(WidgetPlugins.All.Select(p => p.Key).Distinct().Count() == 7, "Plugin registration must contain seven unique sections.");
 
-        // Legacy configuration remains active without an explicit plugin map; hidden Cloudflare still syncs DNS.
+        // Private DNS is intentional; rendering and refreshing must not offer to replace it.
+        foreach (var plugin in WidgetPlugins.All) s.SetPluginEnabled(plugin.Key, false);
+        s.SetPluginEnabled("cloudflare", true);
+        s.CollapsedCloudflare = false;
+        var cf = Get<CloudflareService>(widget, "_cf");
+        Set(cf, "ARecords", new List<CloudflareRecord> { new() { Name = "seer.example.test", Content = "192.168.0.25" } });
+        widget.ApplySettings(s);
+        using (var frame = Frame(widget, "cloudflare-read-only.png")) { }
+        var tips = Hits(widget).Select(h => h.Tip ?? "").ToList();
+        Check(tips.Any(t => t.Contains("read-only") || t.Contains("kun læsning")), "DNS has no read-only explanation.");
+        Check(!tips.Any(t => t.Contains("old IP") || t.Contains("gammel IP") || t.Contains("current IP now") || t.Contains("nuværende IP nu")),
+              "A private address still offers DNS replacement or reports an old IP.");
+        foreach (var plugin in WidgetPlugins.All) s.SetPluginEnabled(plugin.Key, true);
+        Console.WriteLine("PASS Cloudflare: private DNS is read-only and has no replacement actions");
+
+        // Legacy configuration remains active without an explicit plugin map; hidden Cloudflare still monitors status.
         s.ShowCloudflare = false;
         Check(s.IsPluginEnabled("cloudflare") && s.HasCloudflare, "Migration disabled a configured background integration.");
         s.ShowCloudflare = true;

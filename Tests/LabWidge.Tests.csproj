@@ -12,7 +12,6 @@
     <Compile Remove="Ui\**\*.cs" />
     <Compile Include="..\LabWidge\WidgetLayout.cs" Link="WidgetLayout.cs" />
     <!-- Test the same source files without starting the tray app's Windows integrations. -->
-    <Compile Include="..\LabWidge\CloudflareDnsSync.cs" Link="CloudflareDnsSync.cs" />
     <Compile Include="..\LabWidge\ElectricityPriceService.cs" Link="ElectricityPriceService.cs" />
     <Compile Include="..\LabWidge\SpotPriceSources.cs" Link="SpotPriceSources.cs" />
     <Compile Include="..\LabWidge\Countries.cs" Link="Countries.cs" />
