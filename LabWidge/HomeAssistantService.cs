@@ -296,7 +296,7 @@ internal sealed class HomeAssistantService
     public static string Describe(Exception ex) => ex switch
     {
         HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } => L.T("The token was refused", "Tokenet blev afvist"),
-        HttpRequestException { StatusCode: HttpStatusCode.NotFound } => L.T("The address responds but has no Home Assistant API", "Adressen svarer, men har ikke et Home Assistant-API"),
+        HttpRequestException { StatusCode: HttpStatusCode.NotFound } => L.T("Home Assistant could not be found at this address", "Home Assistant blev ikke fundet på denne adresse"),
         TaskCanceledException or OperationCanceledException => L.T("Home Assistant did not answer in time", "Home Assistant svarede ikke i tide"),
         HttpRequestException => L.T("Could not connect to the address", "Kunne ikke få forbindelse til adressen"),
         _ => ex.Message

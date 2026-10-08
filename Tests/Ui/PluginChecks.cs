@@ -18,7 +18,7 @@ internal static partial class UiChecks
         widget.ApplySettings(s);
         using (var frame = Frame(widget, "cloudflare-read-only.png")) { }
         var tips = Hits(widget).Select(h => h.Tip ?? "").ToList();
-        Check(tips.Any(t => t.Contains("read-only") || t.Contains("kun læsning")), "DNS has no read-only explanation.");
+        Check(!tips.Any(t => t.Contains("read-only") || t.Contains("kun læsning") || t.Contains("never changes") || t.Contains("ændrer aldrig")), "Internal Cloudflare implementation details leaked into the widget.");
         Check(!tips.Any(t => t.Contains("old IP") || t.Contains("gammel IP") || t.Contains("current IP now") || t.Contains("nuværende IP nu")),
               "A private address still offers DNS replacement or reports an old IP.");
         foreach (var plugin in WidgetPlugins.All) s.SetPluginEnabled(plugin.Key, true);
