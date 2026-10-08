@@ -928,7 +928,7 @@ internal sealed class TrayAppContext : ApplicationContext
             else
             {
                 _lastToastedCloudflareError = null;
-                PopupForm.SetStatus(L.T("Cloudflare status refreshed. No records changed.", "Cloudflare-status opfrisket. Ingen poster ændret."), StatusLevel.Success);
+                PopupForm.SetStatus(L.T("Cloudflare status refreshed.", "Cloudflare-status opfrisket."), StatusLevel.Success);
             }
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
@@ -1025,7 +1025,7 @@ internal sealed class TrayAppContext : ApplicationContext
         {
             _lastToastedCloudflareError = message;
             ToastHelper.Show("cloudflare", L.T("Cloudflare status could not be fetched", "Cloudflare-status kunne ikke hentes"), message,
-                L.T("Cloudflare records have not been changed", "Cloudflare-poster er ikke blevet ændret"),
+                L.T("Check your connection and Cloudflare settings", "Tjek din forbindelse og Cloudflare-indstillinger"),
                 new (string, Action)[] { (L.T("Try again", "Prøv igen"), () => _ = RefreshCloudflareAsync()), (L.T("Settings", "Indstillinger"), OpenSettings) },
                 ShowPopup, silent: false);
         }

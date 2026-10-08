@@ -103,7 +103,6 @@ internal sealed class CloudflarePanel : PopupPanel
 
             var tip = $"{r.Name} → {r.Content}"
                       + (r.Proxied == true ? L.T("\nTraffic goes through Cloudflare (proxied)", "\nTrafikken går via Cloudflare (proxied)") : L.T("\nDNS only (not proxied)", "\nKun DNS (ikke proxied)"))
-                      + L.T("\nRead-only: the widget never changes this record", "\nKun læsning: widgetten ændrer aldrig denne post")
                       + L.T("\nClick to open DNS in Cloudflare", "\nKlik for at åbne DNS i Cloudflare");
             AddHit(row, tip, () => Open(_cf.DashboardUrl("dns/records")));
             y += U(22);

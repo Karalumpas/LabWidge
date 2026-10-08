@@ -16,7 +16,7 @@ The bundled plugins reuse the existing services and detail panels so their data 
 
 ## Activation and settings
 
-The Plugins page edits a cloned settings draft. Only Save applies changes to the running application; Cancel leaves it alone.
+The Sections page edits a cloned settings draft. Only Save applies changes to the running application; Cancel leaves it alone.
 Only active plugins appear in settings navigation. Temporarily switching a plugin off and on retains its unsaved controls.
 Disabled plugin pages are not validated or written when saving, so a disabled integration does not require credentials.
 

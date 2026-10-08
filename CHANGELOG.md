@@ -2,6 +2,10 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.22.2
+- Cloudflare status and tooltips now use simpler wording without implementation details.
+- Settings refer to widget sections consistently, with clearer Home Assistant connection messages.
+
 ## 1.22.1
 - Cloudflare monitoring is now read-only: LabWidge never overwrites DNS records when your IP changes, when the app starts or when you refresh status.
 - Private and VPN addresses are no longer incorrectly marked as outdated.

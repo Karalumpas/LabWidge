@@ -119,7 +119,7 @@ internal sealed partial class DashboardForm
         Color dnsColor;
         if (_cf.DnsError != null) { dns = "⚠ " + _cf.DnsError; dnsColor = _p.Amber; }
         else if (_cf.LastFetch == DateTime.MinValue) { dns = L.T("fetching…", "henter…"); dnsColor = _p.TextDim; }
-        else { dns = L.T($"{records.Count} A records · read-only", $"{records.Count} A-poster · kun læsning"); dnsColor = _p.TextSecondary; }
+        else { dns = L.T($"{records.Count} A records", $"{records.Count} A-poster"); dnsColor = _p.TextSecondary; }
 
         var button = _cloudflareRefreshing ? L.T("fetching…", "henter…") : L.T("Refresh", "Opfrisk");
         var bs = Measure(g, button, _f.Small);
@@ -131,9 +131,9 @@ internal sealed partial class DashboardForm
         DrawText(g, Fit(g, dns, _f.Body, btn.X - x - keyW - U(6)), _f.Body, dnsColor, x + keyW, y);
 
         var dnsTip = dns + (_cloudflareStatus() is string status ? "\n" + status : "")
-                     + L.T("\nClick for all A records. LabWidge never changes Cloudflare.", "\nKlik for alle A-poster. LabWidge ændrer aldrig Cloudflare.");
+                     + L.T("\nClick for all A records", "\nKlik for alle A-poster");
         _hits.Add(new Hit(new RectangleF(x, y - U(2), btn.X - x - U(4), U(20)), dnsTip, openPanel));
-        _hits.Add(new Hit(btn, L.T("Fetch DNS records and tunnel status without changing Cloudflare", "Hent DNS-poster og tunnelstatus uden at ændre Cloudflare"), _cloudflareRefreshing ? null : () => _ = RefreshCloudflareStatusAsync()));
+        _hits.Add(new Hit(btn, L.T("Refresh DNS and tunnel status", "Opfrisk DNS og tunnelstatus"), _cloudflareRefreshing ? null : () => _ = RefreshCloudflareStatusAsync()));
         y += U(21);
 
         if (_cloudflareStatus() is string cfStatus && cfStatus.StartsWith(L.T("error", "fejl"), StringComparison.OrdinalIgnoreCase))

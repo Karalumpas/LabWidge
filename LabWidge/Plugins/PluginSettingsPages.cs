@@ -8,14 +8,14 @@ internal sealed class PluginsPage : SettingsPage
     private bool _loading;
     public event Action? ActivationChanged;
     public event Action<string>? ConfigureRequested;
-    public override string Title => "Plugins";
+    public override string Title => L.T("Sections", "Sektioner");
     public override string Glyph => "";
 
     public PluginsPage()
     {
-        Add(Ui.Heading("Plugins"), Ui.Help(L.T(
-            "Choose the plugins you use. Disabled plugins stop collecting data and keep their settings. Changes take effect when you save.",
-            "Vælg de plugins, du bruger. Deaktiverede plugins stopper dataindsamling og beholder deres indstillinger. Ændringer træder i kraft, når du gemmer.")));
+        Add(Ui.Heading(L.T("Sections", "Sektioner")), Ui.Help(L.T(
+            "Choose which sections you use. You can turn a section back on without setting it up again. Changes take effect when you save.",
+            "Vælg de sektioner, du bruger. Du kan slå en sektion til igen uden at sætte den op på ny. Ændringer træder i kraft, når du gemmer.")));
         foreach (var plugin in WidgetPlugins.All)
         {
             var toggle = Ui.Check(L.T("Active", "Aktiv"));

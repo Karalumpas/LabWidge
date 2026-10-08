@@ -663,7 +663,7 @@ internal sealed class GeneralPage : SettingsPage
 
 internal sealed class WidgetPage : SettingsPage
 {
-    private readonly CheckBox _compact = Ui.Check(L.T("Compact view (a summary per plugin)", "Kompakt visning (en oversigt pr. plugin)"));
+    private readonly CheckBox _compact = Ui.Check(L.T("Compact view (a summary per section)", "Kompakt visning (en oversigt pr. sektion)"));
     private readonly Button _resetOrder = new() { Text = L.T("Reset the order", "Nulstil rækkefølgen"), AutoSize = true };
     private readonly Button _resetPins = new() { Text = L.T("Unpin all sections", "Frigør alle sektioner"), AutoSize = true };
     private readonly NumericUpDown _width = new() { Minimum = 300, Maximum = 640, Increment = 20, Width = 80 };
@@ -694,8 +694,8 @@ internal sealed class WidgetPage : SettingsPage
                         "Klik på lynet ved uret for at vise eller skjule widgetten. Klik på en overskrift for at folde en sektion sammen, træk i grebet for at flytte den, " +
                         "og træk den ud af widgetten for at åbne den i et vindue.")),
             Ui.Section(L.T("Sections", "Sektioner")),
-            Ui.Help(L.T("Choose active sections on the Plugins page. Configure each active plugin on its own page.",
-                        "Vælg aktive sektioner på Plugins-siden. Indstil hvert aktivt plugin på dets egen side.")),
+            Ui.Help(L.T("Choose active sections on the Sections page. Each section has its own settings.",
+                        "Vælg aktive sektioner på siden Sektioner. Hver sektion har sine egne indstillinger.")),
             Ui.Row(L.T("Order and pins", "Rækkefølge og pinning"), _resetOrder, _resetPins),
             Ui.Section(L.T("Size", "Størrelse")),
             Ui.Help(L.T("You can also drag the widget's edges or corners. The size is remembered across display scaling.",
@@ -1153,11 +1153,11 @@ internal sealed class CloudflarePage : SettingsPage
         });
 
         Add(Ui.Heading(L.T("Cloudflare (optional)", "Cloudflare (valgfrit)")),
-            Ui.Help(L.T("LabWidge reads your DNS records without changing them, " +
-                        "and shows whether your Cloudflare Tunnels are up. " +
+            Ui.Help(L.T("See your DNS records " +
+                        "and check whether your Cloudflare Tunnels are up. " +
                         "If you don't use Cloudflare, just skip this step – everything else works without it.",
-                        "LabWidge læser dine DNS-poster uden at ændre dem, " +
-                        "og vise om dine Cloudflare Tunnels er oppe. " +
+                        "Se dine DNS-poster " +
+                        "og tjek, om dine Cloudflare Tunnels er oppe. " +
                         "Bruger du ikke Cloudflare, så spring bare dette trin over – alt andet virker uden.")),
             _enabled,
             _details);
