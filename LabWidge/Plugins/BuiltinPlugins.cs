@@ -46,7 +46,7 @@ internal sealed class CloudflarePlugin : WidgetPlugin
     public override IEnumerable<PluginJob> CreateJobs(PluginServices c, AppSettings s)
     {
         if (!s.HasCloudflare) yield break;
-        yield return new("tunnels", Math.Clamp(s.CloudflareRefreshMinutes, 1, 60) * 60_000, ct => c.Cloudflare.RefreshAsync(s, ct));
+        yield return new("tunnels", Math.Clamp(s.CloudflareRefreshMinutes, 1, 60) * 60_000, c.RefreshCloudflare);
         if (s.ServiceChecksEnabled) yield return new("services", 30_000, c.CheckServices);
     }
 }

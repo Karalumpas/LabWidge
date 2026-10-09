@@ -614,6 +614,7 @@ internal abstract class PopupPanel : Form
     /// <summary>A rounded progress bar; the colour turns amber over 80 % and red over 90 % unless given.</summary>
     protected void Bar(Graphics g, RectangleF r, double frac, Color? color = null)
     {
+        if (r.Width <= r.Height) return; // too narrow window – nothing sensible to draw
         FillRound(g, r, P.Track, r.Height / 2);
         var c = color ?? (frac > 0.9 ? P.Red : frac > 0.8 ? P.Amber : P.Blue);
         FillRound(g, new RectangleF(r.X, r.Y, Math.Max(r.Height, r.Width * (float)Math.Clamp(frac, 0, 1)), r.Height), c, r.Height / 2);
