@@ -120,7 +120,7 @@ internal sealed class SettingsWindow : Form
             }
             SettingsTheme.Apply(page, _p);
         }
-        var groups = new Dictionary<int, string> { [0] = L.T("GENERAL", "GENERELT"), [_commonPages.Length] = "PLUGINS" };
+        var groups = new Dictionary<int, string> { [0] = L.T("GENERAL", "GENERELT"), [_commonPages.Length] = L.T("SECTIONS", "SEKTIONER") };
         _menu.SetItems(_pages.Select(p => (p.Glyph, p.Title)).ToArray(), groups);
         var index = current == null ? 0 : Array.IndexOf(_pages, current);
         _index = -1;

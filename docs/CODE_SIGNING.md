@@ -52,13 +52,16 @@ Future proprietary plugins, commercial dual licensing or a paid edition require 
 
 The release workflow publishes the app, uploads its complete folder, and requests signing of its EXE and DLL. It verifies trusted
 Authenticode signatures, timestamps and matching LabWidge product/version metadata. `Build-SetupFromSignedApp.ps1` embeds that signed
-folder without rebuilding the app. Setup is then uploaded, signed, and verified before publishing. There is no unsigned fallback.
+folder without rebuilding the app. Setup is then uploaded, signed, and verified before publishing. Once signing is configured there
+is no unsigned fallback: a failed signing request stops the release instead of publishing unsigned files.
 
 The scripts cannot test a real Foundation signature until account approval and setup are complete. A successful pull-request build
 validates ordinary builds and regression tests, not the external signing service. The first signed release must also be installed and
 tested on Windows with Smart App Control enabled. Signing does not promise immediate SmartScreen reputation or bypass an organization's policies.
 
-The normal `install.ps1 -BuildOnly` produces unsigned development installers. Do not upload these as public releases.
+While SignPath is not configured, the release workflow builds and publishes unsigned installers on GitHub's runners – that is
+the intended path today. Installers built locally with `install.ps1 -BuildOnly` are for development only; do not upload them as
+public releases.
 
 References: [GitHub integration](https://docs.signpath.io/trusted-build-systems/github),
 [artifact configuration](https://docs.signpath.io/artifact-configuration/), [Foundation conditions](https://signpath.org/terms).

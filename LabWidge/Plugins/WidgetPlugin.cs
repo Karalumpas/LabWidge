@@ -56,6 +56,7 @@ internal sealed class PluginServices
     public Action PriceTick { get; set; } = () => { };
     public Func<CancellationToken, Task> RefreshIp { get; set; } = _ => Task.CompletedTask;
     public Func<CancellationToken, Task> CheckServices { get; set; } = _ => Task.CompletedTask;
+    public Func<CancellationToken, Task> RefreshCloudflare { get; set; } = _ => Task.CompletedTask;
     public Action RefreshAudio { get; set; } = () => { };
     public Func<CancellationToken, Task> RefreshBatteries { get; set; } = _ => Task.CompletedTask;
 }

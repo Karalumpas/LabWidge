@@ -169,6 +169,7 @@ internal sealed class TrayAppContext : ApplicationContext
         pluginServices.PriceTick = () => { ApplyUiState(); CheckPriceAlerts(); };
         pluginServices.RefreshIp = ct => UpdateIpAsync(manual: false, ct);
         pluginServices.CheckServices = CheckServicesAsync;
+        pluginServices.RefreshCloudflare = ct => RefreshCloudflareAsync(ct, manual: false);
         pluginServices.RefreshAudio = () => { if (_audio.Refresh()) FallBackToStandardAudio(); };
         pluginServices.RefreshBatteries = RefreshBatteriesAsync;
 
@@ -912,14 +913,14 @@ internal sealed class TrayAppContext : ApplicationContext
             onRefreshCloudflare: async () => await RefreshCloudflareAsync());
     }
 
-    private async Task RefreshCloudflareAsync(CancellationToken cancel = default)
+    private async Task RefreshCloudflareAsync(CancellationToken cancel = default, bool manual = true)
     {
         if (!_settings.HasCloudflare) return;
         if (!cancel.CanBeCanceled) cancel = _plugins.TokenFor("cloudflare");
         if (cancel.IsCancellationRequested || !await _cloudflareLock.WaitAsync(0)) return;
         try
         {
-            PopupForm.SetStatus(L.T("Fetching Cloudflare status...", "Henter Cloudflare-status..."), StatusLevel.Info);
+            if (manual) PopupForm.SetStatus(L.T("Fetching Cloudflare status...", "Henter Cloudflare-status..."), StatusLevel.Info);
             await _cloudflare.RefreshAsync(_settings, cancel);
             cancel.ThrowIfCancellationRequested();
             _lastCloudflareError = _cloudflare.DnsError ?? _cloudflare.TunnelError;
@@ -928,7 +929,7 @@ internal sealed class TrayAppContext : ApplicationContext
             else
             {
                 _lastToastedCloudflareError = null;
-                PopupForm.SetStatus(L.T("Cloudflare status refreshed.", "Cloudflare-status opfrisket."), StatusLevel.Success);
+                if (manual) PopupForm.SetStatus(L.T("Cloudflare status refreshed.", "Cloudflare-status opfrisket."), StatusLevel.Success);
             }
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
