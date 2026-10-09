@@ -2,6 +2,9 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.22.4
+- Cloudflare no longer reports an error at startup when you only use DNS and have not filled in an Account ID.
+
 ## 1.22.3
 - Automatic Cloudflare checks now warn you when they fail, just like a manual refresh does.
 - The Settings menu now groups your sections under "Sections" instead of "Plugins".

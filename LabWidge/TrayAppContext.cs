@@ -923,7 +923,9 @@ internal sealed class TrayAppContext : ApplicationContext
             if (manual) PopupForm.SetStatus(L.T("Fetching Cloudflare status...", "Henter Cloudflare-status..."), StatusLevel.Info);
             await _cloudflare.RefreshAsync(_settings, cancel);
             cancel.ThrowIfCancellationRequested();
-            _lastCloudflareError = _cloudflare.DnsError ?? _cloudflare.TunnelError;
+            // A missing Account ID only means tunnels are not set up – the section already shows that hint
+            var tunnelError = _cloudflare.TunnelError == CloudflareService.MissingAccountId ? null : _cloudflare.TunnelError;
+            _lastCloudflareError = _cloudflare.DnsError ?? tunnelError;
             _lastCloudflareRefresh = DateTime.Now;
             if (_lastCloudflareError != null) SetCloudflareError(_lastCloudflareError);
             else
