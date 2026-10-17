@@ -15,13 +15,14 @@ internal sealed record AudioDevice(string Id, string Name, string FullName, Audi
 /// </summary>
 internal static class AudioDeviceMemory
 {
-    /// <summary>Stored instead of the fingerprint for a device that has been seen next to an identical device.</summary>
-    private const string Twin = "";
+    /// <summary>Put in front of the fingerprint of a device that has been seen with an identical device (two of the same
+    /// headset or monitor). Such a device can never be told apart from its twin, so it is not followed to a new id.</summary>
+    private const string TwinMark = "twin:";
 
     /// <summary>
     /// Records the fingerprints of the connected devices the settings refer to, and moves the settings from an id that is gone
-    /// to the one connected device with the same fingerprint, if that device is not used by the settings already and the old
-    /// device has never been seen next to an identical device. True if the settings changed.
+    /// to the one connected device with the same fingerprint – but only if no other device the settings use has that
+    /// fingerprint, and the old device has never been seen with an identical device. True if the settings changed.
     /// </summary>
     public static bool Update(AppSettings s, IReadOnlyList<AudioDevice> outputs, IReadOnlyList<AudioDevice> mics)
     {
@@ -29,41 +30,53 @@ internal static class AudioDeviceMemory
         foreach (var (devices, output) in new[] { (outputs, true), (mics, false) })
         {
             var used = (output ? OutputIds(s) : MicIds(s)).ToHashSet();
+            // The other devices the settings use that have the fingerprint – connected or not, marked as twins or not
+            List<string> ChosenTwins(string id, string fingerprint) =>
+                used.Where(u => u != id && s.AudioDeviceKeys.TryGetValue(u, out var k) && FingerprintOf(k) == fingerprint).ToList();
+            void MarkTwins(IEnumerable<string> ids, string fingerprint)
+            {
+                foreach (var twin in ids.Where(t => s.AudioDeviceKeys.GetValueOrDefault(t) != TwinMark + fingerprint).ToList())
+                {
+                    s.AudioDeviceKeys[twin] = TwinMark + fingerprint;
+                    changed = true;
+                }
+            }
+
             foreach (var id in used.ToList())
             {
+                var known = s.AudioDeviceKeys.GetValueOrDefault(id);
                 if (devices.FirstOrDefault(d => d.Id == id) is { } present)
                 {
-                    // A device with an identical twin (two of the same headset or monitor) can never be told apart from it,
-                    // so it is marked for good and not followed – otherwise the twin would take its place when it is unplugged
-                    var known = s.AudioDeviceKeys.GetValueOrDefault(id);
-                    var key = known == Twin || devices.Count(d => d.Fingerprint == present.Fingerprint) > 1 ? Twin : present.Fingerprint;
-                    if (known == key) continue;
-                    s.AudioDeviceKeys[id] = key;
+                    var fingerprint = present.Fingerprint;
+                    var twins = ChosenTwins(id, fingerprint)
+                        .Concat(devices.Where(d => d.Id != id && d.Fingerprint == fingerprint).Select(d => d.Id).Where(used.Contains)).ToList();
+                    if (known?.StartsWith(TwinMark) == true || twins.Count > 0 || devices.Count(d => d.Fingerprint == fingerprint) > 1)
+                    {
+                        MarkTwins(twins.Append(id), fingerprint);
+                        continue;
+                    }
+                    if (known == fingerprint) continue;
+                    s.AudioDeviceKeys[id] = fingerprint;
                     changed = true;
                     continue;
                 }
-                if (!s.AudioDeviceKeys.TryGetValue(id, out var fingerprint) || fingerprint == Twin) continue;
+                if (known == null || known.StartsWith(TwinMark)) continue;
                 // Only follow a device that can be identified for certain: exactly one connected device with the fingerprint,
-                // not used by the settings already. Otherwise the device has a twin, which is remembered, so a twin that is
-                // left alone later cannot take over either.
-                var matches = devices.Where(d => d.Fingerprint == fingerprint).ToList();
+                // and no other chosen device with it. Otherwise all of them are marked as twins, so one of them that is left
+                // alone later cannot take over another's settings either.
+                var matches = devices.Where(d => d.Fingerprint == known).ToList();
                 if (matches.Count == 0) continue;
-                // Another chosen device with the same fingerprint (connected or missing) means it cannot be told which one returned
-                var twins = used.Where(u => u != id && s.AudioDeviceKeys.GetValueOrDefault(u) == fingerprint)
-                                .Concat(matches.Select(d => d.Id).Where(used.Contains)).ToList();
-                if (matches is not [var moved] || twins.Count > 0)
+                var others = ChosenTwins(id, known).Concat(matches.Select(d => d.Id).Where(used.Contains)).ToList();
+                if (matches is not [var moved] || others.Count > 0)
                 {
-                    // All sides: a twin left with its fingerprint could later be followed to the wrong device's new id
-                    foreach (var twin in twins) s.AudioDeviceKeys[twin] = Twin;
-                    s.AudioDeviceKeys[id] = Twin;
-                    changed = true;
+                    MarkTwins(others.Append(id), known);
                     continue;
                 }
                 Logger.Info($"{moved.FullName} has a new id in Windows – the audio settings follow it.");
                 if (output) MoveOutput(s, id, moved.Id);
                 else MoveMic(s, id, moved.Id);
                 s.AudioDeviceKeys.Remove(id);
-                s.AudioDeviceKeys[moved.Id] = fingerprint;
+                s.AudioDeviceKeys[moved.Id] = known;
                 used.Remove(id);
                 used.Add(moved.Id);
                 changed = true;
@@ -78,6 +91,8 @@ internal static class AudioDeviceMemory
         }
         return changed;
     }
+
+    private static string FingerprintOf(string key) => key.StartsWith(TwinMark) ? key[TwinMark.Length..] : key;
 
     private static IEnumerable<string> OutputIds(AppSettings s) =>
         (s.AudioDeviceIds ?? Array.Empty<string>()).Concat(s.AudioNames.Keys).Concat(s.AudioMicPairs.Keys)

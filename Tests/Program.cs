@@ -137,6 +137,15 @@ static Task AudioDeviceNewId()
     AudioDeviceMemory.Update(s, new[] { monitor with { Id = "monitor-3" } }, Array.Empty<AudioDevice>());
     Check(s.AudioDeviceIds.SequenceEqual(new[] { "monitor", "monitor-2" }), "One of two missing twins was followed to a new id.");
 
+    // A device chosen while its known twin is away is a twin too
+    s.AudioDeviceIds = new[] { "monitor" };
+    s.AudioDeviceKeys = new();
+    AudioDeviceMemory.Update(s, new[] { monitor, otherMonitor }, Array.Empty<AudioDevice>());
+    s.AudioDeviceIds = new[] { "monitor", "monitor-2" };
+    AudioDeviceMemory.Update(s, new[] { otherMonitor }, Array.Empty<AudioDevice>());
+    AudioDeviceMemory.Update(s, new[] { monitor with { Id = "monitor-3" } }, Array.Empty<AudioDevice>());
+    Check(s.AudioDeviceIds.SequenceEqual(new[] { "monitor", "monitor-2" }), "A twin chosen later was followed to a new id.");
+
     // Two possible new devices: it cannot be told which one it is, so the settings are kept
     var speaker = new AudioDevice("speaker", "Desk", "Speakers (USB Audio)", AudioKind.Speakers, null);
     s.AudioDeviceIds = new[] { "speaker" };
