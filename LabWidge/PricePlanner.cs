@@ -49,6 +49,11 @@ internal sealed class PlannedRun
     public Appliance? Snapshot { get; set; }
     /// <summary>The Home Assistant server the run was started on – it is only switched off there.</summary>
     public string? HomeAssistantUrl { get; set; }
+    /// <summary>The run's cost and saving in whole currency units, worked out when it started – a later change of country
+    /// must not rescale them.</summary>
+    public double? Cost { get; set; }
+    public double? Saved { get; set; }
+    public string? Currency { get; set; }
 }
 
 /// <summary>The cheapest time to start an appliance, and what it costs compared with starting right away.</summary>

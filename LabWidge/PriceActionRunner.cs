@@ -100,6 +100,12 @@ internal sealed class PriceActionRunner
                 }
                 run.Started = true;
                 run.HomeAssistantUrl = entity != null ? s.HomeAssistantUrl : null;
+                if (a.EnergyKwh > 0)
+                {
+                    run.Cost = run.Average * a.EnergyKwh / unit.PerMajor;
+                    run.Saved = Math.Max(0, ((run.PriceIfStartedNow ?? run.Average) - run.Average) * a.EnergyKwh / unit.PerMajor);
+                    run.Currency = unit.Currency;
+                }
                 run.Snapshot = new Appliance
                 {
                     Id = a.Id, Name = a.Name, DurationMinutes = a.DurationMinutes, EnergyKwh = a.EnergyKwh,
@@ -158,13 +164,12 @@ internal sealed class PriceActionRunner
                     }
                 }
                 run.Stopped = true;
-                if (a.EnergyKwh > 0 && s.PriceHistoryEnabled)
+                if (run.Cost is { } runCost && run.Currency != null && s.PriceHistoryEnabled)
                 {
                     PriceHistory.AddSaving(new SavingRecord
                     {
-                        Start = run.Start, Name = a.Name, EnergyKwh = a.EnergyKwh, Currency = unit.Currency,
-                        Cost = run.Average * a.EnergyKwh / unit.PerMajor,
-                        Saved = Math.Max(0, ((run.PriceIfStartedNow ?? run.Average) - run.Average) * a.EnergyKwh / unit.PerMajor)
+                        Start = run.Start, Name = a.Name, EnergyKwh = a.EnergyKwh, Currency = run.Currency,
+                        Cost = runCost, Saved = run.Saved ?? 0
                     });
                 }
                 s.PlannedRuns.Remove(run);
@@ -178,8 +183,10 @@ internal sealed class PriceActionRunner
     {
         var url = string.IsNullOrWhiteSpace(s.HomeAssistantUrl) ? null : HomeAssistantService.Normalize(s.HomeAssistantUrl);
         var running = s.PriceEnabled && s.HasHomeAssistantConnection;
+        // One rule per entity: a second rule for the same entity could switch off what the first one keeps on
         var active = running
-            ? s.PriceAutomations.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.EntityId)).ToList()
+            ? s.PriceAutomations.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.EntityId))
+                .GroupBy(r => r.EntityId, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList()
             : new List<PriceAutomation>();
         var changed = false;
         var waiting = new HashSet<string>();

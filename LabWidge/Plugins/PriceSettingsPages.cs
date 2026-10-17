@@ -503,6 +503,9 @@ internal sealed class AutomationsPage : SettingsPage
             if (error != null) return error;
             list.Add(rule!);
         }
+        if (list.Where(r => r.Enabled).GroupBy(r => r.EntityId, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1) is { } twice)
+            return L.T($"Two active rules switch {twice.Key}, and one could switch off what the other keeps on. Combine them, or switch one off.",
+                       $"To aktive regler styrer {twice.Key}, og den ene kan slukke det, den anden holder tændt. Slå dem sammen, eller slå den ene fra.");
         s.PriceAutomations = list;
         return null;
     }

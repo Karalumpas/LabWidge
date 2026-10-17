@@ -467,6 +467,16 @@ internal sealed class TrayAppContext : ApplicationContext
         // Planned runs and the state of the price rules change in the background while the settings are open
         // A started run is kept even if its appliance was removed, so it is still switched off when it ends
         updated.PlannedRuns = old.PlannedRuns.Where(r => r.Started || updated.Appliances.Any(a => a.Id == r.ApplianceId)).ToList();
+        // A planned run whose appliance got a new run time or deadline is planned again with the new values
+        foreach (var run in updated.PlannedRuns.Where(r => !r.Started).ToList())
+        {
+            var before = old.Appliances.FirstOrDefault(a => a.Id == run.ApplianceId);
+            var after = updated.Appliances.First(a => a.Id == run.ApplianceId);
+            if (before != null && before.DurationMinutes == after.DurationMinutes && before.FinishBy == after.FinishBy) continue;
+            var index = updated.PlannedRuns.IndexOf(run);
+            if (AppliancePlanner.Arm(after, _prices.ConsumerPeriods(updated), DateTime.Now) is { } again) updated.PlannedRuns[index] = again;
+            else updated.PlannedRuns.RemoveAt(index);
+        }
         updated.RuleStates = old.RuleStates;
         updated.LastCheapAlertFor = old.LastCheapAlertFor;
         updated.LastExpensiveAlertFor = old.LastExpensiveAlertFor;
