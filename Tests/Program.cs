@@ -128,8 +128,10 @@ static Task AudioDeviceNewId()
     var speaker = new AudioDevice("speaker", "Desk", "Speakers (USB Audio)", AudioKind.Speakers, null);
     s.AudioDeviceIds = new[] { "speaker" };
     AudioDeviceMemory.Update(s, new[] { speaker }, Array.Empty<AudioDevice>());
-    Check(!AudioDeviceMemory.Update(s, new[] { speaker with { Id = "a" }, speaker with { Id = "b" } }, Array.Empty<AudioDevice>())
+    Check(AudioDeviceMemory.Update(s, new[] { speaker with { Id = "a" }, speaker with { Id = "b" } }, Array.Empty<AudioDevice>())
           && s.AudioDeviceIds.SequenceEqual(new[] { "speaker" }), "An ambiguous match was followed.");
+    Check(!AudioDeviceMemory.Update(s, new[] { speaker with { Id = "a" } }, Array.Empty<AudioDevice>())
+          && s.AudioDeviceIds.SequenceEqual(new[] { "speaker" }), "A device left alone after an ambiguous match was followed.");
     Check(s.Clone().AudioDeviceKeys.Count == s.AudioDeviceKeys.Count, "Fingerprints did not survive cloning.");
     return Task.CompletedTask;
 }

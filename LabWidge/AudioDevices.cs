@@ -43,8 +43,17 @@ internal static class AudioDeviceMemory
                     continue;
                 }
                 if (!s.AudioDeviceKeys.TryGetValue(id, out var fingerprint) || fingerprint == Twin) continue;
-                // Only follow a device that can be identified for certain: exactly one connected device with the fingerprint
-                if (devices.Where(d => d.Fingerprint == fingerprint).ToList() is not [var moved] || used.Contains(moved.Id)) continue;
+                // Only follow a device that can be identified for certain: exactly one connected device with the fingerprint,
+                // not used by the settings already. Otherwise the device has a twin, which is remembered, so a twin that is
+                // left alone later cannot take over either.
+                var matches = devices.Where(d => d.Fingerprint == fingerprint).ToList();
+                if (matches.Count == 0) continue;
+                if (matches is not [var moved] || used.Contains(moved.Id))
+                {
+                    s.AudioDeviceKeys[id] = Twin;
+                    changed = true;
+                    continue;
+                }
                 Logger.Info($"{moved.FullName} has a new id in Windows – the audio settings follow it.");
                 if (output) MoveOutput(s, id, moved.Id);
                 else MoveMic(s, id, moved.Id);

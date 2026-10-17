@@ -84,7 +84,29 @@ Wait for the build check (`.github/workflows/build.yml` builds the app and Setup
 gh pr checks <nr> --watch --fail-fast
 ```
 
-If it fails, fix it on the branch before anything else. Then give the user the link to the PR and ask whether you may merge.
+If it fails, fix it on the branch before anything else.
+
+### Codex review – before asking to merge
+
+Codex reviews the PR automatically when it is opened, usually within a few minutes. Never ask to merge before Codex
+has reviewed the PR's **latest** commit. Codex keeps a summary comment on the PR with a state line like
+`codex-review-state:v1 {"code_review":{"commit_sha":"…","has_unresolved_findings":…,"status":"completed"}…}`:
+
+```bash
+gh pr view <nr> --json headRefOid --jq .headRefOid                       # the latest commit
+gh api repos/Karalumpas/LabWidge/issues/<nr>/comments --jq '.[].body' | grep -o 'codex-review-state:v1 {.*}}'
+gh api repos/Karalumpas/LabWidge/pulls/<nr>/comments --jq '.[] | select(.user.login | startswith("chatgpt-codex")) | "\(.path):\(.line) [\(.commit_id[0:7])]\n\(.body)\n---"'
+```
+
+- Codex has reviewed the latest commit when `commit_sha` in the state line matches the PR's head commit and `status`
+  is `completed`. If it has not, check again a few minutes later.
+- If Codex has findings, show each one to the user in their language: what it means for them and whether it holds up when
+  you check it against the code. Fix the ones that hold up on the release branch, with a test where it makes sense, and push.
+  Then write the comment `@codex review` on the PR so Codex reviews the new commit, and wait for that review too.
+  Keep going until Codex's latest review has no new findings that hold up.
+- If you think a finding is wrong, explain why to the user and let them decide.
+
+Only then give the user the link to the PR, with a short summary of what Codex found and what was fixed, and ask whether you may merge.
 A merge publishes the version to every installation.
 
 ## 6. Merge and follow the workflow
