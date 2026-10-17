@@ -2,6 +2,10 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.22.5
+- Audio devices keep their place, name and microphone in the widget when Windows gives them a new ID – for example when you plug the headset's USB dongle into another port or update its driver.
+- Moving audio devices up or down in Settings no longer leaves rows drawn on top of each other.
+
 ## 1.22.4
 - Cloudflare no longer reports an error at startup when you only use DNS and have not filled in an Account ID.
 

@@ -17,6 +17,7 @@
     <Compile Include="..\LabWidge\Countries.cs" Link="Countries.cs" />
     <Compile Include="..\LabWidge\NetworkClients.cs" Link="NetworkClients.cs" />
     <Compile Include="..\LabWidge\Settings.cs" Link="Settings.cs" />
+    <Compile Include="..\LabWidge\AudioDevices.cs" Link="AudioDevices.cs" />
     <Compile Include="..\LabWidge\LaunchItem.cs" Link="LaunchItem.cs" />
     <Compile Include="..\LabWidge\UninstallCleanup.cs" Link="UninstallCleanup.cs" />
     <Compile Include="..\LabWidge\Localization.cs" Link="Localization.cs" />

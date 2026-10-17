@@ -1948,6 +1948,7 @@ internal sealed class AudioPage : SettingsPage
     {
         _filling = true;
         _audio.Refresh();
+        AudioDeviceMemory.Update(s, _audio.Devices, _audio.Microphones); // a device with a new id keeps its row
         _names.Clear();
         foreach (var kv in s.AudioNames) _names[kv.Key] = kv.Value;
         _grid.Rows.Clear();
@@ -2007,10 +2008,15 @@ internal sealed class AudioPage : SettingsPage
         if (_grid.CurrentRow is not { } row) return;
         var to = row.Index + delta;
         if (to < 0 || to >= _grid.Rows.Count) return;
+        // With EditOnEnter an editing control is usually open – close it first, or it stays drawn
+        // over the row that takes the moved row's old place
+        _grid.EndEdit();
+        _grid.CurrentCell = null;
         _grid.Rows.RemoveAt(row.Index);
         _grid.Rows.Insert(to, row);
         _automatic = false;
-        _grid.CurrentCell = row.Cells[1];
+        // The read-only column, so selecting the row doesn't open a new editing control
+        _grid.CurrentCell = row.Cells[3];
     }
 
     public override string? SaveTo(AppSettings s)
@@ -2047,6 +2053,8 @@ internal sealed class AudioPage : SettingsPage
         s.AudioShowMic = _showMic.Checked;
         s.AudioShowVolume = _showVolume.Checked;
         s.AudioVolumeStep = (int)_volumeStep.Value;
+        s.AudioDeviceKeys = new Dictionary<string, string>(_loaded?.AudioDeviceKeys ?? new());
+        AudioDeviceMemory.Update(s, _audio.Devices, _audio.Microphones);
         return _batteryAlert.Checked && _batteryCritical.Value >= _batteryLow.Value
             ? L.T("The last battery message must come at a lower percentage than the first.", "Sidste batteribesked skal komme ved en lavere procent end den første.")
             : null;
