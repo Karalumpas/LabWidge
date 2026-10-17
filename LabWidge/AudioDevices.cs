@@ -50,6 +50,8 @@ internal static class AudioDeviceMemory
                 if (matches.Count == 0) continue;
                 if (matches is not [var moved] || used.Contains(moved.Id))
                 {
+                    // Both sides: a twin that is in use could later be followed to the missing device's new id
+                    foreach (var twin in matches.Where(d => used.Contains(d.Id))) s.AudioDeviceKeys[twin.Id] = Twin;
                     s.AudioDeviceKeys[id] = Twin;
                     changed = true;
                     continue;
