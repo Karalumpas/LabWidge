@@ -84,8 +84,9 @@ internal static class AutomationRules
     }
 
     /// <summary>The periods a <see cref="AutomationCondition.CheapestHours"/> rule picks in the range around <paramref name="t"/>.</summary>
+    /// <summary>Only a range whose prices are all known is chosen from – cheaper hours may still be published for the rest.</summary>
     public static List<PricePeriod> Chosen(PriceAutomation rule, IReadOnlyList<PricePeriod> periods, DateTime t) =>
-        Range(rule, t) is { } range
+        Range(rule, t) is { } range && PriceWindows.Average(periods, range.From, range.To) != null
             ? PriceWindows.CheapestSet(periods, range.From, range.To, TimeSpan.FromHours(Math.Clamp(rule.Hours, 0.25, 24)))
             : new List<PricePeriod>();
 
@@ -111,12 +112,13 @@ internal static class AutomationRules
         if (rule.Condition == AutomationCondition.CheapestHours)
         {
             // The range around each period: today's and the next ranges, as far as prices are known
-            // A range that isn't fully known yet shows its cheapest known hours
+            // A range whose prices aren't all known yet is left out, as the rule won't act on it
             var chosen = new Dictionary<DateTime, PricePeriod>();
             var ranges = new HashSet<DateTime>();
             foreach (var p in periods.Where(p => p.End > now))
             {
                 if (Range(rule, p.Start) is not { } range || !ranges.Add(range.From)) continue;
+                if (PriceWindows.Average(periods, range.From, range.To) == null) continue;
                 foreach (var c in PriceWindows.CheapestSet(periods, range.From, range.To, TimeSpan.FromHours(Math.Clamp(rule.Hours, 0.25, 24))))
                     chosen[c.Start] = c;
             }

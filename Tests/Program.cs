@@ -753,7 +753,7 @@ static Task QuarterWindows()
     var ninety = PriceWindows.Cheapest(aligned, day, TimeSpan.FromMinutes(90))!.Value;
     Check(ninety.Start == day.AddMinutes(30) && ninety.End == day.AddHours(2) && Math.Abs(ninety.Average - 10 * 30 / 90.0) < 1e-9,
         "90 minutes on hourly prices must be able to start at 00:30 and end at 02:00.");
-    var rule = new PriceAutomation { Hours = 1.25 };
+    var rule = new PriceAutomation { Hours = 1.25, FromHour = 0, ToHour = 3 };
     Check(AutomationRules.Applies(rule, hours, new List<double> { 3, 1, 2 }, day.AddHours(2).AddMinutes(10)) == true
           && AutomationRules.Applies(rule, hours, new List<double> { 3, 1, 2 }, day.AddHours(2).AddMinutes(20)) == false,
         "A rule of 1¼ hours must stop a quarter into the hour.");
@@ -859,6 +859,9 @@ static Task AutomationRuleChecks()
     var hourly = values.ToList();
     Check(AutomationRules.Applies(overnight, p, hourly, day.AddDays(1).AddHours(2).AddMinutes(30)) == true, "02:00–04:00 are the cheapest 2 hours.");
     Check(AutomationRules.Applies(overnight, p, hourly, day.AddHours(22)) == false, "22:00 is not among the cheapest hours.");
+    var evening = p.Where(x => x.Start < day.AddDays(1)).ToList(); // tomorrow's prices are missing
+    Check(AutomationRules.Applies(overnight, evening, hourly, day.AddHours(23).AddMinutes(30)) == false,
+        "A rule must not pick the cheapest hours before the whole range's prices are known.");
     Check(AutomationRules.Applies(overnight, p, hourly, day.AddDays(2)) == null, "Without a price the rule is undecided.");
     var upcoming = AutomationRules.Upcoming(overnight, p, hourly, day.AddHours(19));
     Check(upcoming.Count == 1 && upcoming[0].Start == day.AddDays(1).AddHours(2) && upcoming[0].End == day.AddDays(1).AddHours(4), "The coming stretch is 02–04.");
