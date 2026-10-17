@@ -182,6 +182,7 @@ internal sealed class PriceActionRunner
             ? s.PriceAutomations.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.EntityId)).ToList()
             : new List<PriceAutomation>();
         var changed = false;
+        var waiting = new HashSet<string>();
 
         // A rule that was removed, switched off, edited or moved to another server – or that can't run any more – first puts
         // back what it switched, on the server it switched it on
@@ -193,7 +194,11 @@ internal sealed class PriceActionRunner
             {
                 if (state.Url != null && state.Url == url)
                 {
-                    if (!await SwitchAsync(s, id, state.Name, state.EntityId, !state.TurnOn, cancel)) continue; // tried again at the next check
+                    if (!await SwitchAsync(s, id, state.Name, state.EntityId, !state.TurnOn, cancel))
+                    {
+                        waiting.Add(id); // kept and tried again at the next check; the rule waits until its old entity is back
+                        continue;
+                    }
                 }
                 else
                 {
@@ -211,7 +216,7 @@ internal sealed class PriceActionRunner
         {
             var periods = _prices.ConsumerPeriods(s);
             var hourValues = _prices.HourlyConsumer(s).Select(h => h.Value).ToList();
-            foreach (var rule in active)
+            foreach (var rule in active.Where(r => !waiting.Contains(r.Id)))
             {
                 bool? previous = s.RuleStates.TryGetValue(rule.Id, out var state) ? state.Applies : null;
                 // Without a price for now (the prices ran out), a rule that applied stops applying, so the entity is switched back

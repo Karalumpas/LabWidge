@@ -40,7 +40,8 @@ internal sealed class PriceAutomation
 
     /// <summary>Changes when anything that decides what the rule does changes, so an edited rule is applied again.</summary>
     [JsonIgnore]
-    public string Signature => $"{Id}|{EntityId}|{Condition}|{Hours}|{FromHour}|{ToHour}|{Threshold}|{TurnOn}|{Revert}";
+    public string Signature => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+        $"{Id}|{EntityId}|{Condition}|{Hours}|{FromHour}|{ToHour}|{Threshold}|{TurnOn}|{Revert}");
 
     public static PriceAutomation[] Templates() => new[]
     {

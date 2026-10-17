@@ -876,6 +876,16 @@ static Task AutomationRuleChecks()
 
     var changed = new PriceAutomation { Id = overnight.Id, Hours = 3, FromHour = 18, ToHour = 7, EntityId = "switch.car" };
     Check(changed.Signature != overnight.Signature, "An edited rule must be applied again.");
+    var culture = System.Globalization.CultureInfo.CurrentCulture;
+    try
+    {
+        var half = new PriceAutomation { Id = "x", Hours = 1.5, Threshold = 2.5 };
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("da-DK");
+        var danish = half.Signature;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("en-US");
+        Check(danish == half.Signature, "A rule's signature must not depend on the PC's number format.");
+    }
+    finally { System.Globalization.CultureInfo.CurrentCulture = culture; }
     var s = new AppSettings { PriceAutomations = { overnight } }.Clone();
     Check(s.PriceAutomations.Single().Condition == AutomationCondition.CheapestHours && s.PriceAutomations[0].ToHour == 7, "Rules must survive cloning.");
     return Task.CompletedTask;
