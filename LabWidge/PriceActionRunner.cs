@@ -91,7 +91,16 @@ internal sealed class PriceActionRunner
                     continue;
                 }
 
-                // A late start (the PC was asleep) still gets the whole run time
+                // A late start (the PC was asleep) still gets the whole run time – unless that would pass the deadline
+                if (now > run.Start && run.Deadline is { } deadline && now + a.Duration > deadline)
+                {
+                    s.PlannedRuns.Remove(run);
+                    changed = true;
+                    _toast("appliance", L.T($"{a.Name} was not started", $"{a.Name} blev ikke startet"),
+                        L.T($"Started now it wouldn't be finished by {deadline:HH:mm}.", $"Startet nu ville den ikke være færdig kl. {deadline:HH:mm}."),
+                        L.T("Plan it again in the widget.", "Planlæg den igen i widgetten."));
+                    continue;
+                }
                 if (now > run.Start)
                 {
                     run.End = now + a.Duration;
