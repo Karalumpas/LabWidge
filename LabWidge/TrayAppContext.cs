@@ -467,7 +467,7 @@ internal sealed class TrayAppContext : ApplicationContext
         // Planned runs and the state of the price rules change in the background while the settings are open
         // A started run is kept even if its appliance was removed, so it is still switched off when it ends
         updated.PlannedRuns = old.PlannedRuns.Where(r => r.Started || updated.Appliances.Any(a => a.Id == r.ApplianceId)).ToList();
-        updated.AutomationStates = old.AutomationStates;
+        updated.RuleStates = old.RuleStates;
         updated.LastCheapAlertFor = old.LastCheapAlertFor;
         updated.LastExpensiveAlertFor = old.LastExpensiveAlertFor;
         _settings = updated;

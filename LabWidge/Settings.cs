@@ -218,8 +218,8 @@ internal sealed class AppSettings
     public bool ApplianceReminders { get; set; } = true;
     /// <summary>Rules that switch Home Assistant entities by the electricity price.</summary>
     public List<PriceAutomation> PriceAutomations { get; set; } = new();
-    /// <summary>Whether each rule applied at the last check (key = <see cref="PriceAutomation.Signature"/>).</summary>
-    public Dictionary<string, bool> AutomationStates { get; set; } = new();
+    /// <summary>What each price rule did at the last check (key = <see cref="PriceAutomation.Id"/>).</summary>
+    public Dictionary<string, RuleState> RuleStates { get; set; } = new();
     /// <summary>Keep the day's prices on the PC to show history and savings.</summary>
     public bool PriceHistoryEnabled { get; set; } = true;
     public int PriceHistoryDays { get; set; } = 365;

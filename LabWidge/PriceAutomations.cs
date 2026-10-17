@@ -50,6 +50,22 @@ internal sealed class PriceAutomation
     };
 }
 
+/// <summary>
+/// What a price rule did at the last check: whether it applied, and the entity and server it switched – so the entity can be
+/// put back even after the rule has been edited, removed or moved to another server.
+/// </summary>
+internal sealed class RuleState
+{
+    public string Signature { get; set; } = "";
+    public bool Applies { get; set; }
+    public string Name { get; set; } = "";
+    public string EntityId { get; set; } = "";
+    public bool TurnOn { get; set; }
+    public bool Revert { get; set; }
+    /// <summary>The Home Assistant address the entity was switched on, normalized.</summary>
+    public string? Url { get; set; }
+}
+
 internal static class AutomationRules
 {
     /// <summary>The stretch of time a <see cref="AutomationCondition.CheapestHours"/> rule picks its hours in, around <paramref name="t"/>.

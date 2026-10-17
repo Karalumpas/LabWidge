@@ -36,7 +36,7 @@ internal sealed class PriceActionRunner
             var now = DateTime.Now;
             // With the price switched off nothing new starts, but a run already started is still switched off when it ends
             await RunPlannedAsync(s, now, cancel, startNew: s.PriceEnabled);
-            if (s.PriceEnabled) await RunRulesAsync(s, now, cancel);
+            await RunRulesAsync(s, now, cancel);
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
         catch (Exception ex)
@@ -176,56 +176,80 @@ internal sealed class PriceActionRunner
 
     private async Task RunRulesAsync(AppSettings s, DateTime now, CancellationToken cancel)
     {
-        if (!s.HasHomeAssistantConnection || s.PriceAutomations.Count == 0)
-        {
-            if (s.AutomationStates.Count > 0 && s.PriceAutomations.Count == 0)
-            {
-                s.AutomationStates.Clear();
-                _save();
-            }
-            return;
-        }
-        var periods = _prices.ConsumerPeriods(s);
-        var hourValues = _prices.HourlyConsumer(s).Select(h => h.Value).ToList();
+        var url = string.IsNullOrWhiteSpace(s.HomeAssistantUrl) ? null : HomeAssistantService.Normalize(s.HomeAssistantUrl);
+        var running = s.PriceEnabled && s.HasHomeAssistantConnection;
+        var active = running
+            ? s.PriceAutomations.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.EntityId)).ToList()
+            : new List<PriceAutomation>();
         var changed = false;
-        var current = new HashSet<string>();
-        foreach (var rule in s.PriceAutomations.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.EntityId)))
+
+        // A rule that was removed, switched off, edited or moved to another server – or that can't run any more – first puts
+        // back what it switched, on the server it switched it on
+        foreach (var (id, state) in s.RuleStates.ToList())
         {
-            var key = rule.Signature;
-            current.Add(key);
-            bool? previous = s.AutomationStates.TryGetValue(key, out var p) ? p : null;
-            // Without a price for now (the prices ran out), a rule that applied stops applying, so the entity is switched back
-            if ((AutomationRules.Applies(rule, periods, hourValues, now) ?? (previous == true ? false : null)) is not bool applies) continue;
-            if (AutomationRules.Action(rule, applies, previous) is bool on)
+            var rule = active.FirstOrDefault(r => r.Id == id);
+            if (rule != null && state.Signature == rule.Signature && state.Url == url) continue;
+            if (state.Applies && state.Revert)
             {
-                try
+                if (state.Url != null && state.Url == url)
                 {
-                    await _ha.SetStateAsync(rule.EntityId, on, s, cancel);
-                    _failedRules.Remove(rule.Id);
-                    Logger.Info($"Price rule \"{rule.Name}\": {rule.EntityId} {(on ? "on" : "off")}.");
+                    if (!await SwitchAsync(s, id, state.Name, state.EntityId, !state.TurnOn, cancel)) continue; // tried again at the next check
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                else
                 {
-                    // Not remembered, so it is tried again at the next check
-                    Logger.Error($"Price rule \"{rule.Name}\" could not switch {rule.EntityId}: {ex.Message}");
-                    if (_failedRules.Add(rule.Id))
-                        _toast("automation", L.T("A price rule could not run", "En prisregel kunne ikke udføres"),
-                            L.T($"\"{rule.Name}\" could not switch {rule.EntityId} {(on ? "on" : "off")}.", $"\"{rule.Name}\" kunne ikke {(on ? "tænde" : "slukke")} {rule.EntityId}."),
-                            HomeAssistantService.Describe(ex));
-                    continue;
+                    _toast("automation", L.T($"Switch {state.EntityId} back", $"Sæt {state.EntityId} tilbage"),
+                        L.T($"The Home Assistant address changed while \"{state.Name}\" applied, so LabWidge didn't switch it back.",
+                            $"Home Assistant-adressen blev ændret, mens \"{state.Name}\" gjaldt, så LabWidge satte den ikke tilbage."),
+                        state.Url ?? "");
                 }
             }
-            if (previous != applies)
-            {
-                s.AutomationStates[key] = applies;
-                changed = true;
-            }
-        }
-        foreach (var stale in s.AutomationStates.Keys.Where(k => !current.Contains(k)).ToList())
-        {
-            s.AutomationStates.Remove(stale);
+            s.RuleStates.Remove(id);
             changed = true;
         }
+
+        if (active.Count > 0)
+        {
+            var periods = _prices.ConsumerPeriods(s);
+            var hourValues = _prices.HourlyConsumer(s).Select(h => h.Value).ToList();
+            foreach (var rule in active)
+            {
+                bool? previous = s.RuleStates.TryGetValue(rule.Id, out var state) ? state.Applies : null;
+                // Without a price for now (the prices ran out), a rule that applied stops applying, so the entity is switched back
+                if ((AutomationRules.Applies(rule, periods, hourValues, now) ?? (previous == true ? false : null)) is not bool applies) continue;
+                if (AutomationRules.Action(rule, applies, previous) is bool on
+                    && !await SwitchAsync(s, rule.Id, rule.Name, rule.EntityId, on, cancel)) continue; // not remembered, so tried again
+                if (previous != applies)
+                {
+                    s.RuleStates[rule.Id] = new RuleState
+                    {
+                        Signature = rule.Signature, Applies = applies, Name = rule.Name, EntityId = rule.EntityId,
+                        TurnOn = rule.TurnOn, Revert = rule.Revert, Url = url
+                    };
+                    changed = true;
+                }
+            }
+        }
         if (changed) _save();
+    }
+
+    /// <summary>Switches an entity for a price rule. False (and a notification the first time) if Home Assistant refused.</summary>
+    private async Task<bool> SwitchAsync(AppSettings s, string ruleId, string name, string entityId, bool on, CancellationToken cancel)
+    {
+        try
+        {
+            await _ha.SetStateAsync(entityId, on, s, cancel);
+            _failedRules.Remove(ruleId);
+            Logger.Info($"Price rule \"{name}\": {entityId} {(on ? "on" : "off")}.");
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.Error($"Price rule \"{name}\" could not switch {entityId}: {ex.Message}");
+            if (_failedRules.Add(ruleId))
+                _toast("automation", L.T("A price rule could not run", "En prisregel kunne ikke udføres"),
+                    L.T($"\"{name}\" could not switch {entityId} {(on ? "on" : "off")}.", $"\"{name}\" kunne ikke {(on ? "tænde" : "slukke")} {entityId}."),
+                    HomeAssistantService.Describe(ex));
+            return false;
+        }
     }
 }
