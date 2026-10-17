@@ -15,9 +15,13 @@ internal sealed record AudioDevice(string Id, string Name, string FullName, Audi
 /// </summary>
 internal static class AudioDeviceMemory
 {
+    /// <summary>Stored instead of the fingerprint for a device that has been seen next to an identical device.</summary>
+    private const string Twin = "";
+
     /// <summary>
     /// Records the fingerprints of the connected devices the settings refer to, and moves the settings from an id that is gone
-    /// to a connected device with the same fingerprint that the settings do not already use. True if the settings changed.
+    /// to the one connected device with the same fingerprint, if that device is not used by the settings already and the old
+    /// device has never been seen next to an identical device. True if the settings changed.
     /// </summary>
     public static bool Update(AppSettings s, IReadOnlyList<AudioDevice> outputs, IReadOnlyList<AudioDevice> mics)
     {
@@ -29,13 +33,18 @@ internal static class AudioDeviceMemory
             {
                 if (devices.FirstOrDefault(d => d.Id == id) is { } present)
                 {
-                    if (s.AudioDeviceKeys.GetValueOrDefault(id) == present.Fingerprint) continue;
-                    s.AudioDeviceKeys[id] = present.Fingerprint;
+                    // A device with an identical twin (two of the same headset or monitor) can never be told apart from it,
+                    // so it is marked for good and not followed – otherwise the twin would take its place when it is unplugged
+                    var known = s.AudioDeviceKeys.GetValueOrDefault(id);
+                    var key = known == Twin || devices.Count(d => d.Fingerprint == present.Fingerprint) > 1 ? Twin : present.Fingerprint;
+                    if (known == key) continue;
+                    s.AudioDeviceKeys[id] = key;
                     changed = true;
                     continue;
                 }
-                if (!s.AudioDeviceKeys.TryGetValue(id, out var fingerprint)) continue;
-                if (devices.FirstOrDefault(d => d.Fingerprint == fingerprint && !used.Contains(d.Id)) is not { } moved) continue;
+                if (!s.AudioDeviceKeys.TryGetValue(id, out var fingerprint) || fingerprint == Twin) continue;
+                // Only follow a device that can be identified for certain: exactly one connected device with the fingerprint
+                if (devices.Where(d => d.Fingerprint == fingerprint).ToList() is not [var moved] || used.Contains(moved.Id)) continue;
                 Logger.Info($"{moved.FullName} has a new id in Windows – the audio settings follow it.");
                 if (output) MoveOutput(s, id, moved.Id);
                 else MoveMic(s, id, moved.Id);

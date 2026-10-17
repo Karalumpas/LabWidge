@@ -2,6 +2,9 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.22.6
+- If you have two identical audio devices (for example two of the same monitor), the one you didn't choose no longer takes over the other's place, name and settings in the widget when it is unplugged.
+
 ## 1.22.5
 - Audio devices keep their place, name and microphone in the widget when Windows gives them a new ID – for example when you plug the headset's USB dongle into another port or update its driver.
 - Moving audio devices up or down in Settings no longer leaves rows drawn on top of each other.
