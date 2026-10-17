@@ -111,11 +111,56 @@ static Task AudioDeviceNewId()
     Check(s.AudioMicPairs["new-hs"] == "new-mic" && s.AudioMicPairs["monitor"] == "" && s.AudioMicPairs.Count == 2, "The microphone pair did not follow.");
     Check(!s.AudioDeviceKeys.ContainsKey("old-hs") && !s.AudioDeviceKeys.ContainsKey("old-mic") && s.AudioDeviceKeys.Count == 3, "Old fingerprints were kept.");
 
-    // Only an unused device can take over: the monitor is gone, but the identical second one is shown already
+    // An identical device that is not chosen must never take the chosen one's place when it is unplugged
+    s.AudioDeviceIds = new[] { "monitor" };
+    s.AudioNames.Clear();
+    s.AudioMicPairs.Clear();
+    s.AudioStandardId = null;
+    AudioDeviceMemory.Update(s, new[] { monitor, otherMonitor }, Array.Empty<AudioDevice>());
+    Check(!AudioDeviceMemory.Update(s, new[] { otherMonitor }, Array.Empty<AudioDevice>()) && s.AudioDeviceIds.SequenceEqual(new[] { "monitor" }),
+        "An identical, unchosen device took over the chosen device's place.");
+    // ... not even after the twin has been away for a while
+    AudioDeviceMemory.Update(s, new[] { monitor }, Array.Empty<AudioDevice>());
+    Check(!AudioDeviceMemory.Update(s, new[] { otherMonitor }, Array.Empty<AudioDevice>()) && s.AudioDeviceIds.SequenceEqual(new[] { "monitor" }),
+        "A device seen next to an identical device was followed later.");
+
+    // Two chosen identical devices recorded before twins were tracked: when one is missing, both become twins
     s.AudioDeviceIds = new[] { "monitor", "monitor-2" };
-    AudioDeviceMemory.Update(s, new[] { otherMonitor, monitor }, new[] { newMic });
-    Check(!AudioDeviceMemory.Update(s, new[] { otherMonitor }, new[] { newMic }) && s.AudioDeviceIds.SequenceEqual(new[] { "monitor", "monitor-2" }),
-        "A device the settings already use took over another device's place.");
+    s.AudioDeviceKeys = new() { ["monitor"] = monitor.Fingerprint, ["monitor-2"] = otherMonitor.Fingerprint };
+    AudioDeviceMemory.Update(s, new[] { otherMonitor }, Array.Empty<AudioDevice>());
+    Check(!AudioDeviceMemory.Update(s, new[] { monitor with { Id = "monitor-3" } }, Array.Empty<AudioDevice>())
+          && s.AudioDeviceIds.SequenceEqual(new[] { "monitor", "monitor-2" }), "The chosen twin was followed to a new id.");
+
+    // Two chosen identical devices both missing: one coming back cannot be told apart
+    s.AudioDeviceIds = new[] { "monitor", "monitor-2" };
+    s.AudioDeviceKeys = new() { ["monitor"] = monitor.Fingerprint, ["monitor-2"] = otherMonitor.Fingerprint };
+    AudioDeviceMemory.Update(s, new[] { monitor with { Id = "monitor-3" } }, Array.Empty<AudioDevice>());
+    Check(s.AudioDeviceIds.SequenceEqual(new[] { "monitor", "monitor-2" }), "One of two missing twins was followed to a new id.");
+
+    // A device chosen while its known twin is away is a twin too
+    s.AudioDeviceIds = new[] { "monitor" };
+    s.AudioDeviceKeys = new();
+    AudioDeviceMemory.Update(s, new[] { monitor, otherMonitor }, Array.Empty<AudioDevice>());
+    s.AudioDeviceIds = new[] { "monitor", "monitor-2" };
+    AudioDeviceMemory.Update(s, new[] { otherMonitor }, Array.Empty<AudioDevice>());
+    AudioDeviceMemory.Update(s, new[] { monitor with { Id = "monitor-3" } }, Array.Empty<AudioDevice>());
+    Check(s.AudioDeviceIds.SequenceEqual(new[] { "monitor", "monitor-2" }), "A twin chosen later was followed to a new id.");
+
+    // A twin removed from the settings while both are away still shows that the other one cannot be followed
+    s.AudioDeviceIds = new[] { "monitor" };
+    s.AudioDeviceKeys = new() { ["monitor"] = monitor.Fingerprint, ["monitor-2"] = otherMonitor.Fingerprint };
+    AudioDeviceMemory.Update(s, Array.Empty<AudioDevice>(), Array.Empty<AudioDevice>());
+    AudioDeviceMemory.Update(s, new[] { otherMonitor }, Array.Empty<AudioDevice>());
+    Check(s.AudioDeviceIds.SequenceEqual(new[] { "monitor" }), "A removed twin took over the remaining device's place.");
+
+    // Two possible new devices: it cannot be told which one it is, so the settings are kept
+    var speaker = new AudioDevice("speaker", "Desk", "Speakers (USB Audio)", AudioKind.Speakers, null);
+    s.AudioDeviceIds = new[] { "speaker" };
+    AudioDeviceMemory.Update(s, new[] { speaker }, Array.Empty<AudioDevice>());
+    Check(AudioDeviceMemory.Update(s, new[] { speaker with { Id = "a" }, speaker with { Id = "b" } }, Array.Empty<AudioDevice>())
+          && s.AudioDeviceIds.SequenceEqual(new[] { "speaker" }), "An ambiguous match was followed.");
+    Check(!AudioDeviceMemory.Update(s, new[] { speaker with { Id = "a" } }, Array.Empty<AudioDevice>())
+          && s.AudioDeviceIds.SequenceEqual(new[] { "speaker" }), "A device left alone after an ambiguous match was followed.");
     Check(s.Clone().AudioDeviceKeys.Count == s.AudioDeviceKeys.Count, "Fingerprints did not survive cloning.");
     return Task.CompletedTask;
 }
