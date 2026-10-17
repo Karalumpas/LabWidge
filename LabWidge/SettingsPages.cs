@@ -16,7 +16,15 @@ internal static class Ui
     public static Color Warn => Palette.Amber;
     public static Color Error => Palette.Red;
 
+    /// <summary>The inner width of a card. Rows, fields and texts are measured from it; a row that is too wide for its card
+    /// (e.g. in an indented group) is narrowed by <see cref="SettingsTheme"/>.</summary>
     public const int ContentWidth = 470;
+    /// <summary>The label column of a <see cref="Row"/>.</summary>
+    public const int LabelWidth = 170;
+    /// <summary>A field that fills the rest of a row.</summary>
+    public const int FieldWidth = ContentWidth - LabelWidth - 4 - 8;
+    /// <summary>How far a group of settings that depend on a switch above it is indented.</summary>
+    public const int Indent = 20;
 
     public static Label Heading(string text) => new()
     {
@@ -69,8 +77,8 @@ internal static class Ui
         {
             Text = label,
             AutoSize = true,
-            MinimumSize = new Size(170, 26),
-            MaximumSize = new Size(170, 0),
+            MinimumSize = new Size(LabelWidth, 26),
+            MaximumSize = new Size(LabelWidth, 0),
             TextAlign = ContentAlignment.MiddleLeft,
             Margin = new Padding(0, 0, 4, 0)
         });
@@ -80,6 +88,22 @@ internal static class Ui
             row.Controls.Add(input);
         }
         return row;
+    }
+
+    /// <summary>Controls on top of each other, e.g. a part of a page that is shown or hidden as one.</summary>
+    public static FlowLayoutPanel Stack(params Control[] controls)
+    {
+        var panel = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
+        panel.Controls.AddRange(controls);
+        return panel;
+    }
+
+    /// <summary>An indented <see cref="Stack"/> – settings that only apply when the switch above them is on.</summary>
+    public static FlowLayoutPanel Group(params Control[] controls)
+    {
+        var panel = Stack(controls);
+        panel.Margin = new Padding(Indent, 4, 0, 0);
+        return panel;
     }
 
     public static Label Inline(string text, Color? color = null) => new()
@@ -102,15 +126,20 @@ internal abstract class SettingsPage : UserControl
         Font = new Font("Segoe UI", 9.5F);
         BackColor = SettingsTheme.PageColor(Ui.Palette);
         ForeColor = Ui.Palette.TextPrimary;
+        // The page scrolls an inner panel that sizes itself to its content. A scrolling FlowLayoutPanel would count its
+        // padding wrong and leave the bottom of the last card out of reach.
         Body = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
-            AutoScroll = true,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Margin = Padding.Empty,
             Padding = new Padding(28, 22, 20, 16)
         };
-        Controls.Add(Body);
+        var scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+        scroller.Controls.Add(Body);
+        Controls.Add(scroller);
     }
 
     public abstract string Title { get; }
@@ -215,17 +244,17 @@ internal sealed class PricePage : SettingsPage
     private static CultureInfo Fmt => L.Culture;
     private static readonly string OtherCountry = L.T("Other country (no electricity price)", "Andet land (ingen elpris)");
 
-    private readonly ComboBox _country = new() { Width = 290, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox _country = new() { Width = Ui.FieldWidth, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _intro = Ui.Help("");
-    private readonly ComboBox _area = new() { Width = 290, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox _area = new() { Width = Ui.FieldWidth, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _postal = new() { Width = 70, MaxLength = 4 };
     private readonly Label _postalHint = Ui.Inline("");
     private readonly RadioButton _dk1 = new() { Text = L.T("DK1 – Jutland and Funen", "DK1 – Jylland og Fyn"), AutoSize = true };
     private readonly RadioButton _dk2 = new() { Text = L.T("DK2 – Zealand, Lolland-Falster and Bornholm", "DK2 – Sjælland, Lolland-Falster og Bornholm"), AutoSize = true };
     private readonly CheckBox _spotOnly = Ui.Check(L.T("Show the spot price only (without grid tariff and taxes)", "Vis kun spotpris (uden nettarif og afgifter)"));
-    private readonly ComboBox _company = new() { Width = 290, DropDownStyle = ComboBoxStyle.DropDown, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
+    private readonly ComboBox _company = new() { Width = Ui.FieldWidth, DropDownStyle = ComboBoxStyle.DropDown, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
     private readonly Label _companyStatus = Ui.Inline("");
-    private readonly ComboBox _tariff = new() { Width = 290, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox _tariff = new() { Width = Ui.FieldWidth, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _tariffPreview = Ui.Help("", Ui.ContentWidth);
     private readonly TextBox _supplierName = new() { Width = 200, PlaceholderText = L.T("e.g. Aura Energi", "fx Aura Energi") };
     private readonly NumericUpDown _supplierAddOn = new() { Width = 80, DecimalPlaces = 2, Increment = 0.5m, Minimum = -100, Maximum = 500 };
@@ -255,7 +284,7 @@ internal sealed class PricePage : SettingsPage
 
     public PricePage()
     {
-        _gridPanel = Stack(
+        _gridPanel = Ui.Stack(
             Ui.Section(L.T("Grid company", "Netselskab")),
             Ui.Help(L.T("The grid company owns the wires to your home – it is not necessarily your electricity supplier. " +
                         "You'll find it on your electricity bill under grid tariff (nettarif) or grid subscription.",
@@ -265,7 +294,7 @@ internal sealed class PricePage : SettingsPage
             Ui.Row("", _companyStatus),
             Ui.Row(L.T("Tariff", "Tarif"), _tariff),
             _tariffPreview);
-        _totalPanel = Stack(
+        _totalPanel = Ui.Stack(
             _gridPanel,
             Ui.Section(L.T("Electricity supplier", "Elselskab")),
             _addOnHelp,
@@ -277,7 +306,7 @@ internal sealed class PricePage : SettingsPage
         _dk1Row = Ui.Row(L.T("Price area", "Prisområde"), _dk1);
         _dk2Row = Ui.Row("", _dk2);
         _vatRow = Ui.Row(L.T("VAT", "Moms"), _vatPercent, Ui.Inline("%"));
-        _displaySection = Stack(Ui.Section(L.T("Display", "Visning")), _showPrice, _vat, _vatRow, _spotOnly, _totalPanel);
+        _displaySection = Ui.Stack(Ui.Section(L.T("Display", "Visning")), _showPrice, _vat, _vatRow, _spotOnly, _totalPanel);
 
         _country.Items.AddRange(Countries.All.Cast<object>().ToArray());
         _country.Items.Add(OtherCountry);
@@ -323,13 +352,6 @@ internal sealed class PricePage : SettingsPage
     }
 
     private Country? _vatCountry;
-
-    private static Panel Stack(params Control[] controls)
-    {
-        var panel = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
-        panel.Controls.AddRange(controls);
-        return panel;
-    }
 
     /// <summary>Shows the fields that fit the chosen country: Denmark has postal code, grid company and tariffs.</summary>
     private void ApplyCountry()
@@ -1108,9 +1130,9 @@ internal sealed class CloudflarePage : SettingsPage
     private readonly CheckBox _showInWidget = Ui.Check(L.T("Show Cloudflare – tunnels and DNS – in the widget", "Vis Cloudflare – tunnels og DNS – i widgetten"));
     private readonly CheckBox _serviceChecks = Ui.Check(L.T("Check that the addresses behind my tunnels respond (every 5 minutes)", "Tjek at adresserne bag mine tunnels svarer (hvert 5. minut)"));
     private readonly FlowLayoutPanel _details;
-    private readonly TextBox _zoneId = new() { Width = 290 };
-    private readonly TextBox _accountId = new() { Width = 290 };
-    private readonly TextBox _token = new() { Width = 290, UseSystemPasswordChar = true };
+    private readonly TextBox _zoneId = new() { Width = Ui.FieldWidth };
+    private readonly TextBox _accountId = new() { Width = Ui.FieldWidth };
+    private readonly TextBox _token = new() { Width = Ui.FieldWidth, UseSystemPasswordChar = true };
     private readonly Label _tokenStatus = Ui.Inline("");
     private readonly Button _deleteToken = new() { Text = L.T("Delete", "Slet"), AutoSize = true };
     private readonly Button _test = new() { Text = L.T("Test connection", "Test forbindelse"), AutoSize = true };
@@ -1131,7 +1153,7 @@ internal sealed class CloudflarePage : SettingsPage
 
     public CloudflarePage()
     {
-        _details = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(20, 4, 0, 0) };
+        _details = Ui.Group();
         _details.Controls.AddRange(new Control[]
         {
             Ui.Row("Zone ID", _zoneId),
@@ -1145,7 +1167,7 @@ internal sealed class CloudflarePage : SettingsPage
                         "Opret et token under My Profile → API Tokens med rettigheden Zone → DNS → Read. " +
                         "Skal widgetten også vise dine tunnels, så giv det desuden Account → Cloudflare Tunnel → Read og udfyld Account ID " +
                         "(står under Overview i Cloudflare-dashboardet). Tokenet gemmes sikkert i Windows Credential Manager. " +
-                        "Lad feltet stå tomt for at beholde det gemte token."), 440),
+                        "Lad feltet stå tomt for at beholde det gemte token.")),
             _showInWidget,
             Ui.Row(L.T("Tunnel check interval", "Interval for tunnel-tjek"), _interval, Ui.Inline(L.T("minutes", "minutter"))),
             _serviceChecks,
@@ -1273,9 +1295,9 @@ internal sealed class ProxmoxPage : SettingsPage
     private readonly NumericUpDown _interval = new() { Width = 70, Minimum = 5, Maximum = 600 };
     private readonly CheckBox _showInWidget = Ui.Check(L.T("Show Proxmox in the widget", "Vis Proxmox i widgetten"));
     private readonly FlowLayoutPanel _details;
-    private readonly TextBox _url = new() { Width = 290, PlaceholderText = L.T("e.g. 192.168.1.50", "fx 192.168.1.50") };
-    private readonly TextBox _tokenId = new() { Width = 290, PlaceholderText = L.T("e.g. widget@pve!widget", "fx widget@pve!widget") };
-    private readonly TextBox _secret = new() { Width = 290, UseSystemPasswordChar = true };
+    private readonly TextBox _url = new() { Width = Ui.FieldWidth, PlaceholderText = L.T("e.g. 192.168.1.50", "fx 192.168.1.50") };
+    private readonly TextBox _tokenId = new() { Width = Ui.FieldWidth, PlaceholderText = L.T("e.g. widget@pve!widget", "fx widget@pve!widget") };
+    private readonly TextBox _secret = new() { Width = Ui.FieldWidth, UseSystemPasswordChar = true };
     private readonly Label _secretStatus = Ui.Inline("");
     private readonly Button _deleteSecret = new() { Text = L.T("Delete", "Slet"), AutoSize = true };
     private readonly CheckBox _selfSigned = Ui.Check(L.T("Accept Proxmox's self-signed certificate", "Acceptér Proxmox' selvsignerede certifikat"));
@@ -1301,13 +1323,13 @@ internal sealed class ProxmoxPage : SettingsPage
 
     public ProxmoxPage()
     {
-        _details = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(20, 4, 0, 0) };
+        _details = Ui.Group();
         _details.Controls.AddRange(new Control[]
         {
             _showInWidget,
             Ui.Row(L.T("Update interval", "Opdateringsinterval"), _interval, Ui.Inline(L.T("seconds (while shown)", "sekunder (mens den vises)"))),
             Ui.Row(L.T("Address", "Adresse"), _url),
-            Ui.Help(L.T("The address you open Proxmox on. Port 8006 is used unless you type another.", "Adressen du åbner Proxmox på. Port 8006 bruges, hvis du ikke skriver en anden."), 440),
+            Ui.Help(L.T("The address you open Proxmox on. Port 8006 is used unless you type another.", "Adressen du åbner Proxmox på. Port 8006 bruges, hvis du ikke skriver en anden.")),
             Ui.Row(L.T("Token ID", "Token-id"), _tokenId),
             Ui.Row(L.T("Secret", "Hemmelig nøgle"), _secret),
             Ui.Row("", _secretStatus, _deleteSecret),
@@ -1316,13 +1338,13 @@ internal sealed class ProxmoxPage : SettingsPage
                         "The secret is stored in Windows Credential Manager. Leave the field empty to keep the saved secret.",
                         "Opret et API-token i Proxmox under Datacenter → Permissions → API Tokens. Giv det rollen PVEAuditor på / " +
                         "for at se status – og desuden PVEVMUser, hvis du vil starte, lukke og genstarte maskiner fra widgetten. " +
-                        "Nøglen gemmes i Windows Credential Manager. Lad feltet stå tomt for at beholde den gemte nøgle."), 440),
+                        "Nøglen gemmes i Windows Credential Manager. Lad feltet stå tomt for at beholde den gemte nøgle.")),
             _selfSigned,
             Ui.Row("", _certStatus, _forgetCert),
             Ui.Help(L.T("The first time, the certificate's fingerprint is remembered. If the certificate changes later, the connection is refused " +
                         "until you press \"Forget certificate\" – so nobody can pretend to be your server.",
                         "Første gang huskes certifikatets fingeraftryk. Skifter certifikatet senere, afvises forbindelsen, " +
-                        "indtil du trykker \"Glem certifikat\" – så ingen kan udgive sig for at være din server."), 440),
+                        "indtil du trykker \"Glem certifikat\" – så ingen kan udgive sig for at være din server.")),
             Ui.Row("", _test, _testResult)
         });
 
@@ -1470,8 +1492,8 @@ internal sealed class HomeAssistantPage : SettingsPage
     private readonly NumericUpDown _interval = new() { Width = 70, Minimum = 5, Maximum = 600 };
     private readonly CheckBox _showInWidget = Ui.Check(L.T("Show Home Assistant – lights and sensors – in the widget", "Vis Home Assistant – lys og sensorer – i widgetten"));
     private readonly FlowLayoutPanel _details;
-    private readonly TextBox _url = new() { Width = 290 };
-    private readonly TextBox _token = new() { Width = 290, UseSystemPasswordChar = true };
+    private readonly TextBox _url = new() { Width = Ui.FieldWidth };
+    private readonly TextBox _token = new() { Width = Ui.FieldWidth, UseSystemPasswordChar = true };
     private readonly Label _tokenStatus = Ui.Inline("");
     private readonly Button _deleteToken = new() { Text = L.T("Delete", "Slet"), AutoSize = true };
     private readonly Button _load = new() { Text = L.T("Load entities", "Hent enheder"), AutoSize = true };
@@ -1484,10 +1506,10 @@ internal sealed class HomeAssistantPage : SettingsPage
         ForeColor = Ui.Muted,
         Margin = new Padding(0, 2, 0, 4)
     };
-    private readonly TextBox _dashboard = new() { Width = 290 };
+    private readonly TextBox _dashboard = new() { Width = Ui.FieldWidth };
     private readonly ComboBox _domain = new() { Width = 150, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _search = new() { Width = 200, PlaceholderText = L.T("Search…", "Søg…") };
-    private readonly CheckedListBox _list = new() { Width = 440, Height = 160, CheckOnClick = true, IntegralHeight = false };
+    private readonly CheckedListBox _list = new() { Width = Ui.ContentWidth, Height = 160, CheckOnClick = true, IntegralHeight = false };
     private readonly Label _selectedStatus = Ui.Inline("");
 
     /// <summary>Selected entities in the order the user ticked them – also used in the widget.</summary>
@@ -1513,20 +1535,20 @@ internal sealed class HomeAssistantPage : SettingsPage
         _domain.Items.AddRange(new object[] { L.T("Lights and switches", "Lys og kontakter"), L.T("Sensors", "Sensorer"), L.T("All entities", "Alle enheder") });
         _domain.SelectedIndex = 0;
 
-        _details = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(20, 4, 0, 0) };
+        _details = Ui.Group();
         _details.Controls.AddRange(new Control[]
         {
             _showInWidget,
             Ui.Row(L.T("Update interval", "Opdateringsinterval"), _interval, Ui.Inline(L.T("seconds (while shown)", "sekunder (mens den vises)"))),
             Ui.Row(L.T("Address", "Adresse"), _url),
             Ui.Help(L.T("E.g. http://192.168.0.10:8123 or https://home.example.com – the address you open Home Assistant on yourself.",
-                        "Fx http://192.168.0.10:8123 eller https://hjem.eksempel.dk – den adresse du selv åbner Home Assistant på."), 440),
+                        "Fx http://192.168.0.10:8123 eller https://hjem.eksempel.dk – den adresse du selv åbner Home Assistant på.")),
             Ui.Row(L.T("Access token", "Adgangstoken"), _token),
             Ui.Row("", _tokenStatus, _deleteToken),
             Ui.Help(L.T("Create a long-lived token in Home Assistant under your profile → Security → Long-lived access tokens. " +
                         "The token is stored in Windows Credential Manager. Leave the field empty to keep the saved token.",
                         "Opret et langtidstoken i Home Assistant under din profil → Sikkerhed → Langtids-adgangstokens. " +
-                        "Tokenet gemmes i Windows Credential Manager. Lad feltet stå tomt for at beholde det gemte token."), 440),
+                        "Tokenet gemmes i Windows Credential Manager. Lad feltet stå tomt for at beholde det gemte token.")),
             Ui.Row("", _load),
             _loadStatus,
             Ui.Section(L.T("The panel", "Panelet")),
@@ -1536,12 +1558,12 @@ internal sealed class HomeAssistantPage : SettingsPage
                         "Leave the field empty to use the list below.",
                         "Skriv stien til et af dine Home Assistant-dashboards, fx /test-panel, for at vise det i panelet " +
                         "i stedet for listen med kontakter. Du logger ind i panelet første gang, og loginnet huskes bagefter. " +
-                        "Lad feltet stå tomt for at bruge listen herunder."), 440),
+                        "Lad feltet stå tomt for at bruge listen herunder.")),
             Ui.Section(L.T("Entities", "Enheder")),
             Ui.Help(L.T("The entities are used for the summary in the widget (e.g. \"5 on\") – and for the list in the panel " +
                         "if you have not chosen a dashboard.",
                         "Enhederne bruges til resuméet i widgetten (fx \"5 tændt\") – og til listen i panelet, " +
-                        "hvis du ikke har valgt et dashboard."), 440),
+                        "hvis du ikke har valgt et dashboard.")),
             Ui.Row(L.T("Show", "Vis"), _domain, _search),
             _list,
             _selectedStatus
@@ -1771,7 +1793,7 @@ internal sealed class AudioPage : SettingsPage
     private readonly CheckBox _show = Ui.Check(L.T("Show audio devices at the bottom of the widget", "Vis lydenheder nederst i widgetten"));
     private readonly DataGridView _grid = new()
     {
-        Width = 440,
+        Width = Ui.ContentWidth,
         Height = 180,
         AllowUserToAddRows = false,
         AllowUserToDeleteRows = false,
@@ -1866,7 +1888,7 @@ internal sealed class AudioPage : SettingsPage
             _show,
             Ui.Section(L.T("Devices", "Enheder")),
             Ui.Help(L.T("Tick the devices to show, and give them a short name if you like. The order is the same as in the widget.",
-                        "Sæt flueben ved de enheder, der skal vises, og giv dem gerne et kort navn. Rækkefølgen er den samme som i widgetten."), 440),
+                        "Sæt flueben ved de enheder, der skal vises, og giv dem gerne et kort navn. Rækkefølgen er den samme som i widgetten.")),
             _grid,
             Ui.Row("", _up, _down, _reload),
             _switchMic,
@@ -1875,27 +1897,27 @@ internal sealed class AudioPage : SettingsPage
                         "microphone (e.g. the webcam) when you come from the headset.",
                         "Kolonnen Mikrofon bestemmer, hvilken mikrofon der følger med. \"Automatisk\" vælger mikrofonen i samme " +
                         "apparat – fx headsettets egen. For udgange uden mikrofon, som skærmen, skiftes tilbage til en selvstændig " +
-                        "mikrofon (fx webcammet), når du kommer fra headsettet."), 440),
+                        "mikrofon (fx webcammet), når du kommer fra headsettet.")),
             Ui.Section(L.T("Default device", "Standardenhed")),
             Ui.Row(L.T("Default device", "Standardenhed"), _standard),
             Ui.Help(L.T("The default device is chosen when Windows starts, and when the active device disappears – e.g. when you switch off " +
                         "your wireless headphones. It is marked with a star in the widget.",
                         "Standardenheden vælges, når Windows starter, og når den aktive enhed forsvinder – fx når du slukker " +
-                        "dine trådløse høretelefoner. Den er markeret med en stjerne i widgetten."), 440),
+                        "dine trådløse høretelefoner. Den er markeret med en stjerne i widgetten.")),
             Ui.Section(L.T("Microphone and volume", "Mikrofon og lydstyrke")),
             _showMic,
             _showVolume,
             Ui.Row(L.T("Step per scroll notch", "Trin pr. scroll-hak"), _volumeStep, Ui.Inline("%")),
             Ui.Section(L.T("Headset battery", "Headsetbatteri")),
             Ui.Help(L.T("Wireless headsets whose battery can be read (e.g. Corsair HS80) fill their button from the bottom by battery level.",
-                        "Trådløse headsets, hvor batteriet kan læses (fx Corsair HS80), fyldes nedefra i deres knap efter batteriniveauet."), 440),
+                        "Trådløse headsets, hvor batteriet kan læses (fx Corsair HS80), fyldes nedefra i deres knap efter batteriniveauet.")),
             Ui.Row(L.T("Colour", "Farve"), _batterySwatch, _batteryPick, _batteryReset),
             _batteryWarn,
             _batteryAlert,
             Ui.Row(L.T("First message at", "Første besked ved"), _batteryLow, Ui.Inline("%")),
             Ui.Row(L.T("Last message at", "Sidste besked ved"), _batteryCritical, Ui.Inline(L.T("% – with sound", "% – med lyd"))),
             Ui.Help(L.T("The message has a button that moves the sound to the default device (or the speakers), so you don't lose the sound in the middle of something.",
-                        "Beskeden har en knap, der flytter lyden til standardenheden (eller højttalerne), så du ikke mister lyden midt i noget."), 440));
+                        "Beskeden har en knap, der flytter lyden til standardenheden (eller højttalerne), så du ikke mister lyden midt i noget.")));
     }
 
     /// <summary>The choices in the Microphone column for one output, and which microphone id each means ("" = don't switch, null = automatic).</summary>

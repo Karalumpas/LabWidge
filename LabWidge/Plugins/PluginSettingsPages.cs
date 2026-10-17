@@ -55,7 +55,7 @@ internal sealed class SystemPluginPage : SettingsPage
 {
     private readonly CheckBox _show = Ui.Check(L.T("Show in the widget", "Vis i widgetten"));
     private readonly CheckBox _gpu = Ui.Check(L.T("Monitor the graphics card", "Overvåg grafikkortet"));
-    private readonly CheckedListBox _disks = new() { Width = Ui.ContentWidth, Height = 120, CheckOnClick = true };
+    private readonly CheckedListBox _disks = new() { Width = Ui.FieldWidth, Height = 120, CheckOnClick = true };
     private string[] _hidden = Array.Empty<string>();
     public override string Title => "System";
     public override string Glyph => "";

@@ -2,6 +2,11 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.22.7
+- Every page in Settings can now be scrolled all the way to the bottom.
+- Fields and lists in Settings no longer run past the edge of their box – for example the disk list under System and the search field under Home Assistant.
+- The Save and Cancel buttons now line up.
+
 ## 1.22.6
 - If you have two identical audio devices (for example two of the same monitor), the one you didn't choose no longer takes over the other's place, name and settings in the widget when it is unplugged.
 
