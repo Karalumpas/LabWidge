@@ -467,12 +467,15 @@ internal sealed class TrayAppContext : ApplicationContext
         // Planned runs and the state of the price rules change in the background while the settings are open
         // A started run is kept even if its appliance was removed, so it is still switched off when it ends
         updated.PlannedRuns = old.PlannedRuns.Where(r => r.Started || updated.Appliances.Any(a => a.Id == r.ApplianceId)).ToList();
-        // A planned run whose appliance got a new run time or deadline is planned again with the new values
+        // A planned run is planned again when its appliance got a new run time or deadline, or the price is worked out differently
+        var priceChanged = old.Country != updated.Country || old.PriceArea != updated.PriceArea || old.VatPercent != updated.VatPercent
+            || old.PriceInclVat != updated.PriceInclVat || old.PriceShowTotal != updated.PriceShowTotal || old.SupplierAddOnOre != updated.SupplierAddOnOre
+            || old.NetTariffOwner != updated.NetTariffOwner || !old.NetTariffCodes.SequenceEqual(updated.NetTariffCodes);
         foreach (var run in updated.PlannedRuns.Where(r => !r.Started).ToList())
         {
             var before = old.Appliances.FirstOrDefault(a => a.Id == run.ApplianceId);
             var after = updated.Appliances.First(a => a.Id == run.ApplianceId);
-            if (before != null && before.DurationMinutes == after.DurationMinutes && before.FinishBy == after.FinishBy) continue;
+            if (!priceChanged && before != null && before.DurationMinutes == after.DurationMinutes && before.FinishBy == after.FinishBy) continue;
             var index = updated.PlannedRuns.IndexOf(run);
             if (AppliancePlanner.Arm(after, _prices.ConsumerPeriods(updated), DateTime.Now) is { } again) updated.PlannedRuns[index] = again;
             else updated.PlannedRuns.RemoveAt(index);

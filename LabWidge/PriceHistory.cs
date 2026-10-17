@@ -107,6 +107,10 @@ internal static class PriceHistory
             if (existing >= 0)
             {
                 var old = Data.Days[existing];
+                // Periods that have passed keep the price the user saw then, even if VAT or tariffs changed since
+                if (old.Minutes == entry.Minutes && old.StartUtc == entry.StartUtc && old.Price.Length == entry.Price.Length)
+                    for (var i = 0; i < entry.Price.Length; i++)
+                        if (entry.PeriodStart(i).AddMinutes(entry.Minutes) <= DateTime.Now) entry.Price[i] = old.Price[i];
                 if (old.Minutes == entry.Minutes && old.StartUtc == entry.StartUtc && old.Spot.SequenceEqual(entry.Spot) && old.Price.SequenceEqual(entry.Price)) continue;
                 Data.Days[existing] = entry;
             }
@@ -130,8 +134,12 @@ internal static class PriceHistory
         if (points.Count < 2) return null;
         var minutes = (int)Math.Round((points[1].Time - points[0].Time).TotalMinutes);
         if (minutes is not (15 or 30 or 60)) return null;
-        // 23 hours on the day the clocks go forward
-        if (points.Count * minutes < 23 * 60 || points[0].Time != date) return null;
+        // Whole means every period from midnight to the next, measured in real time: 23 or 25 hours the days the clocks change
+        if (points[0].Time != date) return null;
+        var length = (date.AddDays(1).ToUniversalTime() - date.ToUniversalTime()).TotalMinutes;
+        if (points.Count * minutes != (int)Math.Round(length)) return null;
+        for (var i = 1; i < points.Count; i++)
+            if ((int)Math.Round((points[i].Time.ToUniversalTime() - points[i - 1].Time.ToUniversalTime()).TotalMinutes) != minutes) return null;
         return new PriceHistoryDay
         {
             Date = date, Area = area, Minutes = minutes, StartUtc = points[0].Time.ToUniversalTime(),

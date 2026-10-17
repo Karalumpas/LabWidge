@@ -908,6 +908,9 @@ static Task PriceHistoryDays()
         Check(Math.Abs(days[0].Average - 3) < 1e-9 && days[0].Spot[1] == 1, "The price and the spot price are both kept.");
         Check(!PriceHistory.Record(prices, (_, spot) => spot * 2, "DK:DK1", 365, today), "The same day is not saved twice.");
         Check(PriceHistory.DaysFor("DK:DK2").Count == 0, "Price areas are kept apart.");
+        Check(!PriceHistory.Record(prices.Where((_, i) => i != 50).ToList(), (_, spot) => spot, "DK:DK3", 365, today), "A day with a missing period is not whole.");
+        Check(!PriceHistory.Record(prices, (_, spot) => spot * 3, "DK:DK1", 365, today) && Math.Abs(PriceHistory.DaysFor("DK:DK1")[0].Average - 3) < 1e-9,
+            "Periods that have passed keep the price they had.");
         Check(PriceHistory.MonthAverage("DK:DK1", today) is { } m && Math.Abs(m - 3) < 1e-9, "The month's average comes from the kept days.");
 
         PriceHistory.AddSaving(new SavingRecord { Start = today, Name = "Dishwasher", Saved = 1.5, Currency = "DKK" });
