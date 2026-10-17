@@ -47,6 +47,8 @@ internal sealed class PlannedRun
     public bool Stopped { get; set; }
     /// <summary>The appliance as it was when the run started, so it is still switched off if the appliance is removed meanwhile.</summary>
     public Appliance? Snapshot { get; set; }
+    /// <summary>The Home Assistant server the run was started on – it is only switched off there.</summary>
+    public string? HomeAssistantUrl { get; set; }
 }
 
 /// <summary>The cheapest time to start an appliance, and what it costs compared with starting right away.</summary>

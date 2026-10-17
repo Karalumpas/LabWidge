@@ -748,6 +748,11 @@ static Task QuarterWindows()
     var part = PriceWindows.CheapestSet(hours, day, day.AddHours(3), TimeSpan.FromMinutes(75));
     Check(part.Count == 2 && part[0].Start == day.AddHours(1) && part[0].Length == TimeSpan.FromHours(1)
           && part[1].Start == day.AddHours(2) && part[1].End == day.AddHours(2).AddMinutes(15), "A part of an hour must cut the last hour short.");
+    // A stretch that is not a whole number of periods can be cheapest when it ends on a boundary
+    var aligned = PriceWindows.FromPoints(new List<(DateTime, double)> { (day, 10), (day.AddHours(1), 0), (day.AddHours(2), 100) });
+    var ninety = PriceWindows.Cheapest(aligned, day, TimeSpan.FromMinutes(90))!.Value;
+    Check(ninety.Start == day.AddMinutes(30) && ninety.End == day.AddHours(2) && Math.Abs(ninety.Average - 10 * 30 / 90.0) < 1e-9,
+        "90 minutes on hourly prices must be able to start at 00:30 and end at 02:00.");
     var rule = new PriceAutomation { Hours = 1.25 };
     Check(AutomationRules.Applies(rule, hours, new List<double> { 3, 1, 2 }, day.AddHours(2).AddMinutes(10)) == true
           && AutomationRules.Applies(rule, hours, new List<double> { 3, 1, 2 }, day.AddHours(2).AddMinutes(20)) == false,

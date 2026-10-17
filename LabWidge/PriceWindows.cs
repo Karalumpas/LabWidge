@@ -93,11 +93,15 @@ internal static class PriceWindows
                                         DateTime? latestEnd = null, bool startNow = false, bool cheapest = true)
     {
         if (length <= TimeSpan.Zero || periods.Count == 0) return null;
-        var starts = new List<DateTime>();
+        // Candidates: the period starts, and the times a stretch would end exactly on a period boundary –
+        // a 90-minute run on hourly prices can be cheapest from 00:30 to 02:00
+        var earliest = startNow ? from : periods.FirstOrDefault(p => p.End > from).Start;
+        var starts = new SortedSet<DateTime>();
         if (startNow) starts.Add(from);
         foreach (var p in periods)
         {
-            if (startNow ? p.Start > from : p.End > from) starts.Add(p.Start);
+            if (p.Start > from || (!startNow && p.End > from)) starts.Add(p.Start);
+            if (p.End - length >= earliest) starts.Add(p.End - length);
         }
 
         PriceWindow? best = null;

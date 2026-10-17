@@ -99,6 +99,7 @@ internal sealed class PriceActionRunner
                     if (PriceWindows.Average(periods, run.Start, run.End) is { } average) run.Average = average;
                 }
                 run.Started = true;
+                run.HomeAssistantUrl = entity != null ? s.HomeAssistantUrl : null;
                 run.Snapshot = new Appliance
                 {
                     Id = a.Id, Name = a.Name, DurationMinutes = a.DurationMinutes, EnergyKwh = a.EnergyKwh,
@@ -132,6 +133,16 @@ internal sealed class PriceActionRunner
 
             if (now >= run.End)
             {
+                if (entity != null && a.TurnOffAfter && !run.Stopped && run.HomeAssistantUrl != null
+                    && !string.Equals(HomeAssistantService.Normalize(run.HomeAssistantUrl), HomeAssistantService.Normalize(s.HomeAssistantUrl ?? ""), StringComparison.OrdinalIgnoreCase))
+                {
+                    // The Home Assistant address was changed during the run: never switch off something on another server
+                    _toast("appliance", L.T($"Switch {a.Name} off", $"Sluk {a.Name}"),
+                        L.T($"The Home Assistant address changed while {entity} was on, so LabWidge didn't switch it off.",
+                            $"Home Assistant-adressen blev ændret, mens {entity} var tændt, så LabWidge slukkede den ikke."),
+                        run.HomeAssistantUrl);
+                    run.Stopped = true;
+                }
                 if (entity != null && a.TurnOffAfter && !run.Stopped)
                 {
                     try { await _ha.SetStateAsync(entity, false, s, cancel); }
@@ -182,8 +193,9 @@ internal sealed class PriceActionRunner
         {
             var key = rule.Signature;
             current.Add(key);
-            if (AutomationRules.Applies(rule, periods, hourValues, now) is not bool applies) continue;
             bool? previous = s.AutomationStates.TryGetValue(key, out var p) ? p : null;
+            // Without a price for now (the prices ran out), a rule that applied stops applying, so the entity is switched back
+            if ((AutomationRules.Applies(rule, periods, hourValues, now) ?? (previous == true ? false : null)) is not bool applies) continue;
             if (AutomationRules.Action(rule, applies, previous) is bool on)
             {
                 try
