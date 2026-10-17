@@ -40,6 +40,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly DashboardForm _dashboard;
     private readonly PluginRuntime _plugins = new();
     private readonly PriceActionRunner _priceActions;
+    private readonly System.Windows.Forms.Timer _priceActionTimer = new() { Interval = 60_000 };
 
     private AppSettings _settings;
     private string? _lastIp;
@@ -159,6 +160,9 @@ internal sealed class TrayAppContext : ApplicationContext
                 new (string, Action)[] { (L.T("Show widget", "Vis widget"), ShowWidgetFromToast) }, ShowWidgetFromToast,
                 silent: false, expireAfter: TimeSpan.FromHours(3)));
         AppliancePlanner.RunsChanged += () => { SettingsStore.Save(_settings); _ = _priceActions.TickAsync(); };
+        // Its own clock, so a started run is switched off on time even if the electricity plugin is switched off meanwhile
+        _priceActionTimer.Tick += (_, _) => _ = _priceActions.TickAsync();
+        _priceActionTimer.Start();
 
         _prices.Updated += () =>
         {
@@ -383,6 +387,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _notifyIcon.Visible = false;
         _notifyIcon.Icon?.Dispose();
         _notifyIcon.Dispose();
+        _priceActionTimer.Dispose();
         _updateLock.Dispose();
         _cloudflareLock.Dispose();
         _versionCheckLock.Dispose();

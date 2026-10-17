@@ -32,10 +32,11 @@ internal sealed class PriceActionRunner
         try
         {
             var s = _settings();
-            if (!s.OnboardingCompleted || !s.PriceEnabled) return;
+            if (!s.OnboardingCompleted) return;
             var now = DateTime.Now;
-            await RunPlannedAsync(s, now, cancel);
-            await RunRulesAsync(s, now, cancel);
+            // With the price switched off nothing new starts, but a run already started is still switched off when it ends
+            await RunPlannedAsync(s, now, cancel, startNew: s.PriceEnabled);
+            if (s.PriceEnabled) await RunRulesAsync(s, now, cancel);
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
         catch (Exception ex)
@@ -48,7 +49,7 @@ internal sealed class PriceActionRunner
         }
     }
 
-    private async Task RunPlannedAsync(AppSettings s, DateTime now, CancellationToken cancel)
+    private async Task RunPlannedAsync(AppSettings s, DateTime now, CancellationToken cancel, bool startNew)
     {
         if (s.PlannedRuns.Count == 0) return;
         var periods = _prices.ConsumerPeriods(s);
@@ -63,10 +64,13 @@ internal sealed class PriceActionRunner
                 changed = true;
                 continue;
             }
-            var entity = s.HasHomeAssistantConnection && !string.IsNullOrWhiteSpace(a.HomeAssistantEntity) ? a.HomeAssistantEntity : null;
+            // A run already started is switched off through Home Assistant even if its plugin was switched off since
+            var reachable = s.HasHomeAssistantConnection || (run.Started && !string.IsNullOrWhiteSpace(s.HomeAssistantUrl));
+            var entity = reachable && !string.IsNullOrWhiteSpace(a.HomeAssistantEntity) ? a.HomeAssistantEntity : null;
 
             if (!run.Started)
             {
+                if (!startNew) continue;
                 if (now < run.Start)
                 {
                     if (periods.Count > 0 && AppliancePlanner.Replan(run, a, periods, now))
@@ -86,6 +90,12 @@ internal sealed class PriceActionRunner
                     continue;
                 }
 
+                // A late start (the PC was asleep) still gets the whole run time
+                if (now > run.Start)
+                {
+                    run.End = now + a.Duration;
+                    run.Start = now;
+                }
                 run.Started = true;
                 changed = true;
                 var cost = a.EnergyKwh > 0 ? L.T($" · about {Money.Format(run.Average * a.EnergyKwh / unit.PerMajor, unit)}", $" · ca. {Money.Format(run.Average * a.EnergyKwh / unit.PerMajor, unit)}") : "";
