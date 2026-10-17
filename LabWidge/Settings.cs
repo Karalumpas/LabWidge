@@ -185,6 +185,9 @@ internal sealed class AppSettings
     public bool AudioSwitchMic { get; set; } = true;
     /// <summary>Microphone per output (output id → microphone id, "" = don't switch). Missing = the microphone in the same device.</summary>
     public Dictionary<string, string> AudioMicPairs { get; set; } = new();
+    /// <summary>Fingerprint of each audio device the settings refer to (id → fingerprint), so the settings follow a device
+    /// that Windows gives a new id. See <see cref="AudioDeviceMemory"/>.</summary>
+    public Dictionary<string, string> AudioDeviceKeys { get; set; } = new();
     public WidgetTheme Theme { get; set; } = WidgetTheme.System;
     /// <summary>Opacity in percent (40-100).</summary>
     public int WidgetOpacity { get; set; } = 100;

@@ -65,7 +65,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Plugins: cancellation stops price requests before tariff fetching and allows restart", CancelPriceFetch),
     ("Plugins: cancelling an old price fetch keeps a newer request waiting behind it", CancelKeepsNewerPriceRequest),
     ("Settings: hidden disks match the widget's disk names", HiddenDiskNames),
-    ("Shortcuts: websites, programs and other addresses are told apart and survive cloning", LaunchItems)
+    ("Shortcuts: websites, programs and other addresses are told apart and survive cloning", LaunchItems),
+    ("Audio: settings follow a device that Windows gives a new id", AudioDeviceNewId)
 };
 foreach (var test in tests)
 {
@@ -77,6 +78,46 @@ Console.WriteLine($"{tests.Length} regression tests passed.");
 static void Check(bool condition, string message)
 {
     if (!condition) throw new Exception(message);
+}
+
+static Task AudioDeviceNewId()
+{
+    var headset = new AudioDevice("old-hs", "HS80", "Headset (CORSAIR HS80)", AudioKind.Headset, null);
+    var monitor = new AudioDevice("monitor", "C49", "C49 (NVIDIA)", AudioKind.Display, null);
+    var otherMonitor = new AudioDevice("monitor-2", "C49", "C49 (NVIDIA)", AudioKind.Display, null);
+    var mic = new AudioDevice("old-mic", "HS80", "Microphone (CORSAIR HS80)", AudioKind.Headset, null);
+    var s = new AppSettings
+    {
+        AudioDeviceIds = new[] { "monitor", "old-hs" },
+        AudioNames = new() { ["old-hs"] = "Headset" },
+        AudioMicPairs = new() { ["old-hs"] = "old-mic", ["monitor"] = "" },
+        AudioStandardId = "old-hs"
+    };
+    Check(AudioDeviceMemory.Update(s, new[] { headset, monitor }, new[] { mic }), "Fingerprints were not recorded.");
+    Check(s.AudioDeviceKeys.Count == 3 && s.AudioDeviceKeys["old-hs"] == headset.Fingerprint, "Wrong fingerprints recorded.");
+    Check(!AudioDeviceMemory.Update(s, new[] { headset, monitor }, new[] { mic }), "Unchanged devices changed the settings.");
+
+    // Switched off: nothing to follow, the settings are kept
+    Check(!AudioDeviceMemory.Update(s, new[] { monitor }, Array.Empty<AudioDevice>()), "A disconnected device changed the settings.");
+    Check(s.AudioDeviceIds!.SequenceEqual(new[] { "monitor", "old-hs" }), "A disconnected device was forgotten.");
+
+    // Back under new ids – and a second, identical monitor that must not take the first one's place
+    var newHeadset = headset with { Id = "new-hs" };
+    var newMic = mic with { Id = "new-mic" };
+    Check(AudioDeviceMemory.Update(s, new[] { otherMonitor, monitor, newHeadset }, new[] { newMic }), "The new id was not followed.");
+    Check(s.AudioDeviceIds!.SequenceEqual(new[] { "monitor", "new-hs" }), "The widget order lost the device.");
+    Check(s.AudioNames.Count == 1 && s.AudioNames["new-hs"] == "Headset", "The custom name did not follow.");
+    Check(s.AudioStandardId == "new-hs", "The default device did not follow.");
+    Check(s.AudioMicPairs["new-hs"] == "new-mic" && s.AudioMicPairs["monitor"] == "" && s.AudioMicPairs.Count == 2, "The microphone pair did not follow.");
+    Check(!s.AudioDeviceKeys.ContainsKey("old-hs") && !s.AudioDeviceKeys.ContainsKey("old-mic") && s.AudioDeviceKeys.Count == 3, "Old fingerprints were kept.");
+
+    // Only an unused device can take over: the monitor is gone, but the identical second one is shown already
+    s.AudioDeviceIds = new[] { "monitor", "monitor-2" };
+    AudioDeviceMemory.Update(s, new[] { otherMonitor, monitor }, new[] { newMic });
+    Check(!AudioDeviceMemory.Update(s, new[] { otherMonitor }, new[] { newMic }) && s.AudioDeviceIds.SequenceEqual(new[] { "monitor", "monitor-2" }),
+        "A device the settings already use took over another device's place.");
+    Check(s.Clone().AudioDeviceKeys.Count == s.AudioDeviceKeys.Count, "Fingerprints did not survive cloning.");
+    return Task.CompletedTask;
 }
 
 static Task LayoutBands()

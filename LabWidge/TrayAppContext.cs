@@ -170,7 +170,12 @@ internal sealed class TrayAppContext : ApplicationContext
         pluginServices.RefreshIp = ct => UpdateIpAsync(manual: false, ct);
         pluginServices.CheckServices = CheckServicesAsync;
         pluginServices.RefreshCloudflare = ct => RefreshCloudflareAsync(ct, manual: false);
-        pluginServices.RefreshAudio = () => { if (_audio.Refresh()) FallBackToStandardAudio(); };
+        pluginServices.RefreshAudio = () =>
+        {
+            var defaultGone = _audio.Refresh();
+            if (AudioDeviceMemory.Update(_settings, _audio.Devices, _audio.Microphones)) SettingsStore.Save(_settings);
+            if (defaultGone) FallBackToStandardAudio();
+        };
         pluginServices.RefreshBatteries = RefreshBatteriesAsync;
 
         _installTimer.Tick += (_, _) => InstallStagedWhenIdle();

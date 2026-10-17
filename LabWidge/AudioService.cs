@@ -1,11 +1,5 @@
 using System.Runtime.InteropServices;
 
-internal enum AudioKind { Speakers, Headphones, Headset, Display, Digital, Other }
-
-/// <summary>An active audio endpoint. <see cref="Name"/> is a short suggestion; <see cref="FullName"/> is the name Windows uses.
-/// <see cref="ContainerId"/> is shared by all parts of the same physical device and is used to find the headset's battery.</summary>
-internal sealed record AudioDevice(string Id, string Name, string FullName, AudioKind Kind, Guid? ContainerId);
-
 /// <summary>Volume 0–1 and whether the device is muted.</summary>
 internal sealed record VolumeState(float Level, bool Muted);
 
