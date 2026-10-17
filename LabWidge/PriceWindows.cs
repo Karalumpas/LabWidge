@@ -1,7 +1,8 @@
 /// <summary>A price period in local time with the price as the user sees it (the country's unit per kWh).</summary>
 internal readonly record struct PricePeriod(DateTime Start, DateTime End, double Value)
 {
-    public TimeSpan Length => End - Start;
+    /// <summary>The real length, also the night the clocks change (01:45–03:00 is a quarter-hour).</summary>
+    public TimeSpan Length => PriceWindows.Between(Start, End);
 }
 
 /// <summary>A stretch of time and its time-weighted average price.</summary>
@@ -18,19 +19,41 @@ internal static class PriceWindows
 {
     private static readonly TimeSpan MaxPeriod = TimeSpan.FromHours(1);
 
-    /// <summary>Turns price points (start and value) into periods. A period ends where the next begins, and lasts at most an hour.</summary>
+    /// <summary>
+    /// Turns price points (start and value) into periods. A period ends where the next begins, and lasts at most an hour.
+    /// Lengths are measured in UTC, so the night the clocks go forward is not a gap: 01:45 is followed by 03:00.
+    /// </summary>
     public static List<PricePeriod> FromPoints(IReadOnlyList<(DateTime Start, double Value)> points)
     {
         var periods = new List<PricePeriod>(points.Count);
         var last = MaxPeriod;
         for (var i = 0; i < points.Count; i++)
         {
-            var length = i + 1 < points.Count ? points[i + 1].Start - points[i].Start : last;
+            var length = i + 1 < points.Count ? Utc(points[i + 1].Start) - Utc(points[i].Start) : last;
             if (length <= TimeSpan.Zero || length > MaxPeriod) length = last; // a gap in the data
             last = length;
-            periods.Add(new PricePeriod(points[i].Start, points[i].Start + length, points[i].Value));
+            var start = points[i].Start;
+            var end = start.Kind == DateTimeKind.Local ? (Utc(start) + length).ToLocalTime() : start + length;
+            // In the repeated hour the night the clocks go back, local time runs backwards: the period keeps its length,
+            // and the two periods with the same local time overlap for that one hour a year
+            if (end <= start) end = start + length;
+            periods.Add(new PricePeriod(start, end, points[i].Value));
         }
         return periods;
+    }
+
+    private static DateTime Utc(DateTime t) => t.Kind == DateTimeKind.Local ? t.ToUniversalTime() : t;
+
+    /// <summary>
+    /// The time that passes from <paramref name="from"/> to <paramref name="to"/>. Around a clock change the wall clock and UTC
+    /// disagree in opposite directions – forward in spring (01:45–03:00 is 15 minutes, not 75), and in the repeated autumn hour,
+    /// which local time can't tell apart – and the shorter of the two is the real length.
+    /// </summary>
+    public static TimeSpan Between(DateTime from, DateTime to)
+    {
+        var wall = to - from;
+        var real = Utc(to) - Utc(from);
+        return wall > TimeSpan.Zero && real > TimeSpan.Zero ? (wall < real ? wall : real) : wall;
     }
 
     /// <summary>The period that contains <paramref name="t"/>, if any.</summary>
@@ -55,11 +78,11 @@ internal static class PriceWindows
             if (p.Start >= end) break;
             var from = p.Start > start ? p.Start : start;
             var to = p.End < end ? p.End : end;
-            var minutes = (to - from).TotalMinutes;
+            var minutes = Between(from, to).TotalMinutes;
             sum += p.Value * minutes;
             covered += minutes;
         }
-        return covered >= (end - start).TotalMinutes - 0.5 ? sum / covered : null;
+        return covered >= Between(start, end).TotalMinutes - 0.5 ? sum / covered : null;
     }
 
     /// <summary>

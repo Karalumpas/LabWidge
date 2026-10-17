@@ -757,6 +757,15 @@ static Task QuarterWindows()
     var hourly = PriceWindows.FromPoints(new List<(DateTime, double)> { (day, 1), (day.AddHours(1), 2), (day.AddHours(5), 3) });
     Check(hourly[1].End == day.AddHours(2) && hourly[2].Length == TimeSpan.FromHours(1), "A gap must not make a period longer than an hour.");
     Check(PriceWindows.Average(hourly, day.AddHours(1), day.AddHours(3)) == null, "An average across a gap has no answer.");
+
+    // Around a clock change (in this PC's time zone, if it has one) the periods follow each other without gaps or negative lengths
+    foreach (var utcDay in new[] { new DateTime(2027, 3, 27, 12, 0, 0, DateTimeKind.Utc), new DateTime(2027, 10, 30, 12, 0, 0, DateTimeKind.Utc) })
+    {
+        var local = PriceWindows.FromPoints(Enumerable.Range(0, 96).Select(i => (utcDay.AddMinutes(15 * i).ToLocalTime(), 1.0)).ToList());
+        Check(local.All(x => x.End > x.Start && x.Length <= TimeSpan.FromHours(1)), "A clock change must not give a period a negative or long length: " + string.Join("; ", local.Where(x => !(x.End > x.Start && x.Length <= TimeSpan.FromHours(1))).Select(x => $"{x.Start:O}-{x.End:O} {x.Length}")));
+        Check(local.Zip(local.Skip(1)).All(x => x.First.End == x.Second.Start || x.Second.Start < x.First.Start.AddMinutes(1) || x.First.End > x.Second.Start),
+            "A clock change must not leave a gap between periods.");
+    }
     return Task.CompletedTask;
 }
 

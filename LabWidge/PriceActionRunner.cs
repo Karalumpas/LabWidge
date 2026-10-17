@@ -57,7 +57,7 @@ internal sealed class PriceActionRunner
         var changed = false;
         foreach (var run in s.PlannedRuns.ToList())
         {
-            var a = s.Appliances.FirstOrDefault(x => x.Id == run.ApplianceId);
+            var a = s.Appliances.FirstOrDefault(x => x.Id == run.ApplianceId) ?? (run.Started ? run.Snapshot : null);
             if (a == null)
             {
                 s.PlannedRuns.Remove(run);
@@ -95,8 +95,14 @@ internal sealed class PriceActionRunner
                 {
                     run.End = now + a.Duration;
                     run.Start = now;
+                    if (PriceWindows.Average(periods, run.Start, run.End) is { } average) run.Average = average;
                 }
                 run.Started = true;
+                run.Snapshot = new Appliance
+                {
+                    Id = a.Id, Name = a.Name, DurationMinutes = a.DurationMinutes, EnergyKwh = a.EnergyKwh,
+                    HomeAssistantEntity = a.HomeAssistantEntity, TurnOffAfter = a.TurnOffAfter
+                };
                 changed = true;
                 var cost = a.EnergyKwh > 0 ? L.T($" · about {Money.Format(run.Average * a.EnergyKwh / unit.PerMajor, unit)}", $" · ca. {Money.Format(run.Average * a.EnergyKwh / unit.PerMajor, unit)}") : "";
                 var when = L.T($"Cheapest time: {run.Start:HH:mm}–{run.End:HH:mm}", $"Billigste tid: kl. {run.Start:HH:mm}–{run.End:HH:mm}") + cost;
