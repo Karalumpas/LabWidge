@@ -421,11 +421,52 @@ internal static partial class UiChecks
                 using var bitmap = new Bitmap(window.Width, window.Height);
                 window.DrawToBitmap(bitmap, new Rectangle(Point.Empty, window.Size));
                 bitmap.Save(Path.Combine(Output, "settings", $"{theme.ToString().ToLowerInvariant()}-{i:00}.png"), ImageFormat.Png);
+                var page = (Control)pages.GetValue(i)!;
+                SettingsPageLayout(page, $"{theme} {page.GetType().Name}");
+                using var bottom = new Bitmap(window.Width, window.Height);
+                window.DrawToBitmap(bottom, new Rectangle(Point.Empty, window.Size));
+                bottom.Save(Path.Combine(Output, "settings", $"{theme.ToString().ToLowerInvariant()}-{i:00}-bottom.png"), ImageFormat.Png);
             }
+            Check(LayoutProblems.Count == 0, "Settings layout:\n" + string.Join("\n", LayoutProblems.Distinct()));
+            var buttons = window.AcceptButton as Button;
+            var cancel = window.CancelButton as Button;
+            Check(buttons != null && cancel != null
+                  && buttons.PointToScreen(Point.Empty).Y == cancel.PointToScreen(Point.Empty).Y && buttons.Height == cancel.Height,
+                "Save and Cancel are not on the same line.");
             window.Close();
         }
-        Console.WriteLine("PASS UI: every settings page opens in both themes");
+        Console.WriteLine("PASS UI: every settings page opens in both themes, fits its cards and scrolls to the bottom");
     }
+
+    /// <summary>Nothing may stick out of its card, and scrolling to the bottom must show the whole last card.</summary>
+    private static void SettingsPageLayout(Control page, string name)
+    {
+        var body = (Control)typeof(SettingsPage).GetField("Body", Private)!.GetValue(page)!;
+        var scroller = (ScrollableControl)body.Parent!;
+        foreach (var card in body.Controls.OfType<Card>().Where(c => c.Visible))
+        {
+            var inner = card.ClientSize.Width - card.Padding.Right;
+            foreach (var c in Descendants(card).Where(c => c.Visible && c.Width > 0))
+            {
+                var right = card.PointToClient(c.Parent!.PointToScreen(new Point(c.Right, 0))).X;
+                Problem(right <= inner + 1, $"{name}: {c.GetType().Name} '{c.Text}' reaches {right - inner}px past the card's edge.");
+            }
+        }
+        scroller.AutoScrollPosition = new Point(0, int.MaxValue / 2);
+        Application.DoEvents();
+        var bottom = scroller.PointToClient(body.PointToScreen(new Point(0, body.Height))).Y;
+        Problem(bottom <= scroller.ClientSize.Height + 1, $"{name}: the page cannot scroll to the bottom ({bottom - scroller.ClientSize.Height}px hidden).");
+        var lastCard = body.Controls.Cast<Control>().Where(c => c.Visible).MaxBy(c => c.Bottom);
+        Problem(lastCard == null || lastCard.Bottom + lastCard.Margin.Bottom <= body.Height - body.Padding.Bottom,
+            $"{name}: the last card is cut off inside the page.");
+    }
+
+    private static readonly List<string> LayoutProblems = new();
+    private static void Problem(bool ok, string message) { if (!ok) LayoutProblems.Add(message); }
+
+    private static IEnumerable<Control> Descendants(Control root) =>
+        root.Controls.Cast<Control>().SelectMany(c => c is DataGridView or NumericUpDown or ComboBox or UserControl
+            ? new[] { c } : Descendants(c).Prepend(c));
 
     /// <summary>
     /// Opens every section window, renders it, and checks pinning, restoring at start and dragging a section out of the widget.

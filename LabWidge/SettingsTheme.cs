@@ -123,20 +123,25 @@ internal static class SettingsTheme
 
     public static void Apply(Control root, Palette p)
     {
-        foreach (Control c in root.Controls) Style(c, p, Ui.ContentWidth);
+        foreach (Control c in root.Controls) Style(c, p, Ui.ContentWidth, inCard: false);
     }
 
     private static readonly HashSet<ComboBox> OwnerDrawn = new();
 
     /// <param name="room">The width a switch can fill here: the card's inner width, less any indent of the groups it sits in.</param>
-    private static void Style(Control c, Palette p, int room)
+    /// <param name="inCard">Whether <paramref name="room"/> is measured – outside the cards it is only a default.</param>
+    private static void Style(Control c, Palette p, int room, bool inCard)
     {
         switch (c)
         {
             case Card:
                 c.BackColor = CardColor(p);
                 c.ForeColor = p.TextPrimary;
-                room = Ui.ContentWidth;
+                room = c.Width - c.Padding.Horizontal; // the actual width, so it also holds when Windows scales the window
+                inCard = true;
+                break;
+            case FlowLayoutPanel { FlowDirection: FlowDirection.LeftToRight or FlowDirection.RightToLeft } row:
+                FitRow(row, room - row.Margin.Horizontal - row.Padding.Horizontal);
                 break;
             case ToggleSwitch toggle:
                 toggle.Width = Math.Min(toggle.Width, Math.Max(160, room - toggle.Margin.Horizontal)); // only shrinks: a switch in a row keeps its own width
@@ -213,9 +218,33 @@ internal static class SettingsTheme
                 grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
                 break;
         }
+        if (Stretches(c) && c.Width + c.Margin.Horizontal > room) c.Width = Math.Max(MinField, room - c.Margin.Horizontal);
+        // A help text wraps within the room it has, also in an indented group
+        if (inCard && c is Label { AutoSize: true, MaximumSize.Width: > 0 } text && text.MaximumSize.Width + text.Margin.Horizontal > room)
+            text.MaximumSize = new Size(room - text.Margin.Horizontal, 0);
         // Groups inside a card (e.g. settings that only apply when a feature is on) are indented
         var inner = c is Card ? room : room - c.Margin.Left - c.Padding.Horizontal;
-        foreach (Control child in c.Controls) Style(child, p, c is FlowLayoutPanel or Panel ? inner : room);
+        foreach (Control child in c.Controls) Style(child, p, c is FlowLayoutPanel or Panel ? inner : room, inCard);
+    }
+
+    private const int MinField = 80;
+
+    /// <summary>Fields and lists that can give up width; labels, numbers and buttons keep theirs.</summary>
+    private static bool Stretches(Control c) => c is TextBox or ComboBox or ListBox or DataGridView;
+
+    /// <summary>
+    /// A row (label and fields side by side) that is wider than its card takes the room from its widest fields,
+    /// so nothing runs past the card's edge – also when the row sits in an indented group.
+    /// </summary>
+    private static void FitRow(FlowLayoutPanel row, int room)
+    {
+        var overflow = row.Controls.Cast<Control>().Sum(c => c.Width + c.Margin.Horizontal) - room;
+        while (overflow > 0 && row.Controls.Cast<Control>().Where(c => Stretches(c) && c.Width > MinField).MaxBy(c => c.Width) is { } widest)
+        {
+            var take = Math.Min(overflow, widest.Width - MinField);
+            widest.Width -= take;
+            overflow -= take;
+        }
     }
 
     /// <summary>A dark title bar for a dark window (Windows 10 2004 and newer).</summary>
