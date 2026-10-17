@@ -104,6 +104,8 @@ gh api repos/Karalumpas/LabWidge/pulls/<nr>/comments --jq '.[] | select(.user.lo
   you check it against the code. Fix the ones that hold up on the release branch, with a test where it makes sense, and push.
   Then write the comment `@codex review` on the PR so Codex reviews the new commit, and wait for that review too.
   Keep going until Codex's latest review has no new findings that hold up.
+- GitHub moves an old comment onto the newer commit when its lines are unchanged, so a finding you already fixed can show
+  up again. Compare with the findings you have handled before treating one as new.
 - If you think a finding is wrong, explain why to the user and let them decide.
 
 Only then give the user the link to the PR, with a short summary of what Codex found and what was fixed, and ask whether you may merge.

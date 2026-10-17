@@ -48,10 +48,13 @@ internal static class AudioDeviceMemory
                 // left alone later cannot take over either.
                 var matches = devices.Where(d => d.Fingerprint == fingerprint).ToList();
                 if (matches.Count == 0) continue;
-                if (matches is not [var moved] || used.Contains(moved.Id))
+                // Another chosen device with the same fingerprint (connected or missing) means it cannot be told which one returned
+                var twins = used.Where(u => u != id && s.AudioDeviceKeys.GetValueOrDefault(u) == fingerprint)
+                                .Concat(matches.Select(d => d.Id).Where(used.Contains)).ToList();
+                if (matches is not [var moved] || twins.Count > 0)
                 {
-                    // Both sides: a twin that is in use could later be followed to the missing device's new id
-                    foreach (var twin in matches.Where(d => used.Contains(d.Id))) s.AudioDeviceKeys[twin.Id] = Twin;
+                    // All sides: a twin left with its fingerprint could later be followed to the wrong device's new id
+                    foreach (var twin in twins) s.AudioDeviceKeys[twin] = Twin;
                     s.AudioDeviceKeys[id] = Twin;
                     changed = true;
                     continue;
