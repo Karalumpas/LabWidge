@@ -743,6 +743,16 @@ static Task QuarterWindows()
     Check(merged.Count == 1 && merged[0].Start == day.AddHours(12).AddMinutes(45) && merged[0].End == day.AddHours(13).AddMinutes(45),
         "Quarters side by side are merged.");
 
+    // Part of an hour: 1¼ hours of hourly prices ends a quarter into the second hour
+    var hours = PriceWindows.FromPoints(new List<(DateTime, double)> { (day, 3), (day.AddHours(1), 1), (day.AddHours(2), 2) });
+    var part = PriceWindows.CheapestSet(hours, day, day.AddHours(3), TimeSpan.FromMinutes(75));
+    Check(part.Count == 2 && part[0].Start == day.AddHours(1) && part[0].Length == TimeSpan.FromHours(1)
+          && part[1].Start == day.AddHours(2) && part[1].End == day.AddHours(2).AddMinutes(15), "A part of an hour must cut the last hour short.");
+    var rule = new PriceAutomation { Hours = 1.25 };
+    Check(AutomationRules.Applies(rule, hours, new List<double> { 3, 1, 2 }, day.AddHours(2).AddMinutes(10)) == true
+          && AutomationRules.Applies(rule, hours, new List<double> { 3, 1, 2 }, day.AddHours(2).AddMinutes(20)) == false,
+        "A rule of 1¼ hours must stop a quarter into the hour.");
+
     // Hourly data, and a gap in the data is not stretched over
     var hourly = PriceWindows.FromPoints(new List<(DateTime, double)> { (day, 1), (day.AddHours(1), 2), (day.AddHours(5), 3) });
     Check(hourly[1].End == day.AddHours(2) && hourly[2].Length == TimeSpan.FromHours(1), "A gap must not make a period longer than an hour.");
@@ -883,6 +893,9 @@ static Task PriceHistoryDays()
         Check(PriceHistory.DaysFor("DK:DK1").Count == 1 && PriceHistory.Data.Savings.Count == 1, "The history is read back from the file.");
         var csv = PriceHistory.ToCsv("DK:DK1").Split('\n');
         Check(csv[0] == "start,spot,price" && csv[1] == "2026-10-16 00:00,0,0" && csv[2] == "2026-10-16 00:15,1,2", "The CSV has one line per period.");
+        var kept = PriceHistory.DaysFor("DK:DK1")[0];
+        Check(kept.StartUtc == yesterday.ToUniversalTime() && kept.PeriodStart(95) == DateTime.SpecifyKind(yesterday.ToUniversalTime(), DateTimeKind.Utc).AddMinutes(95 * 15).ToLocalTime(),
+            "Periods are placed in UTC, so a clock change keeps the right times.");
 
         // Old days and savings are forgotten
         PriceHistory.Record(new[] { new PricePoint(today, 1) }, (_, s) => s, "DK:DK1", 7, today.AddDays(30));

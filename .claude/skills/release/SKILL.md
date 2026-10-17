@@ -1,6 +1,6 @@
 ---
 name: release
-description: Publish a new version of LabWidge so installed apps (including friends') are offered the update. Raises the version in both .csproj files, writes CHANGELOG.md, creates a branch and PR, merges after approval and follows the workflow until the release is in Karalumpas/labwidge-releases. Use it when the user types /release or /udgiv, or asks to release, publish, ship, "udgive", make a new version, raise the version or send the update out.
+description: Publish a new version of LabWidge so installed apps (including friends') are offered the update. Raises the version in both .csproj files, writes CHANGELOG.md, creates a branch and PR, handles the Codex review, merges after one approval and follows the workflow until the release is in Karalumpas/labwidge-releases. Use it when the user types /release or /udgiv, or asks to release, publish, ship, "udgive", make a new version, raise the version or send the update out.
 ---
 
 # Publish a new version
@@ -10,6 +10,12 @@ The workflow `.github/workflows/release.yml` builds Setup and publishes it there
 Releases are unsigned (SignPath Foundation declined the project, and the user will not pay for signing). If SignPath is ever
 configured as described in `docs/CODE_SIGNING.md`, the workflow signs the app and Setup automatically.
 Your job is to make the version bump correct and see it all the way through.
+
+**Ask as little as possible.** The user does not want to approve each step. Branch, commit, push, the PR, the Codex review and the
+fixes Codex's findings call for all happen without asking. There is exactly **one** question in the whole release: may the PR be
+merged (step 5), because a merge publishes the version to every installation. Ask before that only when something is genuinely
+the user's call: a big overhaul whose version number is unclear, uncommitted changes that are not yours, or a Codex finding you
+believe is wrong.
 
 Talk to the user in their own language. Everything that ends up on GitHub – changelog, commit messages, PR texts – is in English.
 
@@ -33,7 +39,8 @@ If there are no commits since the last tag, say so and stop.
   "What's new" notification after the update. The notification shows only the first point directly,
   so put the most important one first.
 
-Show the proposal to the user and wait for a yes before changing anything. The user's corrections take precedence.
+Do not wait for approval: write the version and changelog straight away. The user sees them in the merge question and can
+correct them there; their corrections take precedence.
 
 ## 3. Edit the files
 
@@ -100,16 +107,16 @@ gh api repos/Karalumpas/LabWidge/pulls/<nr>/comments --jq '.[] | select(.user.lo
 
 - Codex has reviewed the latest commit when `commit_sha` in the state line matches the PR's head commit and `status`
   is `completed`. If it has not, check again a few minutes later.
-- If Codex has findings, show each one to the user in their language: what it means for them and whether it holds up when
-  you check it against the code. Fix the ones that hold up on the release branch, with a test where it makes sense, and push.
+- If Codex has findings, check each one against the code. Fix the ones that hold up on the release branch, with a test where it
+  makes sense, and push – without asking first.
   Then write the comment `@codex review` on the PR so Codex reviews the new commit, and wait for that review too.
   Keep going until Codex's latest review has no new findings that hold up.
 - GitHub moves an old comment onto the newer commit when its lines are unchanged, so a finding you already fixed can show
   up again. Compare with the findings you have handled before treating one as new.
-- If you think a finding is wrong, explain why to the user and let them decide.
+- If you think a finding is wrong, leave the code as it is and explain why in the merge question.
 
-Only then give the user the link to the PR, with a short summary of what Codex found and what was fixed, and ask whether you may merge.
-A merge publishes the version to every installation.
+Only then ask the one question: give the user the link to the PR, the version and changelog, a short summary of what Codex found,
+what was fixed and anything you disagreed with, and ask whether you may merge. A merge publishes the version to every installation.
 
 ## 6. Merge and follow the workflow
 
@@ -153,6 +160,7 @@ Never upload a locally built installer – releases are always built by the work
 
 ## Rules
 
+- Never force-push and never push to `main` directly; everything goes through a PR.
 - Never reuse a version number that has been released, and never delete releases. Fix mistakes with a new version.
 - Only release from `main`.
 - Windows Smart App Control can block unsigned builds, and raising the version is not a reliable fix. Never disable Windows

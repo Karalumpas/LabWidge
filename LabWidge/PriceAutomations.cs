@@ -78,7 +78,7 @@ internal static class AutomationRules
         if (PriceWindows.At(periods, now) is not { } current) return null;
         return rule.Condition switch
         {
-            AutomationCondition.CheapestHours => Chosen(rule, periods, now).Any(p => p.Start == current.Start),
+            AutomationCondition.CheapestHours => Chosen(rule, periods, now).Any(p => p.Start <= now && now < p.End),
             AutomationCondition.PriceBelow => current.Value < rule.Threshold,
             AutomationCondition.PriceAbove => current.Value > rule.Threshold,
             AutomationCondition.Cheap => ElectricityPriceService.Level(current.Value, hourValues) == PriceLevel.Cheap,

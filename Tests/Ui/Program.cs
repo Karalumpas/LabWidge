@@ -736,7 +736,7 @@ internal static partial class UiChecks
             CloudflareEnabled = true, ZoneId = "test", ProxmoxEnabled = true,
             ProxmoxUrl = "https://example.test", ProxmoxTokenId = "test@pve!widget",
             AudioDeviceIds = new[] { "speaker", "headset", "display" }, PriceShowTotal = false,
-            Appliances = new() { new Appliance { Name = "Opvaskemaskine", DurationMinutes = 150, EnergyKwh = 1.1 } },
+            Appliances = new() { new Appliance { Name = "Opvaskemaskine", DurationMinutes = 150, EnergyKwh = 1.1, ShowInWidget = false } },
             PriceAutomations = new() { new PriceAutomation { Name = "Varmtvandsbeholder", EntityId = "switch.vvb", Hours = 3 } }
         };
         public DashboardForm Widget { get; }

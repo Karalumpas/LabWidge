@@ -91,7 +91,8 @@ internal static class PriceWindows
 
     /// <summary>
     /// The cheapest periods between <paramref name="from"/> and <paramref name="to"/> that together last <paramref name="total"/> –
-    /// not necessarily side by side. Sorted by time.
+    /// not necessarily side by side. The last one is cut short when only part of it is needed (e.g. 1¼ hours of hourly prices).
+    /// Sorted by time.
     /// </summary>
     public static List<PricePeriod> CheapestSet(IReadOnlyList<PricePeriod> periods, DateTime from, DateTime to, TimeSpan total)
     {
@@ -100,8 +101,9 @@ internal static class PriceWindows
         foreach (var p in periods.Where(p => p.Start >= from && p.End <= to).OrderBy(p => p.Value).ThenBy(p => p.Start))
         {
             if (sum >= total) break;
-            chosen.Add(p);
-            sum += p.Length;
+            var left = total - sum;
+            chosen.Add(p.Length > left ? p with { End = p.Start + left } : p);
+            sum += p.Length > left ? left : p.Length;
         }
         chosen.Sort((a, b) => a.Start.CompareTo(b.Start));
         return chosen;

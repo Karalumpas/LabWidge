@@ -29,3 +29,6 @@ dist/
 worker/node_modules/
 worker/.wrangler/
 worker/.dev.vars
+
+# Claude Code personal permissions
+.claude/settings.local.json

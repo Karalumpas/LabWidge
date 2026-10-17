@@ -11,6 +11,14 @@ internal sealed class PriceHistoryDay
     public string Area { get; set; } = "";
     /// <summary>The length of each period: 15 or 60.</summary>
     public int Minutes { get; set; } = 60;
+    /// <summary>The first period's start in UTC. The periods follow each other in UTC, so the clock change on a 23- or
+    /// 25-hour day is kept. Missing in days saved before it was added.</summary>
+    public DateTime? StartUtc { get; set; }
+
+    /// <summary>The local start of period <paramref name="i"/>.</summary>
+    public DateTime PeriodStart(int i) => StartUtc is { } utc
+        ? DateTime.SpecifyKind(utc, DateTimeKind.Utc).AddMinutes(i * Minutes).ToLocalTime()
+        : Date.AddMinutes(i * Minutes);
     public double[] Spot { get; set; } = Array.Empty<double>();
     public double[] Price { get; set; } = Array.Empty<double>();
 
@@ -99,7 +107,7 @@ internal static class PriceHistory
             if (existing >= 0)
             {
                 var old = Data.Days[existing];
-                if (old.Minutes == entry.Minutes && old.Spot.SequenceEqual(entry.Spot) && old.Price.SequenceEqual(entry.Price)) continue;
+                if (old.Minutes == entry.Minutes && old.StartUtc == entry.StartUtc && old.Spot.SequenceEqual(entry.Spot) && old.Price.SequenceEqual(entry.Price)) continue;
                 Data.Days[existing] = entry;
             }
             else Data.Days.Add(entry);
@@ -126,7 +134,7 @@ internal static class PriceHistory
         if (points.Count * minutes < 23 * 60 || points[0].Time != date) return null;
         return new PriceHistoryDay
         {
-            Date = date, Area = area, Minutes = minutes,
+            Date = date, Area = area, Minutes = minutes, StartUtc = points[0].Time.ToUniversalTime(),
             Spot = points.Select(p => Math.Round(p.Spot, 3)).ToArray(),
             Price = points.Select(p => Math.Round(consumer(p.Time, p.Spot), 3)).ToArray()
         };
@@ -168,7 +176,7 @@ internal static class PriceHistory
         {
             for (var i = 0; i < day.Price.Length; i++)
             {
-                var start = day.Date.AddMinutes(i * day.Minutes);
+                var start = day.PeriodStart(i);
                 csv.Append(start.ToString("yyyy-MM-dd HH:mm", inv)).Append(',')
                    .Append(day.Spot.ElementAtOrDefault(i).ToString("0.###", inv)).Append(',')
                    .Append(day.Price[i].ToString("0.###", inv)).Append('\n');

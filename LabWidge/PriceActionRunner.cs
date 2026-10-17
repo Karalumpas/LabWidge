@@ -121,6 +121,12 @@ internal sealed class PriceActionRunner
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         Logger.Error($"Home Assistant could not switch {entity} off after {a.Name}: {ex.Message}");
+                        // Kept, so the next check tries again – until it has failed for a while, then the user is told
+                        if (now - run.End < MissedAfter) continue;
+                        _toast("appliance", L.T($"Switch {a.Name} off", $"Sluk {a.Name}"),
+                            L.T($"Home Assistant could not switch {entity} off after the run – it may still be on.",
+                                $"Home Assistant kunne ikke slukke {entity} efter kørslen – den er måske stadig tændt."),
+                            HomeAssistantService.Describe(ex));
                     }
                 }
                 run.Stopped = true;
