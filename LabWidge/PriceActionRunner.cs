@@ -57,7 +57,8 @@ internal sealed class PriceActionRunner
         var changed = false;
         foreach (var run in s.PlannedRuns.ToList())
         {
-            var a = s.Appliances.FirstOrDefault(x => x.Id == run.ApplianceId) ?? (run.Started ? run.Snapshot : null);
+            // Once started, the run follows the appliance as it was then: an edit or a removal must not change what is switched off
+            var a = run.Started && run.Snapshot != null ? run.Snapshot : s.Appliances.FirstOrDefault(x => x.Id == run.ApplianceId);
             if (a == null)
             {
                 s.PlannedRuns.Remove(run);
