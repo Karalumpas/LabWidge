@@ -477,8 +477,17 @@ internal sealed class TrayAppContext : ApplicationContext
             var after = updated.Appliances.First(a => a.Id == run.ApplianceId);
             if (!priceChanged && before != null && before.DurationMinutes == after.DurationMinutes && before.FinishBy == after.FinishBy) continue;
             var index = updated.PlannedRuns.IndexOf(run);
-            if (AppliancePlanner.Arm(after, _prices.ConsumerPeriods(updated), DateTime.Now) is { } again) updated.PlannedRuns[index] = again;
-            else updated.PlannedRuns.RemoveAt(index);
+            // New price settings take a fetch before the prices are right, so such a run is cancelled rather than planned on old prices
+            if (!priceChanged && AppliancePlanner.Arm(after, _prices.ConsumerPeriods(updated), DateTime.Now) is { } again) updated.PlannedRuns[index] = again;
+            else
+            {
+                updated.PlannedRuns.RemoveAt(index);
+                ToastHelper.Show("appliance", L.T($"{after.Name} is no longer planned", $"{after.Name} er ikke længere planlagt"),
+                    priceChanged ? L.T("The price settings changed, so the cheapest time has to be found again.", "Prisindstillingerne er ændret, så det billigste tidspunkt skal findes igen.")
+                                 : L.T("With the new run time there is no time that fits.", "Med den nye varighed er der ikke noget tidspunkt, der passer."),
+                    L.T("Plan it again in the widget.", "Planlæg den igen i widgetten."),
+                    new (string, Action)[] { (L.T("Show widget", "Vis widget"), ShowWidgetFromToast) }, ShowWidgetFromToast, expireAfter: TimeSpan.FromHours(3));
+            }
         }
         updated.RuleStates = old.RuleStates;
         updated.LastCheapAlertFor = old.LastCheapAlertFor;

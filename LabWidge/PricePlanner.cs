@@ -100,6 +100,12 @@ internal static class AppliancePlanner
         };
     }
 
+    /// <summary>What a planned run costs, formatted: the amount fixed when it started, otherwise worked out now. Null if unknown.</summary>
+    public static string? CostText(PlannedRun run, Appliance a, PriceUnit unit) =>
+        run.Started && run.Cost is { } cost && run.Currency != null ? Money.Format(cost, run.Currency)
+        : !run.Started && a.EnergyKwh > 0 ? Money.Format(run.Average * a.EnergyKwh / unit.PerMajor, unit)
+        : null;
+
     /// <summary>Raised when the user plans or cancels a run, so it can be started at once if the cheapest time is now.</summary>
     public static event Action? RunsChanged;
 

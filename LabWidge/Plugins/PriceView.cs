@@ -207,7 +207,7 @@ internal sealed partial class DashboardForm
                 tip = (running ? L.T($"{a.Name} is running until about {run.End:HH:mm}", $"{a.Name} kører til ca. kl. {run.End:HH:mm}")
                                : L.T($"Planned: {a.Name} starts {PriceWindows.Describe(new PriceWindow(run.Start, run.End, run.Average), now)}",
                                      $"Planlagt: {a.Name} starter {PriceWindows.Describe(new PriceWindow(run.Start, run.End, run.Average), now)}"))
-                      + (a.EnergyKwh > 0 ? L.T($"\nAbout {Money.Format(run.Average * a.EnergyKwh / s.PriceUnit.PerMajor, s.PriceUnit)}", $"\nCa. {Money.Format(run.Average * a.EnergyKwh / s.PriceUnit.PerMajor, s.PriceUnit)}") : "")
+                      + (AppliancePlanner.CostText(run, a, s.PriceUnit) is { } runCost ? L.T($"\nAbout {runCost}", $"\nCa. {runCost}") : "")
                       + (running ? "" : L.T("\nClick to cancel", "\nKlik for at annullere"));
             }
             else if (plan != null)

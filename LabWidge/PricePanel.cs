@@ -272,7 +272,7 @@ internal sealed class PricePanel : PopupPanel
                 var window = new PriceWindow(run.Start, run.End, run.Average);
                 line1 = run.Started ? L.T($"Running until {run.End:HH:mm}", $"Kører til kl. {run.End:HH:mm}") : L.T("Planned ", "Planlagt ") + PriceWindows.Describe(window, now);
                 color = P.Blue;
-                if (a.EnergyKwh > 0) line2 = L.T("about ", "ca. ") + Money.Format(run.Average * a.EnergyKwh / Unit.PerMajor, Unit);
+                if (AppliancePlanner.CostText(run, a, Unit) is { } runCost) line2 = L.T("about ", "ca. ") + runCost;
             }
             else if (plan != null)
             {
