@@ -5,11 +5,17 @@ internal sealed class PricePlugin : WidgetPlugin
     public override string Key => "price";
     public override string Title => L.T("Electricity price", "Elpris");
     public override string Glyph => "";
-    public override string Description => L.T("Spot prices, tariffs, charts and price alerts.", "Spotpriser, tariffer, grafer og prisalarmer.");
+    public override string Description => L.T("Spot prices and tariffs in quarter-hours, price alerts, the cheapest time for your appliances, Home Assistant rules and history.",
+                                               "Spotpriser og tariffer i kvarterer, prisalarmer, billigste tidspunkt til dine apparater, Home Assistant-regler og historik.");
     public override bool IsVisible(DashboardForm h, AppSettings s) => s.PriceEnabled;
     public override float RenderExpanded(DashboardForm h, Graphics g, float x, float y, float w) => h.DrawPrice(g, x, y, w);
     public override PopupPanel? CreateWindow(DashboardForm h, AppSettings s, Action save) => s.PriceCountry == null ? null : new PricePanel(h.Services.Price, s, save);
     public override SettingsPage CreateSettingsPage() => new PricePage();
+    public override IEnumerable<(string Key, SettingsPage Page)> CreateSubPages() => new (string, SettingsPage)[]
+    {
+        ("price-alerts", new PriceAlertsPage()), ("price-appliances", new AppliancesPage()),
+        ("price-automation", new AutomationsPage()), ("price-history", new PriceHistoryPage())
+    };
     public override IEnumerable<PluginJob> CreateJobs(PluginServices c, AppSettings s)
     {
         if (s.PriceCountry == null) yield break;

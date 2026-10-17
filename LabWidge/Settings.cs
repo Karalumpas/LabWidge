@@ -210,6 +210,20 @@ internal sealed class AppSettings
     public string NetTariffOwner { get; set; } = "";
     public string[] NetTariffCodes { get; set; } = Array.Empty<string>();
 
+    /// <summary>Appliances whose cheapest start time is shown, e.g. the dishwasher.</summary>
+    public List<Appliance> Appliances { get; set; } = new();
+    /// <summary>Runs the user asked LabWidge to start at the cheapest time.</summary>
+    public List<PlannedRun> PlannedRuns { get; set; } = new();
+    /// <summary>Remind with a notification when a planned run should start.</summary>
+    public bool ApplianceReminders { get; set; } = true;
+    /// <summary>Rules that switch Home Assistant entities by the electricity price.</summary>
+    public List<PriceAutomation> PriceAutomations { get; set; } = new();
+    /// <summary>Whether each rule applied at the last check (key = <see cref="PriceAutomation.Signature"/>).</summary>
+    public Dictionary<string, bool> AutomationStates { get; set; } = new();
+    /// <summary>Keep the day's prices on the PC to show history and savings.</summary>
+    public bool PriceHistoryEnabled { get; set; } = true;
+    public int PriceHistoryDays { get; set; } = 365;
+
     // Home Assistant (optional)
     public bool HomeAssistantEnabled { get; set; }
     /// <summary>Base URL without a trailing slash, e.g. https://home.example.com or http://192.168.0.10:8123.</summary>
@@ -231,6 +245,8 @@ internal sealed class AppSettings
     public bool NotifyTunnelDown { get; set; } = true;
     public bool NotifyServiceDown { get; set; } = true;
     public bool AlertCheap { get; set; } = true;
+    /// <summary>The length of the cheap stretch the cheap-power alert looks for.</summary>
+    public int AlertCheapMinutes { get; set; } = 180;
     public bool AlertExpensive { get; set; } = true;
     public int AlertLeadMinutes { get; set; } = 30;
     public bool AlertQuietNight { get; set; } = true;
@@ -273,6 +289,11 @@ internal sealed class AppSettings
     [JsonIgnore]
     public bool HasHomeAssistant =>
         IsPluginEnabled("ha") && HomeAssistantEnabled && !string.IsNullOrWhiteSpace(HomeAssistantUrl) && HomeAssistantEntities.Length > 0;
+
+    /// <summary>A Home Assistant connection exists – price rules and planned runs can switch entities, whether or not any are shown.</summary>
+    [JsonIgnore]
+    public bool HasHomeAssistantConnection =>
+        IsPluginEnabled("ha") && HomeAssistantEnabled && !string.IsNullOrWhiteSpace(HomeAssistantUrl);
 
     public AppSettings Clone() =>
         JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(this)) ?? new AppSettings();

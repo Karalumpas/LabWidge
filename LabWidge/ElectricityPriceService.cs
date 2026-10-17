@@ -42,6 +42,9 @@ internal sealed class ElectricityPriceService
 
     public ElectricityPriceService(HttpClient http) => _http = http;
 
+    /// <summary>The app's price service, so the settings can show what their choices mean with today's prices. Null in tests.</summary>
+    public static ElectricityPriceService? Shared { get; set; }
+
     public bool HasTomorrow => Prices.Count > 0 && Prices[^1].Time.Date > DateTime.Today;
 
     /// <summary>Decides whether data should be fetched again (new day, tomorrow's prices published, an error or old data).</summary>
@@ -241,6 +244,10 @@ internal sealed class ElectricityPriceService
               .Select(g => (g.Key, g.Average(p => Consumer(p.Time, p.Spot, s))))
               .OrderBy(x => x.Key)
               .ToList();
+
+    /// <summary>The consumer price of every period the source delivers – quarter-hours where the market has them.</summary>
+    public IReadOnlyList<PricePeriod> ConsumerPeriods(AppSettings s) =>
+        PriceWindows.FromPoints(Prices.Select(p => (p.Time, Consumer(p.Time, p.Spot, s))).ToList());
 
     /// <summary>
     /// Level based on where the price sits among the hourly prices (percentile): the cheapest third = cheap etc.

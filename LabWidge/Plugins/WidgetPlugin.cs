@@ -12,6 +12,8 @@ internal interface IWidgetPlugin
     float RenderCompact(DashboardForm host, Graphics g, float x, float y, float width);
     PopupPanel? CreateWindow(DashboardForm host, AppSettings settings, Action save);
     SettingsPage CreateSettingsPage();
+    /// <summary>Further pages shown under the plugin's own page in the settings menu, with a key each for navigation.</summary>
+    IEnumerable<(string Key, SettingsPage Page)> CreateSubPages();
     IEnumerable<PluginJob> CreateJobs(PluginServices services, AppSettings settings);
 }
 
@@ -26,6 +28,7 @@ internal abstract class WidgetPlugin : IWidgetPlugin
     public float RenderCompact(DashboardForm host, Graphics g, float x, float y, float width) => host.RenderPluginSummary(this, g, x, y, width);
     public abstract PopupPanel? CreateWindow(DashboardForm host, AppSettings settings, Action save);
     public abstract SettingsPage CreateSettingsPage();
+    public virtual IEnumerable<(string Key, SettingsPage Page)> CreateSubPages() => Array.Empty<(string, SettingsPage)>();
     public abstract IEnumerable<PluginJob> CreateJobs(PluginServices services, AppSettings settings);
 }
 

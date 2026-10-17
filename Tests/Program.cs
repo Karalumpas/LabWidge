@@ -66,7 +66,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Plugins: cancelling an old price fetch keeps a newer request waiting behind it", CancelKeepsNewerPriceRequest),
     ("Settings: hidden disks match the widget's disk names", HiddenDiskNames),
     ("Shortcuts: websites, programs and other addresses are told apart and survive cloning", LaunchItems),
-    ("Audio: settings follow a device that Windows gives a new id", AudioDeviceNewId)
+    ("Audio: settings follow a device that Windows gives a new id", AudioDeviceNewId),
+    ("Prices: cheap and expensive stretches are found in quarter-hours", QuarterWindows),
+    ("Prices: alerts start at the quarter-hour the stretch starts", QuarterPriceAlerts),
+    ("Appliances: the cheapest start keeps the deadline and moves with cheaper prices", AppliancePlans),
+    ("Automation: price rules apply in their hours and act only on change", AutomationRuleChecks),
+    ("History: whole days are kept per area with savings and CSV", PriceHistoryDays)
 };
 foreach (var test in tests)
 {
@@ -689,6 +694,208 @@ static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK)
 {
     Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
 };
+
+// ---------- Quarter-hour prices, appliances, rules and history ----------
+
+/// <summary>Quarter-hours from <paramref name="start"/> with a price per quarter.</summary>
+static List<PricePeriod> Quarters(DateTime start, params double[] values) =>
+    PriceWindows.FromPoints(values.Select((v, i) => (start.AddMinutes(15 * i), v)).ToList());
+
+/// <summary>A price service holding <paramref name="prices"/> as if they were fetched – the consumer price equals the spot price.</summary>
+static (ElectricityPriceService El, AppSettings S) PriceServiceWith(IEnumerable<PricePoint> prices)
+{
+    var el = new ElectricityPriceService(new HttpClient());
+    typeof(ElectricityPriceService).GetProperty(nameof(ElectricityPriceService.Prices))!.SetValue(el, prices.ToList());
+    var s = new AppSettings { Country = "DE", PriceInclVat = false, PriceShowTotal = false, OnboardingCompleted = true };
+    return (el, s);
+}
+
+static Task QuarterWindows()
+{
+    var day = new DateTime(2026, 10, 17);
+    // 12:00–15:00 in quarters: expensive, then cheap from 12:45 for 3 quarters, then medium
+    var p = Quarters(day.AddHours(12), 50, 50, 50, 10, 10, 10, 30, 30, 30, 30, 30, 30);
+    Check(p.Count == 12 && p[0].Length == TimeSpan.FromMinutes(15) && p[^1].End == day.AddHours(15), "Quarters must last 15 minutes.");
+
+    var best = PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromMinutes(45));
+    Check(best is { } b && b.Start == day.AddHours(12).AddMinutes(45) && Math.Abs(b.Average - 10) < 1e-9, "The cheapest 45 minutes start at 12:45.");
+
+    // Not aligned to the hour, and a length that is not a whole number of periods
+    var odd = PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromMinutes(50));
+    Check(odd is { } o && o.Start == day.AddHours(12).AddMinutes(45) && Math.Abs(o.Average - (10 * 45 + 30 * 5) / 50.0) < 1e-9,
+        "A stretch of 50 minutes is averaged by time.");
+
+    // From the middle of the current period, the current period still counts – unless the start must be now or later
+    Check(PriceWindows.Cheapest(p, day.AddHours(12).AddMinutes(50), TimeSpan.FromMinutes(30))!.Value.Start == day.AddHours(12).AddMinutes(45),
+        "The period already begun can be the cheapest.");
+    var now = day.AddHours(12).AddMinutes(50);
+    var fromNow = PriceWindows.Cheapest(p, now, TimeSpan.FromMinutes(30), startNow: true)!.Value;
+    Check(fromNow.Start == now && Math.Abs(fromNow.Average - 10) < 1e-9, "Starting now uses the rest of the current period.");
+
+    Check(PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromHours(4)) == null, "A stretch longer than the prices has no answer.");
+    Check(PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromMinutes(45), latestEnd: day.AddHours(13))!.Value.Start == day.AddHours(12).AddMinutes(15),
+        "The latest end is respected.");
+    Check(PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromMinutes(15), cheapest: false)!.Value.Average == 50, "The most expensive stretch is found too.");
+
+    var set = PriceWindows.CheapestSet(p, day.AddHours(12), day.AddHours(15), TimeSpan.FromMinutes(60));
+    Check(set.Count == 4 && set.Take(3).All(x => x.Value == 10) && set[3].Value == 30, "The cheapest hour is the four cheapest quarters.");
+    var merged = PriceWindows.Merge(set);
+    Check(merged.Count == 1 && merged[0].Start == day.AddHours(12).AddMinutes(45) && merged[0].End == day.AddHours(13).AddMinutes(45),
+        "Quarters side by side are merged.");
+
+    // Hourly data, and a gap in the data is not stretched over
+    var hourly = PriceWindows.FromPoints(new List<(DateTime, double)> { (day, 1), (day.AddHours(1), 2), (day.AddHours(5), 3) });
+    Check(hourly[1].End == day.AddHours(2) && hourly[2].Length == TimeSpan.FromHours(1), "A gap must not make a period longer than an hour.");
+    Check(PriceWindows.Average(hourly, day.AddHours(1), day.AddHours(3)) == null, "An average across a gap has no answer.");
+    return Task.CompletedTask;
+}
+
+static Task QuarterPriceAlerts()
+{
+    var day = DateTime.Today;
+    // 40 all day, cheap 13:15–16:15 and expensive 17–20
+    var prices = Enumerable.Range(0, 96).Select(i =>
+    {
+        var t = day.AddMinutes(15 * i);
+        var cheap = t >= day.AddHours(13).AddMinutes(15) && t < day.AddHours(16).AddMinutes(15);
+        var expensive = t >= day.AddHours(17) && t < day.AddHours(20);
+        return new PricePoint(t, cheap ? 5 : expensive ? 80 : 40);
+    });
+    var (el, s) = PriceServiceWith(prices);
+    s.AlertQuietNight = false;
+    s.AlertExpensive = false;
+    s.AlertLeadMinutes = 30;
+
+    var alerts = PriceAlerts.Evaluate(el, s, day.AddHours(12).AddMinutes(50)).ToList();
+    Check(alerts.Count == 1 && alerts[0].StartsAt == day.AddHours(13).AddMinutes(15), "The cheap alert must start at the quarter-hour 13:15.");
+    Check(alerts[0].Line1.Contains("13:15") && alerts[0].Line1.Contains("16:15"), "The alert must name 13:15–16:15.");
+    s.LastCheapAlertFor = alerts[0].StartsAt;
+    Check(!PriceAlerts.Evaluate(el, s, day.AddHours(13)).Any(), "The same cheap stretch is only announced once.");
+    Check(!PriceAlerts.Evaluate(el, s, day.AddHours(12)).Any(), "No alert before the lead time.");
+
+    // The expensive alert names the quarter the expensive stretch starts at
+    s.AlertCheap = false;
+    s.AlertExpensive = true;
+    var expensive = PriceAlerts.Evaluate(el, s, day.AddHours(16).AddMinutes(40)).ToList();
+    Check(expensive.Count == 1 && expensive[0].StartsAt == day.AddHours(17) && expensive[0].Line2.Contains("20:00"), "The expensive alert must start at 17:00.");
+    return Task.CompletedTask;
+}
+
+static Task AppliancePlans()
+{
+    var day = new DateTime(2026, 10, 17);
+    // Hourly prices from 18:00 for 14 hours: cheapest 02:00–04:00
+    var values = new double[] { 40, 38, 36, 30, 25, 20, 15, 12, 5, 5, 12, 20, 30, 40 };
+    var p = PriceWindows.FromPoints(values.Select((v, i) => (day.AddHours(18 + i), v)).ToList());
+    var dishwasher = new Appliance { Name = "Dishwasher", DurationMinutes = 120, EnergyKwh = 1.0, FinishBy = 7 * 60 };
+    var now = day.AddHours(18).AddMinutes(10);
+
+    Check(AppliancePlanner.Deadline(dishwasher, now) == day.AddDays(1).AddHours(7), "Finished by 07:00 means tomorrow morning.");
+    Check(AppliancePlanner.Deadline(dishwasher, day.AddHours(5)) == day.AddHours(7), "At 05:00 there is still room before 07:00 today.");
+    Check(AppliancePlanner.Deadline(dishwasher, day.AddHours(5).AddMinutes(30)) == day.AddDays(1).AddHours(7), "Without room for a run the deadline is tomorrow.");
+
+    var plan = AppliancePlanner.Plan(dishwasher, p, now)!;
+    Check(plan.Best.Start == day.AddDays(1).AddHours(2) && plan.Best.End == day.AddDays(1).AddHours(4), "The dishwasher must start at 02:00.");
+    var unit = Countries.Find("DK")!.Unit;
+    Check(Math.Abs(plan.Cost(dishwasher, unit)!.Value - 0.05) < 1e-9, "1 kWh at 5 øre costs 0.05 kr.");
+    Check(plan.Saving(dishwasher, unit) > 0.3, "Starting at 02:00 must save compared with now.");
+
+    // A deadline before the cheapest hours moves the start earlier
+    var early = new Appliance { DurationMinutes = 60, FinishBy = 0 };
+    Check(AppliancePlanner.Plan(early, p, now)!.Best.End <= day.AddDays(1), "The deadline must be kept.");
+
+    // Plan, then cheaper prices arrive: the run moves
+    var s = new AppSettings { Appliances = { dishwasher } };
+    Check(AppliancePlanner.Toggle(s, dishwasher, p, now) && s.PlannedRuns.Count == 1, "Planning must add a run.");
+    var run = s.PlannedRuns[0];
+    var cheaper = PriceWindows.FromPoints(values.Select((v, i) => (day.AddHours(18 + i), i == 3 || i == 4 ? 1.0 : v)).ToList());
+    Check(AppliancePlanner.Replan(run, dishwasher, cheaper, now) && run.Start == day.AddHours(21), "New, cheaper prices must move the planned run.");
+    Check(!AppliancePlanner.Replan(run, dishwasher, cheaper, now), "An unchanged plan does not move.");
+    run.Started = true;
+    Check(!AppliancePlanner.Replan(run, dishwasher, p, now), "A started run never moves.");
+    Check(AppliancePlanner.Toggle(s, dishwasher, p, now) && s.PlannedRuns.Count == 0, "Planning again cancels the run.");
+
+    var clone = s.Clone();
+    Check(clone.Appliances.Count == 1 && clone.Appliances[0].FinishBy == 7 * 60 && clone.Appliances[0].Id == dishwasher.Id, "Appliances must survive cloning.");
+    return Task.CompletedTask;
+}
+
+static Task AutomationRuleChecks()
+{
+    var day = new DateTime(2026, 10, 17);
+    var overnight = new PriceAutomation { Condition = AutomationCondition.CheapestHours, Hours = 2, FromHour = 18, ToHour = 7, EntityId = "switch.car" };
+    Check(AutomationRules.Range(overnight, day.AddHours(20)) == (day.AddHours(18), day.AddDays(1).AddHours(7)), "18–07 at 20:00 is tonight.");
+    Check(AutomationRules.Range(overnight, day.AddHours(3)) == (day.AddDays(-1).AddHours(18), day.AddHours(7)), "18–07 at 03:00 began yesterday.");
+    Check(AutomationRules.Range(overnight, day.AddHours(12)) == null, "18–07 does not apply at noon.");
+    var whole = new PriceAutomation { FromHour = 0, ToHour = 24 };
+    Check(AutomationRules.Range(whole, day.AddHours(12)) == (day, day.AddDays(1)), "00–24 is the whole day.");
+
+    var values = new double[] { 40, 38, 36, 30, 25, 20, 15, 12, 5, 6, 12, 20, 30, 40 };
+    var p = PriceWindows.FromPoints(values.Select((v, i) => (day.AddHours(18 + i), v)).ToList());
+    var hourly = values.ToList();
+    Check(AutomationRules.Applies(overnight, p, hourly, day.AddDays(1).AddHours(2).AddMinutes(30)) == true, "02:00–04:00 are the cheapest 2 hours.");
+    Check(AutomationRules.Applies(overnight, p, hourly, day.AddHours(22)) == false, "22:00 is not among the cheapest hours.");
+    Check(AutomationRules.Applies(overnight, p, hourly, day.AddDays(2)) == null, "Without a price the rule is undecided.");
+    var upcoming = AutomationRules.Upcoming(overnight, p, hourly, day.AddHours(19));
+    Check(upcoming.Count == 1 && upcoming[0].Start == day.AddDays(1).AddHours(2) && upcoming[0].End == day.AddDays(1).AddHours(4), "The coming stretch is 02–04.");
+
+    var below = new PriceAutomation { Condition = AutomationCondition.PriceBelow, Threshold = 13 };
+    Check(AutomationRules.Upcoming(below, p, hourly, day.AddHours(18)).Single().Start == day.AddDays(1).AddHours(1), "Below 13 starts at 01:00.");
+
+    // Transitions: act only on change, revert only when asked
+    Check(AutomationRules.Action(overnight, true, null) == true, "A new rule that applies switches on.");
+    Check(AutomationRules.Action(overnight, false, null) == null, "A new rule that doesn't apply yet leaves the entity alone.");
+    Check(AutomationRules.Action(overnight, true, true) == null, "Nothing is sent while the rule keeps applying.");
+    Check(AutomationRules.Action(overnight, false, true) == false, "The rule switches off afterwards.");
+    var noRevert = new PriceAutomation { TurnOn = false, Revert = false };
+    Check(AutomationRules.Action(noRevert, true, false) == false && AutomationRules.Action(noRevert, false, true) == null, "A rule without revert leaves the entity alone afterwards.");
+
+    var changed = new PriceAutomation { Id = overnight.Id, Hours = 3, FromHour = 18, ToHour = 7, EntityId = "switch.car" };
+    Check(changed.Signature != overnight.Signature, "An edited rule must be applied again.");
+    var s = new AppSettings { PriceAutomations = { overnight } }.Clone();
+    Check(s.PriceAutomations.Single().Condition == AutomationCondition.CheapestHours && s.PriceAutomations[0].ToHour == 7, "Rules must survive cloning.");
+    return Task.CompletedTask;
+}
+
+static Task PriceHistoryDays()
+{
+    var folder = Path.Combine(Path.GetTempPath(), "labwidge-history-" + Guid.NewGuid().ToString("N"));
+    PriceHistory.FilePath = Path.Combine(folder, "price-history.json");
+    PriceHistory.Reset();
+    try
+    {
+        var today = new DateTime(2026, 10, 17);
+        var yesterday = today.AddDays(-1);
+        var prices = Enumerable.Range(0, 96).Select(i => new PricePoint(yesterday.AddMinutes(15 * i), i % 4))
+            .Concat(Enumerable.Range(0, 40).Select(i => new PricePoint(today.AddMinutes(15 * i), 9))).ToList();
+        Check(PriceHistory.Record(prices, (_, spot) => spot * 2, "DK:DK1", 365, today), "A whole day must be kept.");
+        var days = PriceHistory.DaysFor("DK:DK1");
+        Check(days.Count == 1 && days[0].Date == yesterday && days[0].Minutes == 15 && days[0].Price.Length == 96, "Only the whole day is kept, in quarters.");
+        Check(Math.Abs(days[0].Average - 3) < 1e-9 && days[0].Spot[1] == 1, "The price and the spot price are both kept.");
+        Check(!PriceHistory.Record(prices, (_, spot) => spot * 2, "DK:DK1", 365, today), "The same day is not saved twice.");
+        Check(PriceHistory.DaysFor("DK:DK2").Count == 0, "Price areas are kept apart.");
+        Check(PriceHistory.MonthAverage("DK:DK1", today) is { } m && Math.Abs(m - 3) < 1e-9, "The month's average comes from the kept days.");
+
+        PriceHistory.AddSaving(new SavingRecord { Start = today, Name = "Dishwasher", Saved = 1.5, Currency = "DKK" });
+        Check(PriceHistory.MonthSavings("DKK", today) == (1.5, 1), "Savings are summed per month and currency.");
+
+        PriceHistory.Reset();
+        Check(PriceHistory.DaysFor("DK:DK1").Count == 1 && PriceHistory.Data.Savings.Count == 1, "The history is read back from the file.");
+        var csv = PriceHistory.ToCsv("DK:DK1").Split('\n');
+        Check(csv[0] == "start,spot,price" && csv[1] == "2026-10-16 00:00,0,0" && csv[2] == "2026-10-16 00:15,1,2", "The CSV has one line per period.");
+
+        // Old days and savings are forgotten
+        PriceHistory.Record(new[] { new PricePoint(today, 1) }, (_, s) => s, "DK:DK1", 7, today.AddDays(30));
+        Check(PriceHistory.DaysFor("DK:DK1").Count == 0 && PriceHistory.Data.Savings.Count == 0, "Days older than the limit are removed.");
+    }
+    finally
+    {
+        PriceHistory.Reset();
+        try { Directory.Delete(folder, true); } catch (IOException) { }
+    }
+    return Task.CompletedTask;
+}
+
 
 sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> send) : HttpMessageHandler
 {

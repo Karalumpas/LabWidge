@@ -255,6 +255,7 @@ internal static partial class UiChecks
 
         SectionWindowChecks(fixture);
         SettingsScreens(s);
+        SettingsStartPages(s);
     }
 
     /// <summary>
@@ -400,6 +401,37 @@ internal static partial class UiChecks
         Console.WriteLine("PASS UI: the shortcut rail sits left of the sections with one tile per shortcut");
     }
 
+    /// <summary>The gear by a section's title opens the settings at that section's page – or the plugins page if it is switched off.</summary>
+    private static void SettingsStartPages(AppSettings settings)
+    {
+        foreach (var (key, expected) in new[]
+                 {
+                     ("price", typeof(PricePage)), ("price-appliances", typeof(AppliancesPage)), ("audio", typeof(AudioPage)),
+                     (DashboardForm.ShortcutsKey, typeof(ShortcutsPage)), ("nonsense", typeof(GeneralPage))
+                 })
+        {
+            using var window = new SettingsWindow(settings.Clone(), key);
+            window.Show();
+            Application.DoEvents();
+            var pages = (Array)window.GetType().GetField("_pages", Private)!.GetValue(window)!;
+            var index = (int)window.GetType().GetField("_index", Private)!.GetValue(window)!;
+            Check(index >= 0 && pages.GetValue(index)!.GetType() == expected, $"The settings opened for \"{key}\" show {pages.GetValue(Math.Max(0, index))?.GetType().Name}, not {expected.Name}.");
+            window.Close();
+        }
+        var off = settings.Clone();
+        off.SetPluginEnabled("audio", false);
+        using (var window = new SettingsWindow(off, "audio"))
+        {
+            window.Show();
+            Application.DoEvents();
+            var pages = (Array)window.GetType().GetField("_pages", Private)!.GetValue(window)!;
+            var index = (int)window.GetType().GetField("_index", Private)!.GetValue(window)!;
+            Check(pages.GetValue(index) is PluginsPage, "A switched-off plugin must open the plugins page.");
+            window.Close();
+        }
+        Console.WriteLine("PASS UI: the settings open at the page of the section whose gear was clicked");
+    }
+
     /// <summary>Renders every settings page in both themes, so the look can be reviewed in the CI artifact.</summary>
     private static void SettingsScreens(AppSettings settings)
     {
@@ -407,6 +439,9 @@ internal static partial class UiChecks
         {
             var s = settings.Clone();
             s.Theme = theme;
+            // An appliance and a price rule, so their editing cards are measured and shown too
+            s.Appliances = new() { new Appliance { Name = "Opvaskemaskine", DurationMinutes = 150, EnergyKwh = 1.1, FinishBy = 7 * 60, HomeAssistantEntity = "switch.opvask" } };
+            s.PriceAutomations = new() { new PriceAutomation { Name = "Elbil om natten", EntityId = "switch.lader", Hours = 4, FromHour = 18, ToHour = 7 } };
             using var window = new SettingsWindow(s);
             window.Show();
             Application.DoEvents();
@@ -700,7 +735,9 @@ internal static partial class UiChecks
             HomeAssistantUrl = "http://example.test", HomeAssistantEntities = new[] { "light.room" },
             CloudflareEnabled = true, ZoneId = "test", ProxmoxEnabled = true,
             ProxmoxUrl = "https://example.test", ProxmoxTokenId = "test@pve!widget",
-            AudioDeviceIds = new[] { "speaker", "headset", "display" }, PriceShowTotal = false
+            AudioDeviceIds = new[] { "speaker", "headset", "display" }, PriceShowTotal = false,
+            Appliances = new() { new Appliance { Name = "Opvaskemaskine", DurationMinutes = 150, EnergyKwh = 1.1 } },
+            PriceAutomations = new() { new PriceAutomation { Name = "Varmtvandsbeholder", EntityId = "switch.vvb", Hours = 3 } }
         };
         public DashboardForm Widget { get; }
         public AudioService Audio { get; }
@@ -712,6 +749,7 @@ internal static partial class UiChecks
             Set(price, "Prices", Enumerable.Range(0, 192).Select(i => new PricePoint(DateTime.Today.AddMinutes(i * 15), 65 + 35 * Math.Sin(i / 8.0))).ToList());
             Set(price, "LastFetch", DateTime.Now);
             Set(price, "LastSuccessfulFetch", DateTime.Now);
+            ElectricityPriceService.Shared = price;
             var audio = Audio = new AudioService();
             Set(audio, "Devices", new List<AudioDevice>
             {

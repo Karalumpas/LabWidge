@@ -345,6 +345,8 @@ internal sealed partial class DashboardForm
             _settings.WidgetWidth = _settings.WidgetHeight = null;
             _saveSettings(); FitSize(); Invalidate();
         });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(L.T("Settings …", "Indstillinger …"), null, (_, _) => SettingsRequested(key));
         menu.Show(this, point);
     }
 

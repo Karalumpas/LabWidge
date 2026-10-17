@@ -41,8 +41,14 @@ It is small, fast and private – no account, no ads and no telemetry.
 - Each active plugin has its own settings page, compact summary, expanded section and detachable detail window.
 
 **⚡ Electricity price – save money without thinking about it**
-- The price right now, coloured green, yellow or red, with a chart for today and tomorrow and the **cheapest 3 hours**.
+- The price right now, coloured green, yellow or red, with a chart for today and tomorrow and the **cheapest 3 hours** –
+  in quarter-hours where the market has them, so a cheap stretch can start at 13:15.
 - **Notifications** before the cheap hours start and before power gets expensive – time the dishwasher, the car or the heat pump.
+- **Appliances**: tell LabWidge how long the dishwasher, washing machine or car takes, and it shows the cheapest time to start it,
+  what it costs and what you save. Click it to plan the run – LabWidge reminds you, or switches it on through Home Assistant.
+- **Home Assistant rules**: switch the water heater on in the cheapest hours, charge the car overnight, or switch something off
+  when power is expensive.
+- **History**: the last 30 days, monthly averages and what your planned runs saved – kept on your PC and exportable as CSV.
 - Day-ahead spot prices for **14 European countries**. In Denmark it is your real total price: grid tariff (found automatically
   from your grid company), taxes, your supplier's add-on and VAT. Elsewhere: spot price plus your own add-on and VAT.
 - The tray icon's bolt changes colour with the price, so you can see it even when the widget is hidden.

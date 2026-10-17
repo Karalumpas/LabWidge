@@ -81,7 +81,7 @@ internal sealed class ToggleSwitch : CheckBox
 }
 
 /// <summary>A rounded card that groups the settings of one section; its first control is the section title.</summary>
-internal sealed class Card : FlowLayoutPanel
+internal class Card : FlowLayoutPanel
 {
     public const int Inset = 16;
 

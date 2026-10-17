@@ -115,7 +115,9 @@ internal sealed class PricePanel : PopupPanel
         y += U(26);
 
         // ---- Chart ----
-        y = DrawChart(g, hours, values, now, x, y, w);
+        var periods = _el.ConsumerPeriods(s);
+        var cheapest3 = PriceWindows.Cheapest(periods, now, TimeSpan.FromHours(3));
+        y = DrawChart(g, periods, values, cheapest3, now, x, y, w);
 
         // ---- Key figures ----
         y = Divider(g, x, y + U(4), w);
@@ -132,11 +134,13 @@ internal sealed class PricePanel : PopupPanel
         // ---- Periods ahead ----
         y = Divider(g, x, y, w);
         y = Subheading(g, L.T("CHEAPEST AND MOST EXPENSIVE AHEAD", "BILLIGST OG DYREST FREMOVER"), x, y);
-        var curHour = now.Date.AddHours(now.Hour);
-        var future = hours.Where(h => h.Hour >= curHour).ToList();
         foreach (var n in new[] { 1, 3, 5 })
-            y = PeriodRow(g, Best(future, n, cheapest: true), n, L.T($"Cheapest {n} h", $"Billigste {n} t"), P.Green, now, x, y, w);
-        y = PeriodRow(g, Best(future, 3, cheapest: false), 3, L.T("Most expensive 3 h", "Dyreste 3 t"), P.Red, now, x, y, w);
+            y = PeriodRow(g, n == 3 ? cheapest3 : PriceWindows.Cheapest(periods, now, TimeSpan.FromHours(n)), L.T($"Cheapest {n} h", $"Billigste {n} t"), P.Green, now, x, y, w);
+        y = PeriodRow(g, PriceWindows.Cheapest(periods, now, TimeSpan.FromHours(3), cheapest: false), L.T("Most expensive 3 h", "Dyreste 3 t"), P.Red, now, x, y, w);
+
+        y = DrawAppliances(g, periods, now, x, y, w);
+        y = DrawRules(g, periods, values, now, x, y, w);
+        y = DrawHistory(g, now, x, y, w);
 
         if (s.PriceShowTotal && _el.TariffError != null)
             y = Wrapped(g, L.T("⚠ Tariffs could not be fetched – the price may be incomplete.", "⚠ Tariffer kunne ikke hentes – prisen kan være ufuldstændig."), F.Small, P.Amber, x, y + U(4), w);
@@ -150,11 +154,12 @@ internal sealed class PricePanel : PopupPanel
         _ => L.T("Expensive", "Dyr")
     };
 
-    private float DrawChart(Graphics g, IReadOnlyList<(DateTime Hour, double Value)> hours, List<double> values, DateTime now, float x, float y, float w)
+    private float DrawChart(Graphics g, IReadOnlyList<PricePeriod> periods, List<double> values, PriceWindow? cheapest, DateTime now, float x, float y, float w)
     {
         var labelW = U(34);
         var chart = new RectangleF(x + labelW, y + U(20), w - labelW, U(170));
-        double lo = Math.Min(0, values.Min()), hi = Math.Max(values.Max(), lo + 1);
+        if (periods.Count == 0) return chart.Bottom + U(26);
+        double lo = Math.Min(0, periods.Min(p => p.Value)), hi = Math.Max(periods.Max(p => p.Value), lo + 1);
         var step = NiceStep((hi - lo) / 4);
         lo = Math.Floor(lo / step) * step;
         hi = Math.Ceiling(hi / step) * step;
@@ -171,45 +176,192 @@ internal sealed class PricePanel : PopupPanel
             }
         }
 
-        var n = hours.Count;
-        var slot = chart.Width / n;
-        var gap = slot > U(6) ? U(2) : U(0.8f);
-        var curHour = now.Date.AddHours(now.Hour);
-        var y0 = Y(0);
-        for (var i = 0; i < n; i++)
-        {
-            var (hour, value) = hours[i];
-            var top = Y(value);
-            var rect = new RectangleF(chart.X + i * slot + gap / 2, Math.Min(top, y0), Math.Max(1f, slot - gap), Math.Max(U(2), Math.Abs(y0 - top)));
-            var hovered = new RectangleF(chart.X + i * slot, chart.Y, slot, chart.Height).Contains(Mouse);
-            var alpha = hovered ? 255 : hour < curHour ? 80 : hour == curHour ? 255 : 210;
-            FillRound(g, rect, Color.FromArgb(alpha, P.Level(ElectricityPriceService.Level(value, values))), Math.Min(U(2), rect.Width / 2));
-            AddHit(new RectangleF(chart.X + i * slot, chart.Y, slot, chart.Height + U(20)),
-                hour.ToString(L.T("dddd d MMM", "dddd d. MMM"), Fmt) + L.T(" ", " kl. ") + $"{hour:HH}–{hour.AddHours(1):HH}\n{P0(value)} {Unit.PerKwh}  ·  {LevelText(ElectricityPriceService.Level(value, values)).ToLower(Fmt)}");
+        // The bars are placed by time, so quarter-hours and whole hours share the same axis
+        var first = periods[0].Start;
+        var total = (float)(periods[^1].End - first).TotalMinutes;
+        float X(DateTime t) => chart.X + (float)(t - first).TotalMinutes / total * chart.Width;
+        var hourWidth = X(first.AddHours(1)) - chart.X;
+        var quarter = periods[0].Length < TimeSpan.FromHours(1);
+        var gap = quarter ? (hourWidth > U(16) ? U(0.8f) : U(0.3f)) : (hourWidth > U(6) ? U(2) : U(0.8f));
 
-            if (hour.Hour % 3 == 0 && !(hour.Hour == 3 && hour.Date > now.Date)) // "tomorrow" needs the room of 03
+        // The cheapest 3 hours behind the bars
+        if (cheapest is { } best)
+        {
+            var band = new RectangleF(X(best.Start), chart.Y - U(4), X(best.End) - X(best.Start), chart.Height + U(4));
+            FillRound(g, band, Color.FromArgb(P.IsDark ? 34 : 26, P.Green), U(3));
+        }
+
+        var y0 = Y(0);
+        foreach (var p in periods)
+        {
+            float left = X(p.Start), right = X(p.End);
+            var top = Y(p.Value);
+            var rect = new RectangleF(left + gap / 2, Math.Min(top, y0), Math.Max(1f, right - left - gap), Math.Max(U(2), Math.Abs(y0 - top)));
+            var hovered = new RectangleF(left, chart.Y, right - left, chart.Height).Contains(Mouse);
+            var alpha = hovered ? 255 : p.End <= now ? 80 : p.Start <= now ? 255 : 210;
+            var level = ElectricityPriceService.Level(p.Value, values);
+            FillRound(g, rect, Color.FromArgb(alpha, P.Level(level)), Math.Min(U(2), rect.Width / 2));
+            var inCheapest = cheapest is { } c && p.Start >= c.Start && p.End <= c.End;
+            AddHit(new RectangleF(left, chart.Y, right - left, chart.Height + U(20)),
+                p.Start.ToString(L.T("dddd d MMM", "dddd d. MMM"), Fmt) + L.T(" ", " kl. ") + $"{p.Start:HH:mm}–{p.End:HH:mm}\n{P0(p.Value)} {Unit.PerKwh}  ·  {LevelText(level).ToLower(Fmt)}"
+                + (inCheapest ? L.T("\nIn the cheapest 3 hours", "\nI de billigste 3 timer") : ""));
+
+            if (p.Start.Minute == 0 && p.Start.Hour % 3 == 0 && !(p.Start.Hour == 3 && p.Start.Date > now.Date)) // "tomorrow" needs the room of 03
             {
-                var tomorrow = hour.Hour == 0 && i > 0;
-                DrawText(g, tomorrow ? L.T("tomorrow", "i morgen") : hour.ToString("HH"), F.Tiny, tomorrow ? P.TextSecondary : P.TextDim, chart.X + i * slot, chart.Bottom + U(5));
+                var tomorrow = p.Start.Hour == 0 && p.Start > first;
+                DrawText(g, tomorrow ? L.T("tomorrow", "i morgen") : p.Start.ToString("HH"), F.Tiny, tomorrow ? P.TextSecondary : P.TextDim, left, chart.Bottom + U(5));
                 if (tomorrow)
                 {
                     using var dash = new Pen(Color.FromArgb(90, P.TextSecondary), Math.Max(1f, DpiScale)) { DashStyle = DashStyle.Dash };
-                    g.DrawLine(dash, chart.X + i * slot - gap / 2, chart.Y - U(2), chart.X + i * slot - gap / 2, chart.Bottom + U(18));
+                    g.DrawLine(dash, left - gap / 2, chart.Y - U(2), left - gap / 2, chart.Bottom + U(18));
                 }
             }
         }
 
         // Now
-        var nowIndex = hours.ToList().FindIndex(h => h.Hour == curHour);
-        if (nowIndex >= 0)
+        if (now >= first && now < periods[^1].End)
         {
-            var nx = chart.X + (nowIndex + now.Minute / 60f) * slot;
+            var nx = X(now);
             using var pen = new Pen(P.TextPrimary, Math.Max(1f, U(1.3f)));
             g.DrawLine(pen, nx, chart.Y - U(4), nx, chart.Bottom);
             DrawText(g, L.T("now", "nu"), F.Tiny, P.TextPrimary, nx + U(3), chart.Y - U(6));
         }
         DrawText(g, Unit.Symbol, F.Tiny, P.TextDim, x, chart.Y - U(16));
         return chart.Bottom + U(26);
+    }
+
+    // ---- Appliances, rules and history ----
+
+    private float DrawAppliances(Graphics g, IReadOnlyList<PricePeriod> periods, DateTime now, float x, float y, float w)
+    {
+        var s = Settings;
+        if (s.Appliances.Count == 0) return y;
+        y = Divider(g, x, y + U(4), w);
+        y = Subheading(g, L.T("APPLIANCES – CHEAPEST START", "APPARATER – BILLIGSTE START"), x, y);
+        foreach (var a in s.Appliances)
+        {
+            var run = s.PlannedRuns.FirstOrDefault(r => r.ApplianceId == a.Id);
+            var plan = run == null ? AppliancePlanner.Plan(a, periods, now) : null;
+            DrawText(g, Fit(g, a.Name, F.Body, w * 0.4f), F.Body, P.TextSecondary, x, y);
+            DrawText(g, AppliancePlanner.FormatDuration(a.DurationMinutes) + (a.EnergyKwh > 0 ? $"  ·  {a.EnergyKwh.ToString("0.#", Fmt)} kWh" : ""),
+                F.Small, P.TextDim, x, y + U(17));
+
+            // The button on the right: plan or cancel
+            var button = run == null ? L.T("Plan", "Planlæg") : run.Started ? "" : L.T("Cancel", "Annullér");
+            var bw = 0f;
+            if (button.Length > 0 && (run != null || plan != null))
+            {
+                var size = Measure(g, button, F.SmallBold);
+                var rect = new RectangleF(x + w - size.Width - U(16), y + U(4), size.Width + U(16), U(24));
+                var over = rect.Contains(Mouse);
+                FillRound(g, rect, run == null ? (over ? P.Blue : Color.FromArgb(P.IsDark ? 60 : 40, P.Blue)) : (over ? P.Track : P.HoverBg), U(5));
+                DrawText(g, button, F.SmallBold, run == null && over ? Color.White : run == null ? P.Blue : P.TextSecondary, rect.X + U(8), rect.Y + U(4));
+                var appliance = a;
+                AddHit(rect, run == null
+                        ? L.T("Start at the cheapest time – LabWidge reminds you", "Start på det billigste tidspunkt – LabWidge minder dig om det")
+                          + (!string.IsNullOrWhiteSpace(a.HomeAssistantEntity) && s.HasHomeAssistantConnection ? L.T($" and switches {a.HomeAssistantEntity} on", $" og tænder {a.HomeAssistantEntity}") : "")
+                        : L.T("Cancel the planned run", "Annullér den planlagte kørsel"),
+                    () => { AppliancePlanner.Toggle(Settings, appliance, _el.ConsumerPeriods(Settings), DateTime.Now); RequestRedraw(); });
+                bw = rect.Width + U(12);
+            }
+
+            string line1, line2 = "";
+            var color = P.TextPrimary;
+            if (run != null)
+            {
+                var window = new PriceWindow(run.Start, run.End, run.Average);
+                line1 = run.Started ? L.T($"Running until {run.End:HH:mm}", $"Kører til kl. {run.End:HH:mm}") : L.T("Planned ", "Planlagt ") + PriceWindows.Describe(window, now);
+                color = P.Blue;
+                if (a.EnergyKwh > 0) line2 = L.T("about ", "ca. ") + Money.Format(run.Average * a.EnergyKwh / Unit.PerMajor, Unit);
+            }
+            else if (plan != null)
+            {
+                line1 = plan.StartsNow(now) ? L.T("Start now", "Start nu") : PriceWindows.Describe(plan.Best, now);
+                if (plan.StartsNow(now)) color = P.Green;
+                var cost = plan.Cost(a, Unit);
+                var saving = plan.Saving(a, Unit);
+                line2 = $"{P0(plan.Best.Average)} {Unit.Symbol}"
+                        + (cost is { } c ? "  ·  " + Money.Format(c, Unit) : "")
+                        + (saving is > 0.005 ? L.T($"  ·  saves {Money.Format(saving.Value, Unit)}", $"  ·  sparer {Money.Format(saving.Value, Unit)}") : "");
+            }
+            else
+            {
+                line1 = L.T("Waiting for prices", "Venter på priser");
+                color = P.TextDim;
+            }
+            DrawText(g, line1, F.BodyBold, color, x + w - bw, y, right: true);
+            if (line2.Length > 0) DrawText(g, line2, F.Small, P.TextSecondary, x + w - bw, y + U(17), right: true);
+            y += U(40);
+        }
+        return y;
+    }
+
+    private float DrawRules(Graphics g, IReadOnlyList<PricePeriod> periods, List<double> values, DateTime now, float x, float y, float w)
+    {
+        var s = Settings;
+        var rules = s.PriceAutomations.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.EntityId)).ToList();
+        if (rules.Count == 0) return y;
+        y = Divider(g, x, y + U(4), w);
+        y = Subheading(g, L.T("HOME ASSISTANT RULES", "HOME ASSISTANT-REGLER"), x, y);
+        if (!s.HasHomeAssistantConnection)
+            return Wrapped(g, L.T("Connect Home Assistant under Settings → Plugins to run the rules.", "Forbind Home Assistant under Indstillinger → Plugins for at køre reglerne."), F.Small, P.Amber, x, y, w);
+        foreach (var rule in rules)
+        {
+            var applies = AutomationRules.Applies(rule, periods, values, now);
+            var next = AutomationRules.Upcoming(rule, periods, values, now).FirstOrDefault(u => u.Start > now);
+            DrawText(g, Fit(g, rule.Name.Length > 0 ? rule.Name : rule.EntityId, F.Body, w * 0.55f), F.Body, P.TextSecondary, x, y);
+            DrawText(g, Fit(g, AutomationRules.Describe(rule, Unit), F.Small, w * 0.55f), F.Small, P.TextDim, x, y + U(17));
+            var state = applies == true
+                ? (rule.TurnOn ? L.T("On now", "Tændt nu") : L.T("Off now", "Slukket nu"))
+                : L.T("Waiting", "Venter");
+            DrawText(g, state, F.BodyBold, applies == true ? P.Green : P.TextSecondary, x + w, y, right: true);
+            if (next.End > next.Start)
+                DrawText(g, L.T("next ", "næste ") + PriceWindows.Describe(next, now), F.Small, P.TextSecondary, x + w, y + U(17), right: true);
+            AddHit(new RectangleF(x, y - U(2), w, U(38)), $"{rule.EntityId}\n{AutomationRules.Describe(rule, Unit)}"
+                + (rule.Revert ? L.T("\nDoes the opposite afterwards", "\nGør det modsatte bagefter") : ""));
+            y += U(40);
+        }
+        return y;
+    }
+
+    private float DrawHistory(Graphics g, DateTime now, float x, float y, float w)
+    {
+        var s = Settings;
+        if (!s.PriceHistoryEnabled || _el.FetchedArea.Length == 0) return y;
+        var days = PriceHistory.DaysFor(_el.FetchedArea).Where(d => d.Date > now.Date.AddDays(-30)).ToList();
+        if (days.Count < 2) return y;
+
+        y = Divider(g, x, y + U(4), w);
+        y = Subheading(g, L.T("THE LAST 30 DAYS", "DE SENESTE 30 DAGE"), x, y);
+
+        // A bar per day with its average price
+        var chart = new RectangleF(x, y + U(2), w, U(46));
+        var max = Math.Max(1, days.Max(d => d.Average));
+        var slot = chart.Width / 30;
+        var all = days.Select(d => d.Average).ToList();
+        foreach (var d in days)
+        {
+            var i = 29 - (int)(now.Date - d.Date).TotalDays;
+            if (i < 0 || i > 29) continue;
+            var h = Math.Max(U(2), (float)(Math.Max(0, d.Average) / max) * chart.Height);
+            var rect = new RectangleF(chart.X + i * slot + U(1), chart.Bottom - h, Math.Max(1f, slot - U(2)), h);
+            FillRound(g, rect, Color.FromArgb(d.Date == now.Date ? 255 : 190, P.Level(ElectricityPriceService.Level(d.Average, all))), U(1.5f));
+            AddHit(new RectangleF(chart.X + i * slot, chart.Y, slot, chart.Height),
+                d.Date.ToString(L.T("dddd d MMM", "dddd d. MMM"), Fmt) + L.T($"\naverage {P0(d.Average)} {Unit.PerKwh}", $"\ngennemsnit {P0(d.Average)} {Unit.PerKwh}")
+                + L.T($"\nlowest {P0(d.Min)} · highest {P0(d.Max)}", $"\nlaveste {P0(d.Min)} · højeste {P0(d.Max)}"));
+        }
+        y = chart.Bottom + U(10);
+
+        if (PriceHistory.MonthAverage(_el.FetchedArea, now) is { } month)
+            y = KeyValue(g, L.T("Average this month", "Gennemsnit denne måned"), $"{P0(month)} {Unit.Symbol}", x, y, w);
+        if (PriceHistory.MonthAverage(_el.FetchedArea, now.AddMonths(-1)) is { } previous)
+            y = KeyValue(g, L.T("Average last month", "Gennemsnit sidste måned"), $"{P0(previous)} {Unit.Symbol}", x, y, w);
+        var (saved, runs) = PriceHistory.MonthSavings(Unit.Currency, now);
+        if (runs > 0)
+            y = KeyValue(g, L.T("Saved with planned runs", "Sparet med planlagte kørsler"), Money.Format(saved, Unit), x, y, w, P.Green,
+                L.T($"{runs} runs this month, compared with starting each one when it was planned",
+                    $"{runs} kørsler denne måned, sammenlignet med at starte hver af dem, da den blev planlagt"));
+        return y;
     }
 
     private static double NiceStep(double raw)
@@ -230,21 +382,7 @@ internal sealed class PricePanel : PopupPanel
         KeyValue(g, L.T("Highest", "Højeste"), $"{P0(values.Max())} {Unit.Symbol}", x, y + U(42), w, P.Red);
     }
 
-    /// <summary>The cheapest (or most expensive) run of <paramref name="n"/> whole hours.</summary>
-    private static (DateTime Start, double Average)? Best(List<(DateTime Hour, double Value)> hours, int n, bool cheapest)
-    {
-        if (hours.Count < n) return null;
-        (DateTime, double)? best = null;
-        for (var i = 0; i <= hours.Count - n; i++)
-        {
-            if (hours[i + n - 1].Hour - hours[i].Hour != TimeSpan.FromHours(n - 1)) continue; // a gap in the data
-            var avg = hours.Skip(i).Take(n).Average(h => h.Value);
-            if (best == null || (cheapest ? avg < best.Value.Item2 : avg > best.Value.Item2)) best = (hours[i].Hour, avg);
-        }
-        return best;
-    }
-
-    private float PeriodRow(Graphics g, (DateTime Start, double Average)? period, int n, string label, Color color, DateTime now, float x, float y, float w)
+    private float PeriodRow(Graphics g, PriceWindow? period, string label, Color color, DateTime now, float x, float y, float w)
     {
         DrawText(g, label, F.Body, P.TextSecondary, x, y);
         if (period is not { } p)
@@ -252,8 +390,7 @@ internal sealed class PricePanel : PopupPanel
             DrawText(g, "–", F.Body, P.TextDim, x + w, y, right: true);
             return y + U(22);
         }
-        var day = p.Start.Date == now.Date ? L.T("today", "i dag") : L.T("tomorrow", "i morgen");
-        var when = L.T($"{day} {p.Start:HH}–{p.Start.AddHours(n):HH}", $"{day} kl. {p.Start:HH}–{p.Start.AddHours(n):HH}");
+        var when = PriceWindows.Describe(p, now);
         var starts = p.Start - now;
         var soon = starts > TimeSpan.Zero && starts < TimeSpan.FromHours(12)
             ? L.T($"  ·  in {(int)starts.TotalHours} h {starts.Minutes} min", $"  ·  om {(int)starts.TotalHours} t {starts.Minutes} min")

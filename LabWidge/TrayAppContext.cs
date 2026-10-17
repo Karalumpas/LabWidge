@@ -39,6 +39,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly Dictionary<string, string> _tunnelStatus = new();
     private readonly DashboardForm _dashboard;
     private readonly PluginRuntime _plugins = new();
+    private readonly PriceActionRunner _priceActions;
 
     private AppSettings _settings;
     private string? _lastIp;
@@ -140,6 +141,9 @@ internal sealed class TrayAppContext : ApplicationContext
             () => _lastIp, BuildCloudflareWidgetStatus, () => RefreshCloudflareAsync(), _menu,
             () => (_lastSuccessfulIpUpdate, _lastError));
 
+        _dashboard.SettingsRequested = key => OpenSettings(key);
+        ElectricityPriceService.Shared = _prices;
+
         _cloudflare.Updated += () =>
         {
             CheckTunnelChanges();
@@ -150,10 +154,18 @@ internal sealed class TrayAppContext : ApplicationContext
         // Called from the TLS handshake in the background; saved on the UI thread
         _proxmox.CertificatePinned += () => _ui?.Post(_ => SettingsStore.Save(_settings), null);
 
+        _priceActions = new PriceActionRunner(_prices, _homeAssistant, () => _settings, () => SettingsStore.Save(_settings),
+            (tag, title, line1, line2) => ToastHelper.Show(tag, title, line1, line2,
+                new (string, Action)[] { (L.T("Show widget", "Vis widget"), ShowWidgetFromToast) }, ShowWidgetFromToast,
+                silent: false, expireAfter: TimeSpan.FromHours(3)));
+        AppliancePlanner.RunsChanged += () => { SettingsStore.Save(_settings); _ = _priceActions.TickAsync(); };
+
         _prices.Updated += () =>
         {
             ApplyUiState();
+            RecordPriceHistory();
             CheckPriceAlerts();
+            _ = _priceActions.TickAsync();
         };
 
         // The first version check runs shortly after start, then once a day
@@ -166,7 +178,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _updateTimer.Start();
 
         var pluginServices = _dashboard.Services;
-        pluginServices.PriceTick = () => { ApplyUiState(); CheckPriceAlerts(); };
+        pluginServices.PriceTick = () => { ApplyUiState(); CheckPriceAlerts(); _ = _priceActions.TickAsync(); };
         pluginServices.RefreshIp = ct => UpdateIpAsync(manual: false, ct);
         pluginServices.CheckServices = CheckServicesAsync;
         pluginServices.RefreshCloudflare = ct => RefreshCloudflareAsync(ct, manual: false);
@@ -379,14 +391,17 @@ internal sealed class TrayAppContext : ApplicationContext
 
     // ---------- Settings and setup guide ----------
 
-    private void OpenSettings()
+    private void OpenSettings() => OpenSettings(null);
+
+    /// <summary>Opens the settings, at the page of the plugin with <paramref name="key"/> if one is given.</summary>
+    private void OpenSettings(string? key)
     {
         if (_dialogOpen) return;
         _dialogOpen = true;
         bool runWizard;
         try
         {
-            using var form = new SettingsWindow(_settings);
+            using var form = new SettingsWindow(_settings, key);
             var result = form.ShowDialog();
             runWizard = form.RunOnboardingRequested;
             if (result == DialogResult.OK) ApplyNewSettings(form.Settings);
@@ -444,6 +459,11 @@ internal sealed class TrayAppContext : ApplicationContext
             updated.SectionWindows.Remove(key);
         }
         updated.ForgetWindows = Array.Empty<string>();
+        // Planned runs and the state of the price rules change in the background while the settings are open
+        updated.PlannedRuns = old.PlannedRuns.Where(r => updated.Appliances.Any(a => a.Id == r.ApplianceId)).ToList();
+        updated.AutomationStates = old.AutomationStates;
+        updated.LastCheapAlertFor = old.LastCheapAlertFor;
+        updated.LastExpensiveAlertFor = old.LastExpensiveAlertFor;
         _settings = updated;
         SettingsStore.Save(_settings);
 
@@ -558,17 +578,8 @@ internal sealed class TrayAppContext : ApplicationContext
             };
             lines.Add($"⚡ {_settings.PriceUnit.Format(price, Fmt)} {_settings.PriceUnit.PerKwh} ({level})");
 
-            var curHour = now.Date.AddHours(now.Hour);
-            var future = hours.Where(h => h.Hour >= curHour).ToList();
-            if (future.Count >= 3)
-            {
-                var best = Enumerable.Range(0, future.Count - 2)
-                    .OrderBy(i => future[i].Value + future[i + 1].Value + future[i + 2].Value)
-                    .First();
-                var start = future[best].Hour;
-                var day = start.Date == now.Date ? L.T("today", "i dag") : L.T("tomorrow", "i morgen");
-                lines.Add(L.T($"Cheapest {day} {start:HH}–{start.AddHours(3):HH}", $"Billigst {day} kl. {start:HH}–{start.AddHours(3):HH}"));
-            }
+            if (PriceWindows.Cheapest(_prices.ConsumerPeriods(_settings), now, TimeSpan.FromHours(3)) is { } best)
+                lines.Add(L.T("Cheapest 3 h ", "Billigste 3 t ") + PriceWindows.Describe(best, now));
         }
 
         var ip = _lastError != null
@@ -816,6 +827,13 @@ internal sealed class TrayAppContext : ApplicationContext
     }
 
     // ---------- Price alerts ----------
+
+    private void RecordPriceHistory()
+    {
+        if (!_settings.PriceHistoryEnabled || !_settings.PriceEnabled || _prices.FetchedArea.Length == 0) return;
+        PriceHistory.Record(_prices.Prices, (t, spot) => _prices.Consumer(t, spot, _settings), _prices.FetchedArea,
+            _settings.PriceHistoryDays, DateTime.Today);
+    }
 
     private void CheckPriceAlerts()
     {

@@ -186,6 +186,9 @@ internal abstract class SettingsPage : UserControl
 
     private static bool IsHeading(Control c) => c is Label l && l.Font.Size >= 14;
 
+    /// <summary>Ends the current card, so the next controls start outside it (e.g. a caption over a group of cards).</summary>
+    protected void EndCard() => _card = null;
+
     public abstract void LoadFrom(AppSettings s);
 
     /// <summary>Writes the values to the settings. Returns an error text if something is missing.</summary>
@@ -194,6 +197,10 @@ internal abstract class SettingsPage : UserControl
     /// <summary>Called when the page is shown for the first time (e.g. to fetch data).</summary>
     public virtual Task OnFirstShownAsync() => Task.CompletedTask;
     public virtual void UsePluginActivation() { }
+
+    /// <summary>Asks the settings window to show another page: a plugin's key, or "plugins".</summary>
+    public event Action<string>? NavigateRequested;
+    protected void Navigate(string key) => NavigateRequested?.Invoke(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -559,28 +566,32 @@ internal sealed class PricePage : SettingsPage
 
 internal sealed class NotificationsPage : SettingsPage
 {
-    private readonly CheckBox _cheap = Ui.Check(L.T("When the cheapest 3 hours are about to start", "Når de billigste 3 timer snart starter"));
-    private readonly CheckBox _expensive = Ui.Check(L.T("When power is about to get expensive", "Når strømmen snart bliver dyr"));
-    private readonly NumericUpDown _lead = new() { Width = 70, Minimum = 5, Maximum = 240, Increment = 5 };
-    private readonly CheckBox _quiet = Ui.Check(L.T("No price messages at night (23–07)", "Ingen prisbeskeder om natten (kl. 23–07)"));
+    private readonly PriceAlertControls? _price;
     private readonly CheckBox _ipChange = Ui.Check(L.T("When my external IP address changes", "Når min eksterne IP-adresse skifter"));
     private readonly CheckBox _cfError = Ui.Check(L.T("When the Cloudflare update fails", "Når Cloudflare-opdateringen fejler"));
     private readonly CheckBox _tunnelDown = Ui.Check(L.T("When a Cloudflare Tunnel goes down", "Når en Cloudflare Tunnel går ned"));
     private readonly CheckBox _serviceDown = Ui.Check(L.T("When a service behind a tunnel stops responding", "Når en tjeneste bag en tunnel holder op med at svare"));
 
     public override string Title => L.T("Notifications", "Notifikationer");
-    public override string Glyph => "\uEA8F";
+    public override string Glyph => "";
 
-    public NotificationsPage()
+    /// <param name="withPriceAlerts">The setup guide asks about price alerts here; the settings have them under Electricity.</param>
+    public NotificationsPage(bool withPriceAlerts = false)
     {
         Add(Ui.Heading(L.T("Notifications", "Notifikationer")),
-            Ui.Help(L.T("Messages are shown as Windows notifications with buttons to open the widget.", "Beskederne vises som Windows-notifikationer med knapper til at åbne widgetten.")),
-            Ui.Section(L.T("Price alerts", "Prisalarmer")),
-            _cheap,
-            _expensive,
-            Ui.Row(L.T("Notify", "Send besked"), _lead, Ui.Inline(L.T("minutes before", "minutter før"))),
-            _quiet,
-            Ui.Section(L.T("Network", "Netværk")),
+            Ui.Help(L.T("Messages are shown as Windows notifications with buttons to open the widget.", "Beskederne vises som Windows-notifikationer med knapper til at åbne widgetten.")));
+        if (withPriceAlerts)
+        {
+            _price = new PriceAlertControls();
+            Add(_price.Controls(detailed: false));
+        }
+        else
+        {
+            var link = new LinkLabel { Text = L.T("Price alerts are under Electricity → Price alerts", "Prisalarmer finder du under Elpris → Prisalarmer"), AutoSize = true };
+            link.LinkClicked += (_, _) => Navigate("price-alerts");
+            Add(Ui.Section(L.T("Price alerts", "Prisalarmer")), link);
+        }
+        Add(Ui.Section(L.T("Network", "Netværk")),
             _ipChange,
             _cfError,
             _tunnelDown,
@@ -589,10 +600,7 @@ internal sealed class NotificationsPage : SettingsPage
 
     public override void LoadFrom(AppSettings s)
     {
-        _cheap.Checked = s.AlertCheap;
-        _expensive.Checked = s.AlertExpensive;
-        _lead.Value = Math.Clamp(s.AlertLeadMinutes, 5, 240);
-        _quiet.Checked = s.AlertQuietNight;
+        _price?.LoadFrom(s);
         _ipChange.Checked = s.NotifyIpChange;
         _cfError.Checked = s.NotifyCloudflareError;
         _tunnelDown.Checked = s.NotifyTunnelDown;
@@ -601,10 +609,7 @@ internal sealed class NotificationsPage : SettingsPage
 
     public override string? SaveTo(AppSettings s)
     {
-        s.AlertCheap = _cheap.Checked;
-        s.AlertExpensive = _expensive.Checked;
-        s.AlertLeadMinutes = (int)_lead.Value;
-        s.AlertQuietNight = _quiet.Checked;
+        _price?.SaveTo(s);
         s.NotifyIpChange = _ipChange.Checked;
         s.NotifyCloudflareError = _cfError.Checked;
         s.NotifyTunnelDown = _tunnelDown.Checked;

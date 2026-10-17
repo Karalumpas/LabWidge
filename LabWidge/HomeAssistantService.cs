@@ -187,6 +187,30 @@ internal sealed class HomeAssistantService
         }
     }
 
+    /// <summary>
+    /// Switches an entity on or off for a price rule or a planned run (a script runs when switched on).
+    /// Throws when Home Assistant can't be reached or refuses.
+    /// </summary>
+    public async Task SetStateAsync(string entityId, bool on, AppSettings settings, CancellationToken cancel = default)
+    {
+        var token = CredentialStore.ReadHomeAssistantToken();
+        if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(settings.HomeAssistantUrl))
+            throw new InvalidOperationException(L.T("Home Assistant is not set up.", "Home Assistant er ikke sat op."));
+
+        var baseUrl = Normalize(settings.HomeAssistantUrl);
+        var domain = entityId.Split('.')[0];
+        using (var request = Authorized(HttpMethod.Post, $"{baseUrl}/api/services/{domain}/{(on ? "turn_on" : "turn_off")}", token))
+        {
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new Dictionary<string, string> { ["entity_id"] = entityId }),
+                Encoding.UTF8, "application/json");
+            using var response = await _http.SendAsync(request, cancel);
+            response.EnsureSuccessStatusCode();
+        }
+        Logger.Info($"Home Assistant: {entityId} switched {(on ? "on" : "off")} by the electricity price.");
+        if (Entities.Any(e => e.EntityId == entityId) && await ReadBackAsync(baseUrl, token, entityId, cancel)) Updated?.Invoke();
+    }
+
     /// <summary>Fetches one entity's state and puts it in the list. True if something changed.</summary>
     private async Task<bool> ReadBackAsync(string baseUrl, string token, string entityId, CancellationToken cancel)
     {
