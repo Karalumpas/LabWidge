@@ -146,6 +146,13 @@ static Task AudioDeviceNewId()
     AudioDeviceMemory.Update(s, new[] { monitor with { Id = "monitor-3" } }, Array.Empty<AudioDevice>());
     Check(s.AudioDeviceIds.SequenceEqual(new[] { "monitor", "monitor-2" }), "A twin chosen later was followed to a new id.");
 
+    // A twin removed from the settings while both are away still shows that the other one cannot be followed
+    s.AudioDeviceIds = new[] { "monitor" };
+    s.AudioDeviceKeys = new() { ["monitor"] = monitor.Fingerprint, ["monitor-2"] = otherMonitor.Fingerprint };
+    AudioDeviceMemory.Update(s, Array.Empty<AudioDevice>(), Array.Empty<AudioDevice>());
+    AudioDeviceMemory.Update(s, new[] { otherMonitor }, Array.Empty<AudioDevice>());
+    Check(s.AudioDeviceIds.SequenceEqual(new[] { "monitor" }), "A removed twin took over the remaining device's place.");
+
     // Two possible new devices: it cannot be told which one it is, so the settings are kept
     var speaker = new AudioDevice("speaker", "Desk", "Speakers (USB Audio)", AudioKind.Speakers, null);
     s.AudioDeviceIds = new[] { "speaker" };

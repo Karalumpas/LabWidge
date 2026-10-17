@@ -27,6 +27,8 @@ internal static class AudioDeviceMemory
     public static bool Update(AppSettings s, IReadOnlyList<AudioDevice> outputs, IReadOnlyList<AudioDevice> mics)
     {
         var changed = false;
+        var stillUsed = OutputIds(s).Concat(MicIds(s)).ToHashSet();
+        var removedKeys = s.AudioDeviceKeys.Where(k => !stillUsed.Contains(k.Key)).ToList();
         foreach (var (devices, output) in new[] { (outputs, true), (mics, false) })
         {
             var used = (output ? OutputIds(s) : MicIds(s)).ToHashSet();
@@ -41,6 +43,11 @@ internal static class AudioDeviceMemory
                     changed = true;
                 }
             }
+
+            // A device just removed from the settings is forgotten below – but a chosen device with the same fingerprint is
+            // a twin of it, and must not be followed to the removed device when that comes back under a new id
+            foreach (var (removed, key) in removedKeys)
+                MarkTwins(ChosenTwins(removed, FingerprintOf(key)), FingerprintOf(key));
 
             foreach (var id in used.ToList())
             {
