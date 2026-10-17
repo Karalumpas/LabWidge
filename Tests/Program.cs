@@ -71,7 +71,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Prices: alerts start at the quarter-hour the stretch starts", QuarterPriceAlerts),
     ("Appliances: the cheapest start keeps the deadline and moves with cheaper prices", AppliancePlans),
     ("Automation: price rules apply in their hours and act only on change", AutomationRuleChecks),
-    ("History: whole days are kept per area with savings and CSV", PriceHistoryDays)
+    ("History: whole days are kept per area with savings and CSV", PriceHistoryDays),
+    ("Appliances: a planned run switches on, survives edits and outages, and switches off once", PlannedRunFlow),
+    ("Appliances: failed starts, changed addresses, switched-off plugins and late starts are safe", PlannedRunSafety),
+    ("Automation: rules switch on change, put back their old entity when edited, off or out of prices", RuleFlow)
 };
 foreach (var test in tests)
 {
@@ -940,6 +943,189 @@ static Task PriceHistoryDays()
 }
 
 
+// ---------- Price actions: planned runs and rules against a fake Home Assistant ----------
+
+/// <summary>A runner with hourly prices from <paramref name="day"/> (cheap 02–04), a fake Home Assistant and a clock the test moves.</summary>
+static (PriceActionRunner Runner, AppSettings S, FakeHomeAssistant Ha, List<string> Toasts, Action<DateTime> SetNow) RunnerFixture(DateTime day)
+{
+    var values = new double[] { 40, 40, 5, 5, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+                                40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40 };
+    var (el, s) = PriceServiceWith(values.Select((v, i) => new PricePoint(day.AddHours(i), v)));
+    s.HomeAssistantEnabled = true;
+    s.HomeAssistantUrl = "http://ha.test";
+    s.SetPluginEnabled("ha", true);
+    s.PriceHistoryEnabled = false;
+    var ha = new FakeHomeAssistant();
+    var toasts = new List<string>();
+    var now = day;
+    var runner = new PriceActionRunner(el, ha.SetAsync, () => s, () => { }, (_, title, _, _) => toasts.Add(title), () => now);
+    return (runner, s, ha, toasts, t => now = t);
+}
+
+static async Task PlannedRunFlow()
+{
+    var day = new DateTime(2026, 11, 10);
+    var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+    var plug = new Appliance { Name = "Opvask", DurationMinutes = 120, EnergyKwh = 1, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+    s.Appliances.Add(plug);
+    var el = (ElectricityPriceService)typeof(PriceActionRunner).GetField("_prices", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(runner)!;
+    Check(AppliancePlanner.Toggle(s, plug, el.ConsumerPeriods(s), day) && s.PlannedRuns[0].Start == day.AddHours(2), "The run must be planned for 02:00.");
+
+    setNow(day.AddHours(1));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 0, "Nothing is switched before the planned start.");
+
+    setNow(day.AddHours(2));
+    await runner.TickAsync();
+    Check(ha.Calls.SequenceEqual(new[] { ("switch.opvask", true, (string?)"http://ha.test") }), "The plug must be switched on at the start.");
+
+    // Edited and moved to another entity during the run: the original one is switched off
+    plug.HomeAssistantEntity = "switch.other";
+    plug.TurnOffAfter = false;
+    setNow(day.AddHours(3));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 1, "Nothing is switched during the run.");
+
+    // Home Assistant is down at the end: the run is kept and tried again
+    ha.Down = true;
+    setNow(day.AddHours(4));
+    await runner.TickAsync();
+    Check(s.PlannedRuns.Count == 1, "A failed switch-off must keep the run so it is tried again.");
+    ha.Down = false;
+    setNow(day.AddHours(4).AddMinutes(1));
+    await runner.TickAsync();
+    Check(ha.Calls.Last() == ("switch.opvask", false, "http://ha.test") && s.PlannedRuns.Count == 0,
+        "The original plug must be switched off once Home Assistant answers, and the run finished.");
+    Check(ha.Calls.Count(c => !c.On) == 1, "The plug is switched off once.");
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 2, "A finished run does nothing more.");
+}
+
+static async Task PlannedRunSafety()
+{
+    var day = new DateTime(2026, 11, 10);
+
+    // Start fails: the user is asked to start it, and it is never switched off by LabWidge
+    {
+        var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+        var plug = new Appliance { Name = "Opvask", DurationMinutes = 60, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+        s.Appliances.Add(plug);
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(3), Average = 5 });
+        ha.Down = true;
+        setNow(day.AddHours(2));
+        await runner.TickAsync();
+        ha.Down = false;
+        setNow(day.AddHours(3));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 0 && s.PlannedRuns.Count == 0 && toasts.Any(t => t.Contains("Opvask")),
+            "A plug LabWidge couldn't switch on must not be switched off by it later.");
+    }
+
+    // The address changes during the run: nothing is switched off on the new server, the user is told
+    {
+        var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+        var plug = new Appliance { Name = "Opvask", DurationMinutes = 60, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+        s.Appliances.Add(plug);
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(3), Average = 5 });
+        setNow(day.AddHours(2));
+        await runner.TickAsync();
+        s.HomeAssistantUrl = "http://other.test";
+        setNow(day.AddHours(3));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 1 && toasts.Count == 2 && s.PlannedRuns.Count == 0, "A changed address must give a warning, not a switch-off elsewhere.");
+    }
+
+    // The price plugin is switched off during the run: it is still switched off at the end
+    {
+        var (runner, s, ha, _, setNow) = RunnerFixture(day);
+        var plug = new Appliance { Name = "Opvask", DurationMinutes = 60, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+        s.Appliances.Add(plug);
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(3), Average = 5 });
+        setNow(day.AddHours(2));
+        await runner.TickAsync();
+        s.SetPluginEnabled("price", false);
+        s.SetPluginEnabled("ha", false);
+        s.Appliances.Clear();
+        setNow(day.AddHours(3));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 2 && !ha.Calls[1].On, "A started run must be switched off even with its plugins off and its appliance removed.");
+    }
+
+    // Woken late: the whole run time if it fits before the deadline, otherwise not started
+    {
+        var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+        var plug = new Appliance { Name = "Opvask", DurationMinutes = 120, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+        s.Appliances.Add(plug);
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(4), Deadline = day.AddHours(5), Average = 5 });
+        setNow(day.AddHours(2).AddMinutes(20));
+        await runner.TickAsync();
+        Check(s.PlannedRuns[0].End == day.AddHours(4).AddMinutes(20), "A late start must get the whole run time.");
+        s.PlannedRuns.Clear();
+        ha.Calls.Clear();
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(4), Deadline = day.AddHours(4), Average = 5 });
+        setNow(day.AddHours(2).AddMinutes(20));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 0 && s.PlannedRuns.Count == 0, "A late start that can't finish by the deadline must not start.");
+        // A start a few seconds late is on time
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(4), Deadline = day.AddHours(4), Average = 5 });
+        setNow(day.AddHours(2).AddSeconds(20));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 1 && s.PlannedRuns[0].Started, "A start seconds late must still run.");
+    }
+}
+
+static async Task RuleFlow()
+{
+    var day = new DateTime(2026, 11, 10);
+    var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+    var rule = new PriceAutomation { Name = "VVB", EntityId = "switch.vvb", Hours = 2 };
+    s.PriceAutomations.Add(rule);
+
+    setNow(day.AddHours(1));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 0, "A new rule that doesn't apply yet does nothing.");
+    setNow(day.AddHours(2).AddMinutes(5));
+    await runner.TickAsync();
+    await runner.TickAsync();
+    Check(ha.Calls.SequenceEqual(new[] { ("switch.vvb", true, (string?)"http://ha.test") }), "The rule switches on once when its hours start.");
+    setNow(day.AddHours(4).AddMinutes(5));
+    await runner.TickAsync();
+    Check(ha.Calls.Last() == ("switch.vvb", false, "http://ha.test") && ha.Calls.Count == 2, "The rule switches back when its hours end.");
+
+    // Edited while it applies: the old entity is put back before the new one is used
+    setNow(day.AddHours(2).AddMinutes(10));
+    await runner.TickAsync();
+    rule.EntityId = "switch.new";
+    ha.Down = true;
+    setNow(day.AddHours(2).AddMinutes(20));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 3 && s.RuleStates[rule.Id].EntityId == "switch.vvb", "A failed revert keeps the old state, and the edited rule waits.");
+    ha.Down = false;
+    await runner.TickAsync();
+    Check(ha.Calls[3] == ("switch.vvb", false, "http://ha.test") && ha.Calls[4] == ("switch.new", true, "http://ha.test"),
+        "The old entity is switched back, then the edited rule switches its new one.");
+
+    // Switched off in the settings: put back
+    rule.Enabled = false;
+    await runner.TickAsync();
+    Check(ha.Calls.Last() == ("switch.new", false, "http://ha.test") && s.RuleStates.Count == 0, "A rule switched off puts its entity back.");
+
+    // The prices run out while it applies: put back
+    rule.Enabled = true;
+    await runner.TickAsync();
+    var count = ha.Calls.Count;
+    setNow(day.AddDays(3));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == count + 1 && !ha.Calls.Last().On, "A rule whose prices ran out puts its entity back.");
+
+    // Two rules for one entity: only the first runs
+    s.PriceAutomations.Add(new PriceAutomation { Name = "Twin", EntityId = "SWITCH.NEW", Condition = AutomationCondition.Expensive });
+    setNow(day.AddHours(10));
+    count = ha.Calls.Count;
+    await runner.TickAsync();
+    Check(ha.Calls.Count == count, "A second rule for the same entity must not run.");
+}
+
 sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> send) : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => send(request);
@@ -958,5 +1144,18 @@ sealed class CancelHandler : HttpMessageHandler
             ? JsonSerializer.Serialize(new { records = new[] { new { TimeUTC = DateTime.Today.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss"), DayAheadPriceDKK = 1000 } } })
             : "{\"records\":[]}";
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
+    }
+}
+
+/// <summary>A fake Home Assistant: records every switch, and fails while <see cref="Down"/> is set.</summary>
+sealed class FakeHomeAssistant
+{
+    public List<(string Entity, bool On, string? Url)> Calls { get; } = new();
+    public bool Down { get; set; }
+    public Task SetAsync(string entity, bool on, AppSettings s, CancellationToken cancel)
+    {
+        if (Down) throw new HttpRequestException("Home Assistant is down");
+        Calls.Add((entity, on, s.HomeAssistantUrl));
+        return Task.CompletedTask;
     }
 }

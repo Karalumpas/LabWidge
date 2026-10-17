@@ -77,6 +77,11 @@ On errors, stop and fix them. A version is never published if it does not build.
 
 ## 5. Branch, commit and PR
 
+Before the PR is opened, review the change yourself with the `code-review` skill (it does not use Codex credits) and fix what
+holds up. For code with side effects outside the app – Home Assistant, Cloudflare, Proxmox, files – check in particular:
+what happens if the call fails, if the PC sleeps, if the user edits or removes the thing mid-way, and what is left switched on.
+
+
 ```bash
 git checkout -b release/v<version>
 git add -A
@@ -109,8 +114,11 @@ gh api repos/Karalumpas/LabWidge/pulls/<nr>/comments --jq '.[] | select(.user.lo
   is `completed`. If it has not, check again a few minutes later.
 - If Codex has findings, check each one against the code. Fix the ones that hold up on the release branch, with a test where it
   makes sense, and push – without asking first.
-  Then write the comment `@codex review` on the PR so Codex reviews the new commit, and wait for that review too.
-  Keep going until Codex's latest review has no new findings that hold up.
+  Codex reviews cost the user's credits, so **never request a review per fix**. Before asking again, review the whole area
+  yourself: a finding is usually one example of a class of problems (state that outlives a settings change, a side effect that
+  must be undone, time zones), so find and fix every instance of that class in one commit. Then request `@codex review` once.
+  **At most two re-reviews per PR.** If Codex still has findings after that, fix the ones that hold up, and tell the user
+  instead of asking Codex again.
 - GitHub moves an old comment onto the newer commit when its lines are unchanged, so a finding you already fixed can show
   up again. Compare with the findings you have handled before treating one as new.
 - If you think a finding is wrong, leave the code as it is and explain why in the merge question.

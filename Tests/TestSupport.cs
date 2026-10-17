@@ -11,3 +11,9 @@ internal static class SelfInstaller
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LabWidge");
     public static string InstalledExe => Path.Combine(InstallDir, "LabWidge.exe");
 }
+
+/// <summary>The tests never read the user's real tokens.</summary>
+internal static class CredentialStore
+{
+    public static string? ReadHomeAssistantToken() => null;
+}

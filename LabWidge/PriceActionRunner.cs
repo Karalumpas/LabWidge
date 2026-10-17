@@ -7,22 +7,29 @@ internal sealed class PriceActionRunner
     /// <summary>A start more than this late (the PC was off or asleep) is skipped instead of carried out at a worse price.</summary>
     private static readonly TimeSpan MissedAfter = TimeSpan.FromMinutes(30);
 
+    /// <summary>A planned start this close to now counts as on time.</summary>
+    private static readonly TimeSpan OnTime = TimeSpan.FromMinutes(1);
+
     private readonly ElectricityPriceService _prices;
-    private readonly HomeAssistantService _ha;
+    private readonly Func<string, bool, AppSettings, CancellationToken, Task> _setState;
     private readonly Func<AppSettings> _settings;
     private readonly Action _save;
     private readonly Action<string, string, string, string> _toast;
+    private readonly Func<DateTime> _clock;
     private readonly HashSet<string> _failedRules = new();
     private bool _busy;
 
-    public PriceActionRunner(ElectricityPriceService prices, HomeAssistantService ha, Func<AppSettings> settings, Action save,
-                             Action<string, string, string, string> toast)
+    /// <param name="setState">Switches a Home Assistant entity on or off (<see cref="HomeAssistantService.SetStateAsync"/>); throws if it can't.</param>
+    /// <param name="clock">The time now – the tests set it.</param>
+    public PriceActionRunner(ElectricityPriceService prices, Func<string, bool, AppSettings, CancellationToken, Task> setState,
+                             Func<AppSettings> settings, Action save, Action<string, string, string, string> toast, Func<DateTime>? clock = null)
     {
         _prices = prices;
-        _ha = ha;
+        _setState = setState;
         _settings = settings;
         _save = save;
         _toast = toast;
+        _clock = clock ?? (() => DateTime.Now);
     }
 
     public async Task TickAsync(CancellationToken cancel = default)
@@ -33,7 +40,7 @@ internal sealed class PriceActionRunner
         {
             var s = _settings();
             if (!s.OnboardingCompleted) return;
-            var now = DateTime.Now;
+            var now = _clock();
             // With the price switched off nothing new starts, but a run already started is still switched off when it ends
             await RunPlannedAsync(s, now, cancel, startNew: s.PriceEnabled);
             await RunRulesAsync(s, now, cancel);
@@ -93,7 +100,7 @@ internal sealed class PriceActionRunner
                 }
 
                 // A late start (the PC was asleep) still gets the whole run time – unless that would pass the deadline
-                if (now > run.Start && run.Deadline is { } deadline && now + a.Duration > deadline)
+                if (now - run.Start > OnTime && run.Deadline is { } deadline && now + a.Duration > deadline)
                 {
                     s.PlannedRuns.Remove(run);
                     changed = true;
@@ -102,7 +109,7 @@ internal sealed class PriceActionRunner
                         L.T("Plan it again in the widget.", "Planlæg den igen i widgetten."));
                     continue;
                 }
-                if (now > run.Start)
+                if (now - run.Start > OnTime)
                 {
                     run.End = now + a.Duration;
                     run.Start = now;
@@ -128,15 +135,19 @@ internal sealed class PriceActionRunner
                 {
                     try
                     {
-                        await _ha.SetStateAsync(entity, true, s, cancel);
+                        await _setState(entity, true, s, cancel);
                         _toast("appliance", L.T($"{a.Name} started", $"{a.Name} er startet"), when,
                             L.T($"Home Assistant switched {entity} on", $"Home Assistant tændte {entity}"));
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
+                        // Not switched on by LabWidge, so it is not switched off either – that could cut a run the user starts by hand
                         Logger.Error($"Home Assistant could not start {a.Name} ({entity}): {ex.Message}");
+                        run.HomeAssistantUrl = null;
+                        run.Snapshot!.TurnOffAfter = false;
                         _toast("appliance", L.T($"Start {a.Name} now", $"Start {a.Name} nu"),
-                            L.T("Home Assistant could not switch it on – start it yourself.", "Home Assistant kunne ikke tænde den – start den selv."), when);
+                            L.T("Home Assistant could not switch it on – start it yourself. LabWidge won't switch it off.",
+                                "Home Assistant kunne ikke tænde den – start den selv. LabWidge slukker den ikke."), when);
                     }
                 }
                 else if (s.ApplianceReminders)
@@ -161,7 +172,7 @@ internal sealed class PriceActionRunner
                 }
                 if (entity != null && a.TurnOffAfter && !run.Stopped)
                 {
-                    try { await _ha.SetStateAsync(entity, false, s, cancel); }
+                    try { await _setState(entity, false, s, cancel); }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         Logger.Error($"Home Assistant could not switch {entity} off after {a.Name}: {ex.Message}");
@@ -259,16 +270,17 @@ internal sealed class PriceActionRunner
     {
         try
         {
-            await _ha.SetStateAsync(entityId, on, s, cancel);
+            await _setState(entityId, on, s, cancel);
             _failedRules.Remove(ruleId);
             Logger.Info($"Price rule \"{name}\": {entityId} {(on ? "on" : "off")}.");
             return true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // Tried again at every check, so only the first failure is logged and shown
+            if (!_failedRules.Add(ruleId)) return false;
             Logger.Error($"Price rule \"{name}\" could not switch {entityId}: {ex.Message}");
-            if (_failedRules.Add(ruleId))
-                _toast("automation", L.T("A price rule could not run", "En prisregel kunne ikke udføres"),
+            _toast("automation", L.T("A price rule could not run", "En prisregel kunne ikke udføres"),
                     L.T($"\"{name}\" could not switch {entityId} {(on ? "on" : "off")}.", $"\"{name}\" kunne ikke {(on ? "tænde" : "slukke")} {entityId}."),
                     HomeAssistantService.Describe(ex));
             return false;

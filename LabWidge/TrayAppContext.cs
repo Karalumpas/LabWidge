@@ -155,7 +155,7 @@ internal sealed class TrayAppContext : ApplicationContext
         // Called from the TLS handshake in the background; saved on the UI thread
         _proxmox.CertificatePinned += () => _ui?.Post(_ => SettingsStore.Save(_settings), null);
 
-        _priceActions = new PriceActionRunner(_prices, _homeAssistant, () => _settings, () => SettingsStore.Save(_settings),
+        _priceActions = new PriceActionRunner(_prices, _homeAssistant.SetStateAsync, () => _settings, () => SettingsStore.Save(_settings),
             (tag, title, line1, line2) => ToastHelper.Show(tag, title, line1, line2,
                 new (string, Action)[] { (L.T("Show widget", "Vis widget"), ShowWidgetFromToast) }, ShowWidgetFromToast,
                 silent: false, expireAfter: TimeSpan.FromHours(3)));
@@ -466,7 +466,10 @@ internal sealed class TrayAppContext : ApplicationContext
         updated.ForgetWindows = Array.Empty<string>();
         // Planned runs and the state of the price rules change in the background while the settings are open
         // A started run is kept even if its appliance was removed, so it is still switched off when it ends
-        updated.PlannedRuns = old.PlannedRuns.Where(r => r.Started || updated.Appliances.Any(a => a.Id == r.ApplianceId)).ToList();
+        // The same list as before, not a copy: the price actions may be part-way through a run (awaiting Home Assistant) and
+        // must not have their changes to it lost
+        old.PlannedRuns.RemoveAll(r => !r.Started && updated.Appliances.All(a => a.Id != r.ApplianceId));
+        updated.PlannedRuns = old.PlannedRuns;
         // A planned run is planned again when its appliance got a new run time or deadline, or the price is worked out differently
         var priceChanged = old.Country != updated.Country || old.PriceArea != updated.PriceArea || old.VatPercent != updated.VatPercent
             || old.PriceInclVat != updated.PriceInclVat || old.PriceShowTotal != updated.PriceShowTotal || old.SupplierAddOnOre != updated.SupplierAddOnOre
