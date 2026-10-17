@@ -66,7 +66,8 @@ internal sealed class PriceActionRunner
                 continue;
             }
             // A run already started is switched off through Home Assistant even if its plugin was switched off since
-            var reachable = s.HasHomeAssistantConnection || (run.Started && !string.IsNullOrWhiteSpace(s.HomeAssistantUrl));
+            // (and a run started on a server is always followed up, so a cleared address still gives the warning below)
+            var reachable = s.HasHomeAssistantConnection || (run.Started && (run.HomeAssistantUrl != null || !string.IsNullOrWhiteSpace(s.HomeAssistantUrl)));
             var entity = reachable && !string.IsNullOrWhiteSpace(a.HomeAssistantEntity) ? a.HomeAssistantEntity : null;
 
             if (!run.Started)
