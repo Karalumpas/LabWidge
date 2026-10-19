@@ -12,8 +12,9 @@ The app finds out by itself that it runs from a package (`AppPackage.IsPackaged`
 - **starts at sign-in through the package's startup task** instead of the Run key. If it is turned off under
   Task Manager → Startup apps, Windows does not let the app turn it back on.
 - **gets its toast name and logo from the package** instead of a Start menu shortcut.
-- **keeps what it writes under %APPDATA% in the package's own folder** (Windows redirects it). It still reads the settings an
-  earlier GitHub installation left there, so they come along. "Open the folder with settings and the log" opens the package's folder.
+- **keeps new files under %APPDATA% in the package's own folder** (Windows redirects them). Files an earlier GitHub
+  installation left in the ordinary folder are still read, and changed in place, so the settings come along. Under About,
+  "Open the folder with settings and the log" opens the package's folder, and a second link the ordinary one while it still has files.
 - **includes .NET**, so the package is about 70 MB.
 
 ## One-time setup
@@ -21,11 +22,12 @@ The app finds out by itself that it runs from a package (`AppPackage.IsPackaged`
 1. Create the developer account at <https://storedeveloper.microsoft.com> (personal Microsoft account, ID and selfie).
 2. In [Partner Center](https://partner.microsoft.com/dashboard/apps-and-games/overview), choose **New product → MSIX or PWA app** and
    reserve the name (e.g. *LabWidge*, or a variant if it is taken).
-3. Under **Product management → Product identity**, copy the three values to repository variables in `Karalumpas/LabWidge`
+3. Copy the reserved name and, under **Product management → Product identity**, three more values to repository variables in `Karalumpas/LabWidge`
    (Settings → Secrets and variables → Actions → Variables):
 
    | Variable | Partner Center field | Example |
    |---|---|---|
+   | `STORE_DISPLAY_NAME` | the reserved name | `LabWidge` |
    | `STORE_IDENTITY_NAME` | Package/Identity/Name | `12345Karalumpas.LabWidge` |
    | `STORE_PUBLISHER` | Package/Identity/Publisher | `CN=01234567-89AB-…` |
    | `STORE_PUBLISHER_DISPLAY_NAME` | Package/Properties/PublisherDisplayName | `Karalumpas` |

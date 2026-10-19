@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The Microsoft Store (MSIX) package. scripts/Build-Msix.ps1 fills in the values in braces: the identity comes from
-  Partner Center (Product identity), the version from LabWidge.csproj. The Store signs the package after certification.
+  The Microsoft Store (MSIX) package. scripts/Build-Msix.ps1 fills in the values in braces: the name and identity come from
+  Partner Center (the reserved name and Product identity), the version from LabWidge.csproj. The Store signs the package after certification.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -13,7 +13,7 @@
   <Identity Name="{IdentityName}" Publisher="{Publisher}" Version="{Version}" ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>LabWidge</DisplayName>
+    <DisplayName>{DisplayName}</DisplayName>
     <PublisherDisplayName>{PublisherDisplayName}</PublisherDisplayName>
     <Logo>PackageAssets\StoreLogo.png</Logo>
   </Properties>
@@ -30,7 +30,7 @@
   <Applications>
     <Application Id="LabWidge" Executable="LabWidge.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="LabWidge"
+        DisplayName="{DisplayName}"
         Description="Electricity price, system, network and homelab by the clock"
         BackgroundColor="transparent"
         Square150x150Logo="PackageAssets\Square150x150Logo.png"
@@ -38,7 +38,7 @@
       <Extensions>
         <!-- Start at sign-in. The id must match AppPackage.StartupTaskId; the app turns it on from its settings. -->
         <desktop:Extension Category="windows.startupTask" Executable="LabWidge.exe" EntryPoint="Windows.FullTrustApplication">
-          <desktop:StartupTask TaskId="LabWidgeStartup" Enabled="false" DisplayName="LabWidge" />
+          <desktop:StartupTask TaskId="LabWidgeStartup" Enabled="false" DisplayName="{DisplayName}" />
         </desktop:Extension>
       </Extensions>
     </Application>

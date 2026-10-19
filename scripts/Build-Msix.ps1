@@ -1,10 +1,12 @@
 # Builds the Microsoft Store package (MSIX) – unsigned, because the Store signs it after certification.
-# The identity values are in Partner Center under Product management → Product identity. Without them the package
+# The name and identity values are in Partner Center under Product management → Product identity. Without them the package
 # gets placeholder values: it then shows that packaging works, but the Store will not accept it.
 param(
     [string]$IdentityName = 'LabWidge.Dev',
     [string]$Publisher = 'CN=LabWidge-Dev',
     [string]$PublisherDisplayName = 'LabWidge',
+    # The app name reserved in Partner Center; the Store rejects a package with a name the product has not reserved
+    [string]$DisplayName = 'LabWidge',
     [string]$Output = 'dist/msix'
 )
 
@@ -42,7 +44,7 @@ foreach ($logo in $logos) {
 }
 
 $manifest = Get-Content (Join-Path $repoRoot 'Packaging/AppxManifest.xml') -Raw
-foreach ($value in @{ IdentityName = $IdentityName; Publisher = $Publisher; PublisherDisplayName = $PublisherDisplayName; Version = $packageVersion }.GetEnumerator()) {
+foreach ($value in @{ IdentityName = $IdentityName; Publisher = $Publisher; PublisherDisplayName = $PublisherDisplayName; DisplayName = $DisplayName; Version = $packageVersion }.GetEnumerator()) {
     $manifest = $manifest.Replace("{$($value.Key)}", [Security.SecurityElement]::Escape($value.Value))
 }
 if ($manifest -match '\{[A-Za-z]+\}') { throw "The manifest still has an unfilled value: $($Matches[0])" }

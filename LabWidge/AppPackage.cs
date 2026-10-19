@@ -34,20 +34,31 @@ internal static class AppPackage
     private static extern int GetCurrentPackageFullName(ref int packageFullNameLength, char[]? packageFullName);
 
     /// <summary>
-    /// The folder that holds what LabWidge writes under %APPDATA%\<paramref name="name"/>. A packaged app's writes there are
-    /// redirected by Windows to the package's own folder, so other programs such as Explorer must be shown that one.
+    /// The folders that hold what LabWidge keeps under %APPDATA%\<paramref name="name"/>, as other programs such as Explorer
+    /// see them. A packaged app's new files there are redirected by Windows to the package's own folder, while files an
+    /// earlier GitHub installation left in the ordinary folder stay there and are changed in place (e.g. the log).
+    /// The package's folder comes first; the ordinary one is added when it has files the package's folder does not.
     /// </summary>
-    public static string RoamingDataDir(string name)
+    public static IReadOnlyList<string> RoamingDataDirs(string name)
     {
         var roaming = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), name);
-        if (!IsPackaged) return roaming;
+        if (!IsPackaged) return new[] { roaming };
         try
         {
-            return Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "Roaming", name);
+            var own = Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "Roaming", name);
+            var ownFiles = Directory.Exists(own)
+                ? Directory.EnumerateFiles(own).Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string?>(StringComparer.OrdinalIgnoreCase);
+            // Inside the package this path shows both folders merged, so a file the package's folder lacks is in the ordinary one
+            var onlyOrdinary = Directory.Exists(roaming) && Directory.EnumerateFiles(roaming).Any(f => !ownFiles.Contains(Path.GetFileName(f)));
+            var dirs = new List<string>();
+            if (Directory.Exists(own)) dirs.Add(own);
+            if (onlyOrdinary || dirs.Count == 0) dirs.Add(roaming);
+            return dirs;
         }
         catch (Exception)
         {
-            return roaming;
+            return new[] { roaming };
         }
     }
 }

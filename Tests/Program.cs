@@ -91,7 +91,7 @@ static Task StorePackageManifest()
     var script = File.ReadAllText(Path.Combine(root, "scripts", "Build-Msix.ps1"));
     // The build script fills in exactly these values; any other brace would reach the Store unfilled
     var values = System.Text.RegularExpressions.Regex.Matches(template, @"\{([A-Za-z]+)\}").Select(m => m.Groups[1].Value).Distinct().OrderBy(v => v).ToArray();
-    Check(values.SequenceEqual(new[] { "IdentityName", "Publisher", "PublisherDisplayName", "Version" }), $"Unexpected manifest values: {string.Join(", ", values)}");
+    Check(values.SequenceEqual(new[] { "DisplayName", "IdentityName", "Publisher", "PublisherDisplayName", "Version" }), $"Unexpected manifest values: {string.Join(", ", values)}");
     foreach (var value in values) Check(script.Contains($"{value} = $"), $"Build-Msix.ps1 does not fill in {value}.");
 
     var xml = System.Xml.Linq.XDocument.Parse(template.Replace("{Version}", "1.0.0.0"));
