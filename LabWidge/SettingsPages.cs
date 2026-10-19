@@ -651,8 +651,14 @@ internal sealed class GeneralPage : SettingsPage
             Ui.Row(L.T("Opacity", "Uigennemsigtighed"), _opacity, _opacityValue),
             _topMost,
             Ui.Section(L.T("Startup and updates", "Opstart og opdatering")),
-            _startup,
-            _autoUpdate,
+            _startup);
+        if (AppPackage.IsPackaged)
+        {
+            Add(Ui.Help(L.T($"You are running version {UpdateService.Current}. Microsoft Store installs new versions.",
+                            $"Du kører version {UpdateService.Current}. Microsoft Store installerer nye versioner.")));
+            return;
+        }
+        Add(_autoUpdate,
             _autoInstall,
             Ui.Help(L.T($"You are running version {UpdateService.Current}. New versions come from GitHub. With automatic installation they are " +
                         "downloaded in the background and installed when the mouse and keyboard have not been touched for 10 minutes – otherwise you are asked first.",
@@ -1099,7 +1105,7 @@ internal sealed class AboutPage : SettingsPage
             Link(L.T("Privacy – what LabWidge contacts and why", "Privatliv – hvad LabWidge kontakter og hvorfor"), "https://github.com/Karalumpas/LabWidge/blob/main/PRIVACY.md"),
             Ui.Section(L.T("Troubleshooting", "Fejlfinding")),
             Folder(L.T("Open the folder with settings and the log", "Åbn mappen med indstillinger og log"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LabWidge")),
+                AppPackage.RoamingDataDir("LabWidge")),
             Ui.Help(L.T("Free and open source under the MIT license. No telemetry and no account.",
                         "Gratis og open source under MIT-licensen. Ingen telemetri og ingen konto.")));
     }

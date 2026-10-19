@@ -425,6 +425,12 @@ internal static class StartupRegistration
     /// </summary>
     public static void Apply(bool enabled)
     {
+        if (AppPackage.IsPackaged)
+        {
+            _ = ApplyPackagedAsync(enabled);
+            return;
+        }
+
         try
         {
             using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
@@ -453,6 +459,37 @@ internal static class StartupRegistration
             {
                 key.SetValue(RunValueName, '"' + target + '"');
                 Logger.Info($"Start at sign-in now points to {target}" + (currentExe != null ? $" (was: {currentExe})." : "."));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Could not change start at sign-in: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The Store version starts through the package's startup task. If the user has turned LabWidge off under
+    /// Task Manager → Startup apps, Windows does not let the app turn it back on, so it is left off.
+    /// </summary>
+    private static async Task ApplyPackagedAsync(bool enabled)
+    {
+        try
+        {
+            var task = await Windows.ApplicationModel.StartupTask.GetAsync(AppPackage.StartupTaskId);
+            if (!enabled)
+            {
+                if (task.State == Windows.ApplicationModel.StartupTaskState.Enabled) task.Disable();
+                return;
+            }
+            switch (task.State)
+            {
+                case Windows.ApplicationModel.StartupTaskState.Disabled:
+                    Logger.Info($"Start at sign-in: {await task.RequestEnableAsync()}.");
+                    break;
+                case Windows.ApplicationModel.StartupTaskState.DisabledByUser:
+                case Windows.ApplicationModel.StartupTaskState.DisabledByPolicy:
+                    Logger.Info($"Start at sign-in is turned off in Windows ({task.State}), so LabWidge leaves it off.");
+                    break;
             }
         }
         catch (Exception ex)

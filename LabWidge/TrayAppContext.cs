@@ -111,7 +111,7 @@ internal sealed class TrayAppContext : ApplicationContext
             new ToolStripSeparator(),
             new ToolStripMenuItem(L.T("Settings...", "Indstillinger..."), null, (_, _) => OpenSettings()),
             new ToolStripMenuItem(L.T("Setup guide...", "Opsætningsguide..."), null, (_, _) => RunOnboarding()),
-            new ToolStripMenuItem(L.T("Check for updates...", "Søg efter opdateringer..."), null, async (_, _) => await CheckForUpdatesAsync(manual: true)),
+            new ToolStripMenuItem(L.T("Check for updates...", "Søg efter opdateringer..."), null, async (_, _) => await CheckForUpdatesAsync(manual: true)) { Visible = !AppPackage.IsPackaged },
             new ToolStripSeparator(),
             new ToolStripMenuItem(L.T("Exit", "Afslut"), null, (_, _) => ExitThread())
         });
@@ -179,7 +179,7 @@ internal sealed class TrayAppContext : ApplicationContext
             _updateTimer.Interval = (int)TimeSpan.FromHours(24).TotalMilliseconds;
             await CheckForUpdatesAsync(manual: false);
         };
-        _updateTimer.Start();
+        if (!AppPackage.IsPackaged) _updateTimer.Start();
 
         var pluginServices = _dashboard.Services;
         pluginServices.PriceTick = () => { ApplyUiState(); CheckPriceAlerts(); _ = _priceActions.TickAsync(); };
@@ -647,6 +647,8 @@ internal sealed class TrayAppContext : ApplicationContext
     /// </summary>
     private async Task CheckForUpdatesAsync(bool manual)
     {
+        // The Store version is updated by Microsoft Store, and GitHub's unsigned Setup must not replace it
+        if (AppPackage.IsPackaged) return;
         if (!manual && (!_settings.AutoCheckUpdates || !_settings.OnboardingCompleted)) return;
         if (!await _versionCheckLock.WaitAsync(0)) return;
 
