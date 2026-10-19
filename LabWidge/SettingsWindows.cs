@@ -3,13 +3,16 @@ using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 /// <summary>
-/// The settings: a menu of pages on the left, grouped in general, data and home lab, and the chosen page on the right –
-/// drawn in the widget's light or dark theme.
+/// The settings: a menu of pages on the left – general pages, then the plugins, each with its own page and any pages
+/// under it – and the chosen page on the right, drawn in the widget's light or dark theme.
 /// </summary>
 internal sealed class SettingsWindow : Form
 {
     private SettingsPage[] _pages = Array.Empty<SettingsPage>();
     private readonly Dictionary<string, SettingsPage> _pluginPages = new();
+    private readonly Dictionary<string, (string Key, SettingsPage Page)[]> _subPages = new();
+    /// <summary>The key each page can be opened by, e.g. from the gear in the widget.</summary>
+    private readonly Dictionary<SettingsPage, string> _keys = new();
     private readonly SettingsPage[] _commonPages;
     private readonly PluginsPage _pluginsPage;
     private readonly AboutPage _aboutPage = new();
@@ -22,17 +25,24 @@ internal sealed class SettingsWindow : Form
     public AppSettings Settings { get; }
     public bool RunOnboardingRequested { get; private set; }
 
-    public SettingsWindow(AppSettings settings)
+    public SettingsWindow(AppSettings settings, string? startPage = null)
     {
         Settings = settings.Clone();
         _p = Palette.For(settings.Theme);
         Ui.Palette = _p; // before the pages are created, so they pick up the theme's colours
 
         _pluginsPage = new PluginsPage();
-        _commonPages = new SettingsPage[] { new GeneralPage(), new WidgetPage(), new ShortcutsPage(), new WindowsPage(), new NotificationsPage(), _pluginsPage };
-        foreach (var page in _commonPages.Append(_aboutPage)) page.LoadFrom(Settings);
+        var shortcuts = new ShortcutsPage();
+        _commonPages = new SettingsPage[] { new GeneralPage(), new WidgetPage(), shortcuts, new WindowsPage(), new NotificationsPage() };
+        _keys[shortcuts] = DashboardForm.ShortcutsKey;
+        _keys[_pluginsPage] = "plugins";
+        foreach (var page in _commonPages.Append(_pluginsPage).Append(_aboutPage))
+        {
+            page.LoadFrom(Settings);
+            page.NavigateRequested += key => ShowKey(key);
+        }
         _pluginsPage.ActivationChanged += RebuildPages;
-        _pluginsPage.ConfigureRequested += key => { if (_pluginPages.TryGetValue(key, out var page)) _ = ShowPageAsync(Array.IndexOf(_pages, page)); };
+        _pluginsPage.ConfigureRequested += key => ShowKey(key);
 
         Text = L.T("LabWidge – Settings", "LabWidge – Indstillinger");
         Icon = AppIconProvider.GetIcon();
@@ -47,7 +57,7 @@ internal sealed class SettingsWindow : Form
         BackColor = SettingsTheme.PageColor(_p);
         ForeColor = _p.TextPrimary;
 
-        _menu = new NavMenu(_p, Array.Empty<(string Glyph, string Title)>(), new Dictionary<int, string>()) { Dock = DockStyle.Left, Width = 230 };
+        _menu = new NavMenu(_p, Array.Empty<(string Glyph, string Title, bool Indent)>(), new Dictionary<int, string>()) { Dock = DockStyle.Left, Width = 230 };
         _menu.Selected += async index => await ShowPageAsync(index);
 
         // Bottom bar
@@ -91,25 +101,55 @@ internal sealed class SettingsWindow : Form
         CancelButton = cancel;
 
         HandleCreated += (_, _) => SettingsTheme.TitleBar(this, _p);
-        Shown += async (_, _) => await ShowPageAsync(0);
+        Shown += async (_, _) =>
+        {
+            if (startPage == null || !ShowKey(startPage)) await ShowPageAsync(0);
+        };
+    }
+
+    /// <summary>Shows the page with <paramref name="key"/>; a plugin that is switched off shows the plugins page. False if there is no such page.</summary>
+    private bool ShowKey(string key)
+    {
+        var page = _keys.FirstOrDefault(k => k.Value == key).Key;
+        if (page == null || Array.IndexOf(_pages, page) < 0)
+        {
+            if (WidgetPlugins.Find(key) == null && !key.StartsWith("price-", StringComparison.Ordinal)) return false;
+            page = _pluginsPage;
+        }
+        _ = ShowPageAsync(Array.IndexOf(_pages, page));
+        return true;
+    }
+
+    private SettingsPage Prepare(SettingsPage page, string key)
+    {
+        page.LoadFrom(Settings);
+        page.UsePluginActivation();
+        page.NavigateRequested += k => ShowKey(k);
+        _keys[page] = key;
+        return page;
     }
 
     private void RebuildPages()
     {
         var current = _index >= 0 && _index < _pages.Length ? _pages[_index] : null;
-        var active = new List<SettingsPage>();
+        var plugins = new List<SettingsPage> { _pluginsPage };
+        var indented = new HashSet<SettingsPage>();
         foreach (var plugin in WidgetPlugins.All.Where(p => Settings.IsPluginEnabled(p.Key)))
         {
             if (!_pluginPages.TryGetValue(plugin.Key, out var page))
             {
-                page = plugin.CreateSettingsPage();
-                page.LoadFrom(Settings);
-                page.UsePluginActivation();
+                page = Prepare(plugin.CreateSettingsPage(), plugin.Key);
                 _pluginPages.Add(plugin.Key, page);
+                _subPages[plugin.Key] = plugin.CreateSubPages().Select(sub => (sub.Key, Prepare(sub.Page, sub.Key))).ToArray();
             }
-            active.Add(page);
+            plugins.Add(page);
+            foreach (var (_, sub) in _subPages[plugin.Key])
+            {
+                plugins.Add(sub);
+                indented.Add(sub);
+            }
         }
-        _pages = _commonPages.Concat(active).Append(_aboutPage).ToArray();
+        _pages = _commonPages.Concat(plugins).Append(_aboutPage).ToArray();
         foreach (var page in _pages)
         {
             if (page.Parent != _host)
@@ -120,8 +160,11 @@ internal sealed class SettingsWindow : Form
             }
             SettingsTheme.Apply(page, _p);
         }
-        var groups = new Dictionary<int, string> { [0] = L.T("GENERAL", "GENERELT"), [_commonPages.Length] = L.T("SECTIONS", "SEKTIONER") };
-        _menu.SetItems(_pages.Select(p => (p.Glyph, p.Title)).ToArray(), groups);
+        var groups = new Dictionary<int, string>
+        {
+            [0] = L.T("GENERAL", "GENERELT"), [_commonPages.Length] = "PLUGINS", [_pages.Length - 1] = ""
+        };
+        _menu.SetItems(_pages.Select(p => (p.Glyph, p.Title, indented.Contains(p))).ToArray(), groups);
         var index = current == null ? 0 : Array.IndexOf(_pages, current);
         _index = -1;
         _ = ShowPageAsync(index < 0 ? Array.IndexOf(_pages, _pluginsPage) : index);
@@ -167,7 +210,7 @@ internal sealed class NavMenu : Control
 {
     private const int ItemHeight = 36;
     private readonly Palette _p;
-    private (string Glyph, string Title)[] _items;
+    private (string Glyph, string Title, bool Indent)[] _items;
     private Dictionary<int, string> _groups;
     private float _scroll;
     private float _contentHeight;
@@ -180,7 +223,7 @@ internal sealed class NavMenu : Control
 
     public event Action<int>? Selected;
 
-    public NavMenu(Palette p, (string Glyph, string Title)[] items, Dictionary<int, string> groups)
+    public NavMenu(Palette p, (string Glyph, string Title, bool Indent)[] items, Dictionary<int, string> groups)
     {
         _p = p;
         _items = items;
@@ -191,7 +234,7 @@ internal sealed class NavMenu : Control
         Cursor = Cursors.Hand;
     }
 
-    public void SetItems((string Glyph, string Title)[] items, Dictionary<int, string> groups)
+    public void SetItems((string Glyph, string Title, bool Indent)[] items, Dictionary<int, string> groups)
     {
         _items = items; _groups = groups; _scroll = 0; Invalidate();
     }
@@ -244,7 +287,9 @@ internal sealed class NavMenu : Control
                     y += S(10);
                 }
             }
-            var r = new RectangleF(S(12), y, Width - S(24), S(ItemHeight));
+            // A plugin's own pages sit under it, indented and a little lower
+            var indent = _items[i].Indent ? S(22) : 0;
+            var r = new RectangleF(S(12) + indent, y, Width - S(24) - indent, S(_items[i].Indent ? ItemHeight - 6 : ItemHeight));
             _rects.Add(r);
             var selected = i == _selected;
             if (selected || i == _hover)
@@ -260,9 +305,10 @@ internal sealed class NavMenu : Control
                 }
             }
             var color = selected ? _p.TextPrimary : _p.TextSecondary;
-            TextRenderer.DrawText(g, _items[i].Glyph, _icon, new Point((int)(r.X + S(14)), (int)(r.Y + S(10))), selected ? _p.Blue : color, TextFormatFlags.NoPadding);
-            TextRenderer.DrawText(g, _items[i].Title, Font, new Point((int)(r.X + S(42)), (int)(r.Y + S(9))), color, TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
-            y += S(ItemHeight + 2);
+            var top = _items[i].Indent ? r.Y - S(3) : r.Y;
+            TextRenderer.DrawText(g, _items[i].Glyph, _icon, new Point((int)(r.X + S(14)), (int)(top + S(10))), selected ? _p.Blue : color, TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(g, _items[i].Title, Font, new Point((int)(r.X + S(42)), (int)(top + S(9))), color, TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+            y += r.Height + S(2);
         }
 
         _contentHeight = y + _scroll + S(12);
@@ -340,7 +386,7 @@ internal sealed class OnboardingForm : Form
         Settings = settings.Clone();
         _p = Palette.For(settings.Theme);
         Ui.Palette = _p; // before the pages are created
-        _pages = new SettingsPage[] { new WelcomePage(), new GeneralPage(), new PricePage(), new HomeAssistantPage(), new CloudflarePage(), new NotificationsPage() };
+        _pages = new SettingsPage[] { new WelcomePage(), new GeneralPage(), new PricePage(), new HomeAssistantPage(), new CloudflarePage(), new NotificationsPage(withPriceAlerts: true) };
 
         Text = L.T("LabWidge – Setup", "LabWidge – Opsætning");
         Icon = AppIconProvider.GetIcon();

@@ -66,7 +66,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Plugins: cancelling an old price fetch keeps a newer request waiting behind it", CancelKeepsNewerPriceRequest),
     ("Settings: hidden disks match the widget's disk names", HiddenDiskNames),
     ("Shortcuts: websites, programs and other addresses are told apart and survive cloning", LaunchItems),
-    ("Audio: settings follow a device that Windows gives a new id", AudioDeviceNewId)
+    ("Audio: settings follow a device that Windows gives a new id", AudioDeviceNewId),
+    ("Prices: cheap and expensive stretches are found in quarter-hours", QuarterWindows),
+    ("Prices: alerts start at the quarter-hour the stretch starts", QuarterPriceAlerts),
+    ("Appliances: the cheapest start keeps the deadline and moves with cheaper prices", AppliancePlans),
+    ("Automation: price rules apply in their hours and act only on change", AutomationRuleChecks),
+    ("History: whole days are kept per area with savings and CSV", PriceHistoryDays),
+    ("Appliances: a planned run switches on, survives edits and outages, and switches off once", PlannedRunFlow),
+    ("Appliances: failed starts, changed addresses, switched-off plugins and late starts are safe", PlannedRunSafety),
+    ("Automation: rules switch on change, put back their old entity when edited, off or out of prices", RuleFlow)
 };
 foreach (var test in tests)
 {
@@ -690,6 +698,434 @@ static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK)
     Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
 };
 
+// ---------- Quarter-hour prices, appliances, rules and history ----------
+
+/// <summary>Quarter-hours from <paramref name="start"/> with a price per quarter.</summary>
+static List<PricePeriod> Quarters(DateTime start, params double[] values) =>
+    PriceWindows.FromPoints(values.Select((v, i) => (start.AddMinutes(15 * i), v)).ToList());
+
+/// <summary>A price service holding <paramref name="prices"/> as if they were fetched – the consumer price equals the spot price.</summary>
+static (ElectricityPriceService El, AppSettings S) PriceServiceWith(IEnumerable<PricePoint> prices)
+{
+    var el = new ElectricityPriceService(new HttpClient());
+    typeof(ElectricityPriceService).GetProperty(nameof(ElectricityPriceService.Prices))!.SetValue(el, prices.ToList());
+    var s = new AppSettings { Country = "DE", PriceInclVat = false, PriceShowTotal = false, OnboardingCompleted = true };
+    return (el, s);
+}
+
+static Task QuarterWindows()
+{
+    var day = new DateTime(2026, 10, 17);
+    // 12:00–15:00 in quarters: expensive, then cheap from 12:45 for 3 quarters, then medium
+    var p = Quarters(day.AddHours(12), 50, 50, 50, 10, 10, 10, 30, 30, 30, 30, 30, 30);
+    Check(p.Count == 12 && p[0].Length == TimeSpan.FromMinutes(15) && p[^1].End == day.AddHours(15), "Quarters must last 15 minutes.");
+
+    var best = PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromMinutes(45));
+    Check(best is { } b && b.Start == day.AddHours(12).AddMinutes(45) && Math.Abs(b.Average - 10) < 1e-9, "The cheapest 45 minutes start at 12:45.");
+
+    // Not aligned to the hour, and a length that is not a whole number of periods
+    var odd = PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromMinutes(50));
+    Check(odd is { } o && o.Start == day.AddHours(12).AddMinutes(45) && Math.Abs(o.Average - (10 * 45 + 30 * 5) / 50.0) < 1e-9,
+        "A stretch of 50 minutes is averaged by time.");
+
+    // From the middle of the current period, the current period still counts – unless the start must be now or later
+    Check(PriceWindows.Cheapest(p, day.AddHours(12).AddMinutes(50), TimeSpan.FromMinutes(30))!.Value.Start == day.AddHours(12).AddMinutes(45),
+        "The period already begun can be the cheapest.");
+    var now = day.AddHours(12).AddMinutes(50);
+    var fromNow = PriceWindows.Cheapest(p, now, TimeSpan.FromMinutes(30), startNow: true)!.Value;
+    Check(fromNow.Start == now && Math.Abs(fromNow.Average - 10) < 1e-9, "Starting now uses the rest of the current period.");
+
+    Check(PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromHours(4)) == null, "A stretch longer than the prices has no answer.");
+    Check(PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromMinutes(45), latestEnd: day.AddHours(13))!.Value.Start == day.AddHours(12).AddMinutes(15),
+        "The latest end is respected.");
+    Check(PriceWindows.Cheapest(p, day.AddHours(12), TimeSpan.FromMinutes(15), cheapest: false)!.Value.Average == 50, "The most expensive stretch is found too.");
+
+    var set = PriceWindows.CheapestSet(p, day.AddHours(12), day.AddHours(15), TimeSpan.FromMinutes(60));
+    Check(set.Count == 4 && set.Take(3).All(x => x.Value == 10) && set[3].Value == 30, "The cheapest hour is the four cheapest quarters.");
+    var merged = PriceWindows.Merge(set);
+    Check(merged.Count == 1 && merged[0].Start == day.AddHours(12).AddMinutes(45) && merged[0].End == day.AddHours(13).AddMinutes(45),
+        "Quarters side by side are merged.");
+
+    // Part of an hour: 1¼ hours of hourly prices ends a quarter into the second hour
+    var hours = PriceWindows.FromPoints(new List<(DateTime, double)> { (day, 3), (day.AddHours(1), 1), (day.AddHours(2), 2) });
+    var part = PriceWindows.CheapestSet(hours, day, day.AddHours(3), TimeSpan.FromMinutes(75));
+    Check(part.Count == 2 && part[0].Start == day.AddHours(1) && part[0].Length == TimeSpan.FromHours(1)
+          && part[1].Start == day.AddHours(2) && part[1].End == day.AddHours(2).AddMinutes(15), "A part of an hour must cut the last hour short.");
+    // A stretch that is not a whole number of periods can be cheapest when it ends on a boundary
+    var aligned = PriceWindows.FromPoints(new List<(DateTime, double)> { (day, 10), (day.AddHours(1), 0), (day.AddHours(2), 100) });
+    var ninety = PriceWindows.Cheapest(aligned, day, TimeSpan.FromMinutes(90))!.Value;
+    Check(ninety.Start == day.AddMinutes(30) && ninety.End == day.AddHours(2) && Math.Abs(ninety.Average - 10 * 30 / 90.0) < 1e-9,
+        "90 minutes on hourly prices must be able to start at 00:30 and end at 02:00.");
+    var rule = new PriceAutomation { Hours = 1.25, FromHour = 0, ToHour = 3 };
+    Check(AutomationRules.Applies(rule, hours, new List<double> { 3, 1, 2 }, day.AddHours(2).AddMinutes(10)) == true
+          && AutomationRules.Applies(rule, hours, new List<double> { 3, 1, 2 }, day.AddHours(2).AddMinutes(20)) == false,
+        "A rule of 1¼ hours must stop a quarter into the hour.");
+
+    // Hourly data, and a gap in the data is not stretched over
+    var hourly = PriceWindows.FromPoints(new List<(DateTime, double)> { (day, 1), (day.AddHours(1), 2), (day.AddHours(5), 3) });
+    Check(hourly[1].End == day.AddHours(2) && hourly[2].Length == TimeSpan.FromHours(1), "A gap must not make a period longer than an hour.");
+    Check(PriceWindows.Average(hourly, day.AddHours(1), day.AddHours(3)) == null, "An average across a gap has no answer.");
+
+    // Around a clock change (in this PC's time zone, if it has one) the periods follow each other without gaps or negative lengths
+    foreach (var utcDay in new[] { new DateTime(2027, 3, 27, 12, 0, 0, DateTimeKind.Utc), new DateTime(2027, 10, 30, 12, 0, 0, DateTimeKind.Utc) })
+    {
+        var local = PriceWindows.FromPoints(Enumerable.Range(0, 96).Select(i => (utcDay.AddMinutes(15 * i).ToLocalTime(), 1.0)).ToList());
+        Check(local.All(x => x.End > x.Start && x.Length <= TimeSpan.FromHours(1)), "A clock change must not give a period a negative or long length: " + string.Join("; ", local.Where(x => !(x.End > x.Start && x.Length <= TimeSpan.FromHours(1))).Select(x => $"{x.Start:O}-{x.End:O} {x.Length}")));
+        Check(local.Zip(local.Skip(1)).All(x => x.First.End == x.Second.Start || x.Second.Start < x.First.Start.AddMinutes(1) || x.First.End > x.Second.Start),
+            "A clock change must not leave a gap between periods.");
+    }
+    return Task.CompletedTask;
+}
+
+static Task QuarterPriceAlerts()
+{
+    var day = DateTime.Today;
+    // 40 all day, cheap 13:15–16:15 and expensive 17–20
+    var prices = Enumerable.Range(0, 96).Select(i =>
+    {
+        var t = day.AddMinutes(15 * i);
+        var cheap = t >= day.AddHours(13).AddMinutes(15) && t < day.AddHours(16).AddMinutes(15);
+        var expensive = t >= day.AddHours(17) && t < day.AddHours(20);
+        return new PricePoint(t, cheap ? 5 : expensive ? 80 : 40);
+    });
+    var (el, s) = PriceServiceWith(prices);
+    s.AlertQuietNight = false;
+    s.AlertExpensive = false;
+    s.AlertLeadMinutes = 30;
+
+    var alerts = PriceAlerts.Evaluate(el, s, day.AddHours(12).AddMinutes(50)).ToList();
+    Check(alerts.Count == 1 && alerts[0].StartsAt == day.AddHours(13).AddMinutes(15), "The cheap alert must start at the quarter-hour 13:15.");
+    Check(alerts[0].Line1.Contains("13:15") && alerts[0].Line1.Contains("16:15"), "The alert must name 13:15–16:15.");
+    s.LastCheapAlertFor = alerts[0].StartsAt;
+    Check(!PriceAlerts.Evaluate(el, s, day.AddHours(13)).Any(), "The same cheap stretch is only announced once.");
+    Check(!PriceAlerts.Evaluate(el, s, day.AddHours(12)).Any(), "No alert before the lead time.");
+
+    // The expensive alert names the quarter the expensive stretch starts at
+    s.AlertCheap = false;
+    s.AlertExpensive = true;
+    var expensive = PriceAlerts.Evaluate(el, s, day.AddHours(16).AddMinutes(40)).ToList();
+    Check(expensive.Count == 1 && expensive[0].StartsAt == day.AddHours(17) && expensive[0].Line2.Contains("20:00"), "The expensive alert must start at 17:00.");
+    return Task.CompletedTask;
+}
+
+static Task AppliancePlans()
+{
+    var day = new DateTime(2026, 10, 17);
+    // Hourly prices from 18:00 for 14 hours: cheapest 02:00–04:00
+    var values = new double[] { 40, 38, 36, 30, 25, 20, 15, 12, 5, 5, 12, 20, 30, 40 };
+    var p = PriceWindows.FromPoints(values.Select((v, i) => (day.AddHours(18 + i), v)).ToList());
+    var dishwasher = new Appliance { Name = "Dishwasher", DurationMinutes = 120, EnergyKwh = 1.0, FinishBy = 7 * 60 };
+    var now = day.AddHours(18).AddMinutes(10);
+
+    Check(AppliancePlanner.Deadline(dishwasher, now) == day.AddDays(1).AddHours(7), "Finished by 07:00 means tomorrow morning.");
+    Check(AppliancePlanner.Deadline(dishwasher, day.AddHours(5)) == day.AddHours(7), "At 05:00 there is still room before 07:00 today.");
+    Check(AppliancePlanner.Deadline(dishwasher, day.AddHours(5).AddMinutes(30)) == day.AddDays(1).AddHours(7), "Without room for a run the deadline is tomorrow.");
+
+    var plan = AppliancePlanner.Plan(dishwasher, p, now)!;
+    Check(plan.Best.Start == day.AddDays(1).AddHours(2) && plan.Best.End == day.AddDays(1).AddHours(4), "The dishwasher must start at 02:00.");
+    var unit = Countries.Find("DK")!.Unit;
+    Check(Math.Abs(plan.Cost(dishwasher, unit)!.Value - 0.05) < 1e-9, "1 kWh at 5 øre costs 0.05 kr.");
+    Check(plan.Saving(dishwasher, unit) > 0.3, "Starting at 02:00 must save compared with now.");
+
+    // A deadline before the cheapest hours moves the start earlier
+    var early = new Appliance { DurationMinutes = 60, FinishBy = 0 };
+    Check(AppliancePlanner.Plan(early, p, now)!.Best.End <= day.AddDays(1), "The deadline must be kept.");
+
+    // Plan, then cheaper prices arrive: the run moves
+    var s = new AppSettings { Appliances = { dishwasher } };
+    Check(AppliancePlanner.Toggle(s, dishwasher, p, now) && s.PlannedRuns.Count == 1, "Planning must add a run.");
+    var run = s.PlannedRuns[0];
+    var cheaper = PriceWindows.FromPoints(values.Select((v, i) => (day.AddHours(18 + i), i == 3 || i == 4 ? 1.0 : v)).ToList());
+    Check(AppliancePlanner.Replan(run, dishwasher, cheaper, now) && run.Start == day.AddHours(21), "New, cheaper prices must move the planned run.");
+    Check(!AppliancePlanner.Replan(run, dishwasher, cheaper, now), "An unchanged plan does not move.");
+    run.Started = true;
+    Check(!AppliancePlanner.Replan(run, dishwasher, p, now), "A started run never moves.");
+    Check(AppliancePlanner.Toggle(s, dishwasher, p, now) && s.PlannedRuns.Count == 0, "Planning again cancels the run.");
+
+    var clone = s.Clone();
+    Check(clone.Appliances.Count == 1 && clone.Appliances[0].FinishBy == 7 * 60 && clone.Appliances[0].Id == dishwasher.Id, "Appliances must survive cloning.");
+    return Task.CompletedTask;
+}
+
+static Task AutomationRuleChecks()
+{
+    var day = new DateTime(2026, 10, 17);
+    var overnight = new PriceAutomation { Condition = AutomationCondition.CheapestHours, Hours = 2, FromHour = 18, ToHour = 7, EntityId = "switch.car" };
+    Check(AutomationRules.Range(overnight, day.AddHours(20)) == (day.AddHours(18), day.AddDays(1).AddHours(7)), "18–07 at 20:00 is tonight.");
+    Check(AutomationRules.Range(overnight, day.AddHours(3)) == (day.AddDays(-1).AddHours(18), day.AddHours(7)), "18–07 at 03:00 began yesterday.");
+    Check(AutomationRules.Range(overnight, day.AddHours(12)) == null, "18–07 does not apply at noon.");
+    var whole = new PriceAutomation { FromHour = 0, ToHour = 24 };
+    Check(AutomationRules.Range(whole, day.AddHours(12)) == (day, day.AddDays(1)), "00–24 is the whole day.");
+
+    var values = new double[] { 40, 38, 36, 30, 25, 20, 15, 12, 5, 6, 12, 20, 30, 40 };
+    var p = PriceWindows.FromPoints(values.Select((v, i) => (day.AddHours(18 + i), v)).ToList());
+    var hourly = values.ToList();
+    Check(AutomationRules.Applies(overnight, p, hourly, day.AddDays(1).AddHours(2).AddMinutes(30)) == true, "02:00–04:00 are the cheapest 2 hours.");
+    Check(AutomationRules.Applies(overnight, p, hourly, day.AddHours(22)) == false, "22:00 is not among the cheapest hours.");
+    var evening = p.Where(x => x.Start < day.AddDays(1)).ToList(); // tomorrow's prices are missing
+    Check(AutomationRules.Applies(overnight, evening, hourly, day.AddHours(23).AddMinutes(30)) == false,
+        "A rule must not pick the cheapest hours before the whole range's prices are known.");
+    Check(AutomationRules.Applies(overnight, p, hourly, day.AddDays(2)) == null, "Without a price the rule is undecided.");
+    var upcoming = AutomationRules.Upcoming(overnight, p, hourly, day.AddHours(19));
+    Check(upcoming.Count == 1 && upcoming[0].Start == day.AddDays(1).AddHours(2) && upcoming[0].End == day.AddDays(1).AddHours(4), "The coming stretch is 02–04.");
+
+    var below = new PriceAutomation { Condition = AutomationCondition.PriceBelow, Threshold = 13 };
+    Check(AutomationRules.Upcoming(below, p, hourly, day.AddHours(18)).Single().Start == day.AddDays(1).AddHours(1), "Below 13 starts at 01:00.");
+
+    // Transitions: act only on change, revert only when asked
+    Check(AutomationRules.Action(overnight, true, null) == true, "A new rule that applies switches on.");
+    Check(AutomationRules.Action(overnight, false, null) == null, "A new rule that doesn't apply yet leaves the entity alone.");
+    Check(AutomationRules.Action(overnight, true, true) == null, "Nothing is sent while the rule keeps applying.");
+    Check(AutomationRules.Action(overnight, false, true) == false, "The rule switches off afterwards.");
+    var noRevert = new PriceAutomation { TurnOn = false, Revert = false };
+    Check(AutomationRules.Action(noRevert, true, false) == false && AutomationRules.Action(noRevert, false, true) == null, "A rule without revert leaves the entity alone afterwards.");
+
+    var changed = new PriceAutomation { Id = overnight.Id, Hours = 3, FromHour = 18, ToHour = 7, EntityId = "switch.car" };
+    Check(changed.Signature != overnight.Signature, "An edited rule must be applied again.");
+    var culture = System.Globalization.CultureInfo.CurrentCulture;
+    try
+    {
+        var half = new PriceAutomation { Id = "x", Hours = 1.5, Threshold = 2.5 };
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("da-DK");
+        var danish = half.Signature;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("en-US");
+        Check(danish == half.Signature, "A rule's signature must not depend on the PC's number format.");
+    }
+    finally { System.Globalization.CultureInfo.CurrentCulture = culture; }
+    var s = new AppSettings { PriceAutomations = { overnight } }.Clone();
+    Check(s.PriceAutomations.Single().Condition == AutomationCondition.CheapestHours && s.PriceAutomations[0].ToHour == 7, "Rules must survive cloning.");
+    return Task.CompletedTask;
+}
+
+static Task PriceHistoryDays()
+{
+    var folder = Path.Combine(Path.GetTempPath(), "labwidge-history-" + Guid.NewGuid().ToString("N"));
+    PriceHistory.FilePath = Path.Combine(folder, "price-history.json");
+    PriceHistory.Reset();
+    try
+    {
+        var today = new DateTime(2026, 10, 17);
+        var yesterday = today.AddDays(-1);
+        var prices = Enumerable.Range(0, 96).Select(i => new PricePoint(yesterday.AddMinutes(15 * i), i % 4))
+            .Concat(Enumerable.Range(0, 40).Select(i => new PricePoint(today.AddMinutes(15 * i), 9))).ToList();
+        Check(PriceHistory.Record(prices, (_, spot) => spot * 2, "DK:DK1", 365, today), "A whole day must be kept.");
+        var days = PriceHistory.DaysFor("DK:DK1");
+        Check(days.Count == 1 && days[0].Date == yesterday && days[0].Minutes == 15 && days[0].Price.Length == 96, "Only the whole day is kept, in quarters.");
+        Check(Math.Abs(days[0].Average - 3) < 1e-9 && days[0].Spot[1] == 1, "The price and the spot price are both kept.");
+        Check(!PriceHistory.Record(prices, (_, spot) => spot * 2, "DK:DK1", 365, today), "The same day is not saved twice.");
+        Check(PriceHistory.DaysFor("DK:DK2").Count == 0, "Price areas are kept apart.");
+        Check(!PriceHistory.Record(prices.Where((_, i) => i != 50).ToList(), (_, spot) => spot, "DK:DK3", 365, today), "A day with a missing period is not whole.");
+        Check(!PriceHistory.Record(prices, (_, spot) => spot * 3, "DK:DK1", 365, today) && Math.Abs(PriceHistory.DaysFor("DK:DK1")[0].Average - 3) < 1e-9,
+            "Periods that have passed keep the price they had.");
+        Check(PriceHistory.MonthAverage("DK:DK1", today) is { } m && Math.Abs(m - 3) < 1e-9, "The month's average comes from the kept days.");
+
+        PriceHistory.AddSaving(new SavingRecord { Start = today, Name = "Dishwasher", Saved = 1.5, Currency = "DKK" });
+        Check(PriceHistory.MonthSavings("DKK", today) == (1.5, 1), "Savings are summed per month and currency.");
+
+        PriceHistory.Reset();
+        Check(PriceHistory.DaysFor("DK:DK1").Count == 1 && PriceHistory.Data.Savings.Count == 1, "The history is read back from the file.");
+        var csv = PriceHistory.ToCsv("DK:DK1").Split('\n');
+        Check(csv[0] == "start,spot,price" && csv[1] == "2026-10-16 00:00,0,0" && csv[2] == "2026-10-16 00:15,1,2", "The CSV has one line per period.");
+        var kept = PriceHistory.DaysFor("DK:DK1")[0];
+        Check(kept.StartUtc == yesterday.ToUniversalTime() && kept.PeriodStart(95) == DateTime.SpecifyKind(yesterday.ToUniversalTime(), DateTimeKind.Utc).AddMinutes(95 * 15).ToLocalTime(),
+            "Periods are placed in UTC, so a clock change keeps the right times.");
+
+        // Old days and savings are forgotten
+        PriceHistory.Record(new[] { new PricePoint(today, 1) }, (_, s) => s, "DK:DK1", 7, today.AddDays(30));
+        Check(PriceHistory.DaysFor("DK:DK1").Count == 0 && PriceHistory.Data.Savings.Count == 0, "Days older than the limit are removed.");
+    }
+    finally
+    {
+        PriceHistory.Reset();
+        try { Directory.Delete(folder, true); } catch (IOException) { }
+    }
+    return Task.CompletedTask;
+}
+
+
+// ---------- Price actions: planned runs and rules against a fake Home Assistant ----------
+
+/// <summary>A runner with hourly prices from <paramref name="day"/> (cheap 02–04), a fake Home Assistant and a clock the test moves.</summary>
+static (PriceActionRunner Runner, AppSettings S, FakeHomeAssistant Ha, List<string> Toasts, Action<DateTime> SetNow) RunnerFixture(DateTime day)
+{
+    var values = new double[] { 40, 40, 5, 5, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+                                40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40 };
+    var (el, s) = PriceServiceWith(values.Select((v, i) => new PricePoint(day.AddHours(i), v)));
+    s.HomeAssistantEnabled = true;
+    s.HomeAssistantUrl = "http://ha.test";
+    s.SetPluginEnabled("ha", true);
+    s.PriceHistoryEnabled = false;
+    var ha = new FakeHomeAssistant();
+    var toasts = new List<string>();
+    var now = day;
+    var runner = new PriceActionRunner(el, ha.SetAsync, () => s, () => { }, (_, title, _, _) => toasts.Add(title), () => now);
+    return (runner, s, ha, toasts, t => now = t);
+}
+
+static async Task PlannedRunFlow()
+{
+    var day = new DateTime(2026, 11, 10);
+    var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+    var plug = new Appliance { Name = "Opvask", DurationMinutes = 120, EnergyKwh = 1, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+    s.Appliances.Add(plug);
+    var el = (ElectricityPriceService)typeof(PriceActionRunner).GetField("_prices", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(runner)!;
+    Check(AppliancePlanner.Toggle(s, plug, el.ConsumerPeriods(s), day) && s.PlannedRuns[0].Start == day.AddHours(2), "The run must be planned for 02:00.");
+
+    setNow(day.AddHours(1));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 0, "Nothing is switched before the planned start.");
+
+    setNow(day.AddHours(2));
+    await runner.TickAsync();
+    Check(ha.Calls.SequenceEqual(new[] { ("switch.opvask", true, (string?)"http://ha.test") }), "The plug must be switched on at the start.");
+
+    // Edited and moved to another entity during the run: the original one is switched off
+    plug.HomeAssistantEntity = "switch.other";
+    plug.TurnOffAfter = false;
+    setNow(day.AddHours(3));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 1, "Nothing is switched during the run.");
+
+    // Home Assistant is down at the end: the run is kept and tried again
+    ha.Down = true;
+    setNow(day.AddHours(4));
+    await runner.TickAsync();
+    Check(s.PlannedRuns.Count == 1, "A failed switch-off must keep the run so it is tried again.");
+    ha.Down = false;
+    setNow(day.AddHours(4).AddMinutes(1));
+    await runner.TickAsync();
+    Check(ha.Calls.Last() == ("switch.opvask", false, "http://ha.test") && s.PlannedRuns.Count == 0,
+        "The original plug must be switched off once Home Assistant answers, and the run finished.");
+    Check(ha.Calls.Count(c => !c.On) == 1, "The plug is switched off once.");
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 2, "A finished run does nothing more.");
+}
+
+static async Task PlannedRunSafety()
+{
+    var day = new DateTime(2026, 11, 10);
+
+    // Start fails: the user is asked to start it, and it is never switched off by LabWidge
+    {
+        var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+        var plug = new Appliance { Name = "Opvask", DurationMinutes = 60, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+        s.Appliances.Add(plug);
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(3), Average = 5 });
+        ha.Down = true;
+        setNow(day.AddHours(2));
+        await runner.TickAsync();
+        ha.Down = false;
+        setNow(day.AddHours(3));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 0 && s.PlannedRuns.Count == 0 && toasts.Any(t => t.Contains("Opvask")),
+            "A plug LabWidge couldn't switch on must not be switched off by it later.");
+    }
+
+    // The address changes during the run: nothing is switched off on the new server, the user is told
+    {
+        var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+        var plug = new Appliance { Name = "Opvask", DurationMinutes = 60, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+        s.Appliances.Add(plug);
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(3), Average = 5 });
+        setNow(day.AddHours(2));
+        await runner.TickAsync();
+        s.HomeAssistantUrl = "http://other.test";
+        setNow(day.AddHours(3));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 1 && toasts.Count == 2 && s.PlannedRuns.Count == 0, "A changed address must give a warning, not a switch-off elsewhere.");
+    }
+
+    // The price plugin is switched off during the run: it is still switched off at the end
+    {
+        var (runner, s, ha, _, setNow) = RunnerFixture(day);
+        var plug = new Appliance { Name = "Opvask", DurationMinutes = 60, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+        s.Appliances.Add(plug);
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(3), Average = 5 });
+        setNow(day.AddHours(2));
+        await runner.TickAsync();
+        s.SetPluginEnabled("price", false);
+        s.SetPluginEnabled("ha", false);
+        s.Appliances.Clear();
+        setNow(day.AddHours(3));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 2 && !ha.Calls[1].On, "A started run must be switched off even with its plugins off and its appliance removed.");
+    }
+
+    // Woken late: the whole run time if it fits before the deadline, otherwise not started
+    {
+        var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+        var plug = new Appliance { Name = "Opvask", DurationMinutes = 120, HomeAssistantEntity = "switch.opvask", TurnOffAfter = true };
+        s.Appliances.Add(plug);
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(4), Deadline = day.AddHours(5), Average = 5 });
+        setNow(day.AddHours(2).AddMinutes(20));
+        await runner.TickAsync();
+        Check(s.PlannedRuns[0].End == day.AddHours(4).AddMinutes(20), "A late start must get the whole run time.");
+        s.PlannedRuns.Clear();
+        ha.Calls.Clear();
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(4), Deadline = day.AddHours(4), Average = 5 });
+        setNow(day.AddHours(2).AddMinutes(20));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 0 && s.PlannedRuns.Count == 0, "A late start that can't finish by the deadline must not start.");
+        // A start a few seconds late is on time
+        s.PlannedRuns.Add(new PlannedRun { ApplianceId = plug.Id, Start = day.AddHours(2), End = day.AddHours(4), Deadline = day.AddHours(4), Average = 5 });
+        setNow(day.AddHours(2).AddSeconds(20));
+        await runner.TickAsync();
+        Check(ha.Calls.Count == 1 && s.PlannedRuns[0].Started, "A start seconds late must still run.");
+    }
+}
+
+static async Task RuleFlow()
+{
+    var day = new DateTime(2026, 11, 10);
+    var (runner, s, ha, toasts, setNow) = RunnerFixture(day);
+    var rule = new PriceAutomation { Name = "VVB", EntityId = "switch.vvb", Hours = 2 };
+    s.PriceAutomations.Add(rule);
+
+    setNow(day.AddHours(1));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 0, "A new rule that doesn't apply yet does nothing.");
+    setNow(day.AddHours(2).AddMinutes(5));
+    await runner.TickAsync();
+    await runner.TickAsync();
+    Check(ha.Calls.SequenceEqual(new[] { ("switch.vvb", true, (string?)"http://ha.test") }), "The rule switches on once when its hours start.");
+    setNow(day.AddHours(4).AddMinutes(5));
+    await runner.TickAsync();
+    Check(ha.Calls.Last() == ("switch.vvb", false, "http://ha.test") && ha.Calls.Count == 2, "The rule switches back when its hours end.");
+
+    // Edited while it applies: the old entity is put back before the new one is used
+    setNow(day.AddHours(2).AddMinutes(10));
+    await runner.TickAsync();
+    rule.EntityId = "switch.new";
+    ha.Down = true;
+    setNow(day.AddHours(2).AddMinutes(20));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == 3 && s.RuleStates[rule.Id].EntityId == "switch.vvb", "A failed revert keeps the old state, and the edited rule waits.");
+    ha.Down = false;
+    await runner.TickAsync();
+    Check(ha.Calls[3] == ("switch.vvb", false, "http://ha.test") && ha.Calls[4] == ("switch.new", true, "http://ha.test"),
+        "The old entity is switched back, then the edited rule switches its new one.");
+
+    // Switched off in the settings: put back
+    rule.Enabled = false;
+    await runner.TickAsync();
+    Check(ha.Calls.Last() == ("switch.new", false, "http://ha.test") && s.RuleStates.Count == 0, "A rule switched off puts its entity back.");
+
+    // The prices run out while it applies: put back
+    rule.Enabled = true;
+    await runner.TickAsync();
+    var count = ha.Calls.Count;
+    setNow(day.AddDays(3));
+    await runner.TickAsync();
+    Check(ha.Calls.Count == count + 1 && !ha.Calls.Last().On, "A rule whose prices ran out puts its entity back.");
+
+    // Two rules for one entity: only the first runs
+    s.PriceAutomations.Add(new PriceAutomation { Name = "Twin", EntityId = "SWITCH.NEW", Condition = AutomationCondition.Expensive });
+    setNow(day.AddHours(10));
+    count = ha.Calls.Count;
+    await runner.TickAsync();
+    Check(ha.Calls.Count == count, "A second rule for the same entity must not run.");
+}
+
 sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> send) : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => send(request);
@@ -708,5 +1144,18 @@ sealed class CancelHandler : HttpMessageHandler
             ? JsonSerializer.Serialize(new { records = new[] { new { TimeUTC = DateTime.Today.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss"), DayAheadPriceDKK = 1000 } } })
             : "{\"records\":[]}";
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
+    }
+}
+
+/// <summary>A fake Home Assistant: records every switch, and fails while <see cref="Down"/> is set.</summary>
+sealed class FakeHomeAssistant
+{
+    public List<(string Entity, bool On, string? Url)> Calls { get; } = new();
+    public bool Down { get; set; }
+    public Task SetAsync(string entity, bool on, AppSettings s, CancellationToken cancel)
+    {
+        if (Down) throw new HttpRequestException("Home Assistant is down");
+        Calls.Add((entity, on, s.HomeAssistantUrl));
+        return Task.CompletedTask;
     }
 }

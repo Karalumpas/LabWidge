@@ -158,22 +158,15 @@ internal sealed partial class DashboardForm
             y += U(19);
         }
 
-        var future = hours.Where(h => h.Hour >= curHour).ToList();
-        if (future.Count >= 3)
+        var periods = _el.ConsumerPeriods(s);
+        if (PriceWindows.Cheapest(periods, now, TimeSpan.FromHours(3)) is { } best)
         {
-            var best = 0;
-            var bestAvg = double.MaxValue;
-            for (var i = 0; i <= future.Count - 3; i++)
-            {
-                var avg = (future[i].Value + future[i + 1].Value + future[i + 2].Value) / 3;
-                if (avg < bestAvg) { bestAvg = avg; best = i; }
-            }
-            var start = future[best].Hour;
-            var day = start.Date == now.Date ? L.T("today", "i dag") : L.T("tomorrow", "i morgen");
             var lw = DrawText(g, L.T("Cheapest 3 hours  ", "Billigste 3 timer  "), _f.Small, _p.TextSecondary, x, y);
-            DrawText(g, L.T($"{day} {start:HH}–{start.AddHours(3):HH}  ·  avg {Ore(bestAvg)} {Unit}", $"{day} kl. {start:HH}–{start.AddHours(3):HH}  ·  gns. {Ore(bestAvg)} {Unit}"), _f.SmallBold, _p.Green, x + lw, y);
+            DrawText(g, PriceWindows.Describe(best, now) + L.T($"  ·  avg {Ore(best.Average)} {Unit}", $"  ·  gns. {Ore(best.Average)} {Unit}"), _f.SmallBold, _p.Green, x + lw, y);
             y += U(19);
         }
+
+        y = DrawAppliances(g, periods, now, x, y, w);
 
         if (!_el.HasTomorrow)
         {
@@ -188,5 +181,66 @@ internal sealed partial class DashboardForm
             y += U(19);
         }
         return y - U(3);
+    }
+
+    /// <summary>One row per appliance: the cheapest time to start it and what it costs. A click plans the run or cancels it.</summary>
+    private float DrawAppliances(Graphics g, IReadOnlyList<PricePeriod> periods, DateTime now, float x, float y, float w)
+    {
+        var s = _settings;
+        foreach (var a in s.Appliances.Where(a => a.ShowInWidget))
+        {
+            var run = s.PlannedRuns.FirstOrDefault(r => r.ApplianceId == a.Id);
+            var plan = run == null ? AppliancePlanner.Plan(a, periods, now) : null;
+            var row = new RectangleF(x - U(6), y - U(3), w + U(12), U(21));
+            var hovered = row.Contains(_mouse);
+            if (hovered) FillRound(g, row, _p.HoverBg, U(5));
+
+            var nameW = DrawText(g, Fit(g, a.Name, _f.Small, w * 0.42f), _f.Small, hovered ? _p.Blue : _p.TextSecondary, x, y);
+            string text, tip;
+            Color color;
+            if (run != null)
+            {
+                var running = run.Started && now < run.End;
+                text = running ? L.T($"running until {run.End:HH:mm}", $"kører til kl. {run.End:HH:mm}")
+                               : "⏰ " + PriceWindows.Describe(new PriceWindow(run.Start, run.End, run.Average), now);
+                color = _p.Blue;
+                tip = (running ? L.T($"{a.Name} is running until about {run.End:HH:mm}", $"{a.Name} kører til ca. kl. {run.End:HH:mm}")
+                               : L.T($"Planned: {a.Name} starts {PriceWindows.Describe(new PriceWindow(run.Start, run.End, run.Average), now)}",
+                                     $"Planlagt: {a.Name} starter {PriceWindows.Describe(new PriceWindow(run.Start, run.End, run.Average), now)}"))
+                      + (AppliancePlanner.CostText(run, a, s.PriceUnit) is { } runCost ? L.T($"\nAbout {runCost}", $"\nCa. {runCost}") : "")
+                      + (running ? "" : L.T("\nClick to cancel", "\nKlik for at annullere"));
+            }
+            else if (plan != null)
+            {
+                var cost = plan.Cost(a, s.PriceUnit);
+                text = (plan.StartsNow(now) ? L.T("start now", "start nu") : PriceWindows.Describe(plan.Best, now))
+                       + (cost is { } c ? "  ·  " + Money.Format(c, s.PriceUnit) : "");
+                color = plan.StartsNow(now) ? _p.Green : _p.TextPrimary;
+                var saving = plan.Saving(a, s.PriceUnit);
+                tip = L.T($"Cheapest time to start {a.Name} ({AppliancePlanner.FormatDuration(a.DurationMinutes)}): {PriceWindows.Describe(plan.Best, now)}",
+                          $"Billigst at starte {a.Name} ({AppliancePlanner.FormatDuration(a.DurationMinutes)}): {PriceWindows.Describe(plan.Best, now)}")
+                      + L.T($"\nAverage {Ore(plan.Best.Average)} {s.PriceUnit.PerKwh}", $"\nGennemsnit {Ore(plan.Best.Average)} {s.PriceUnit.PerKwh}")
+                      + (saving is > 0.005 ? L.T($" – {Money.Format(saving.Value, s.PriceUnit)} less than starting now", $" – {Money.Format(saving.Value, s.PriceUnit)} mindre end at starte nu") : "")
+                      + (plan.Deadline is { } d ? L.T($"\nFinished by {d:HH:mm}", $"\nFærdig senest kl. {d:HH:mm}") : "")
+                      + L.T("\nClick to plan it – LabWidge reminds you", "\nKlik for at planlægge – LabWidge minder dig om det")
+                      + (!string.IsNullOrWhiteSpace(a.HomeAssistantEntity) && s.HasHomeAssistantConnection
+                          ? L.T($" and switches {a.HomeAssistantEntity} on", $" og tænder {a.HomeAssistantEntity}") : "");
+            }
+            else
+            {
+                text = L.T("waiting for prices", "venter på priser");
+                color = _p.TextDim;
+                tip = L.T("The known prices don't cover a whole run before the deadline yet.", "De kendte priser dækker endnu ikke en hel kørsel før tidsfristen.");
+            }
+            DrawText(g, Fit(g, text, _f.Small, w - nameW - U(8)), _f.Small, color, x + w, y, right: true);
+            var appliance = a;
+            _hits.Add(new Hit(row, tip, run is { Started: true } || (run == null && plan == null) ? null : () =>
+            {
+                AppliancePlanner.Toggle(_settings, appliance, _el.ConsumerPeriods(_settings), DateTime.Now);
+                Invalidate();
+            }));
+            y += U(19);
+        }
+        return y;
     }
 }

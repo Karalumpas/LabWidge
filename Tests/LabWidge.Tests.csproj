@@ -15,6 +15,13 @@
     <Compile Include="..\LabWidge\ElectricityPriceService.cs" Link="ElectricityPriceService.cs" />
     <Compile Include="..\LabWidge\SpotPriceSources.cs" Link="SpotPriceSources.cs" />
     <Compile Include="..\LabWidge\Countries.cs" Link="Countries.cs" />
+    <Compile Include="..\LabWidge\PriceWindows.cs" Link="PriceWindows.cs" />
+    <Compile Include="..\LabWidge\PricePlanner.cs" Link="PricePlanner.cs" />
+    <Compile Include="..\LabWidge\PriceAutomations.cs" Link="PriceAutomations.cs" />
+    <Compile Include="..\LabWidge\PriceAlerts.cs" Link="PriceAlerts.cs" />
+    <Compile Include="..\LabWidge\PriceHistory.cs" Link="PriceHistory.cs" />
+    <Compile Include="..\LabWidge\PriceActionRunner.cs" Link="PriceActionRunner.cs" />
+    <Compile Include="..\LabWidge\HomeAssistantService.cs" Link="HomeAssistantService.cs" />
     <Compile Include="..\LabWidge\NetworkClients.cs" Link="NetworkClients.cs" />
     <Compile Include="..\LabWidge\Settings.cs" Link="Settings.cs" />
     <Compile Include="..\LabWidge\AudioDevices.cs" Link="AudioDevices.cs" />

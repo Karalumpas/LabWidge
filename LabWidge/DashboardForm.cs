@@ -110,6 +110,9 @@ internal sealed partial class DashboardForm : Form
 
     internal PluginServices Services { get; }
 
+    /// <summary>Opens the settings at the page of a section (the key of a plugin, or the shortcuts).</summary>
+    internal Action<string?> SettingsRequested { get; set; } = _ => { };
+
     private float DpiScale => DeviceDpi / 96f;
     private float U(float v) => v * DpiScale;
 
@@ -922,8 +925,19 @@ internal sealed partial class DashboardForm : Form
             + (freshness is { } detail ? "\n" + detail.Detail : ""), key == null ? toggle : () => ToggleHeader(key, toggle)));
         DrawHeaderGrip(g, x, y, key);
         DrawText(g, glyph, _f.Icon, _p.TextSecondary, x + U(29), y + U(1));
-        var titleWidth = Math.Min(Measure(g, title, _f.SmallBold).Width, w * 0.53f - U(50));
+        var gearW = key != null ? U(22) : 0;
+        var titleWidth = Math.Min(Measure(g, title, _f.SmallBold).Width, w * 0.62f - U(50) - gearW);
         DrawText(g, Fit(g, title, _f.SmallBold, Math.Max(U(28), titleWidth)), _f.SmallBold, _p.TextSecondary, x + U(50), y);
+        if (key != null)
+        {
+            // The gear by the title opens the section's settings
+            var gear = new RectangleF(x + U(50) + Math.Max(U(28), titleWidth) + U(3), y - U(3), U(19), U(21));
+            var overGear = gear.Contains(_mouse);
+            if (overGear) FillRound(g, gear, _p.Track, U(4));
+            DrawText(g, "", _f.IconSmall, overGear ? _p.TextPrimary : rect.Contains(_mouse) ? _p.TextSecondary : _p.TextDim, gear.X + U(4.5f), gear.Y + U(5));
+            _hits.Add(new Hit(gear, L.T("Settings for this section", "Indstillinger for denne sektion"), () => SettingsRequested(key)));
+            titleWidth += gearW;
+        }
         DrawText(g, collapsed ? "" : "", _f.IconSmall, _p.TextDim, x + w - U(10), y + U(3));
         var hovered = rect.Contains(_mouse) && _drag == null && key != null && SectionWindows.Supports(key);
         var rightW = 0f;

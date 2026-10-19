@@ -6,7 +6,7 @@ account or payment mechanism is required. This is an internal extension contract
 ## Responsibilities
 
 `IWidgetPlugin` in `LabWidge/Plugins/WidgetPlugin.cs` defines a stable section key, localized name and description,
-compact and expanded rendering, a detail-window factory, a settings-page factory and the plugin's polling jobs.
+compact and expanded rendering, a detail-window factory, a settings-page factory, optional sub-pages and the plugin's polling jobs.
 `WidgetPlugins.All` is the single registration list used by widget ordering, window support, settings navigation and polling.
 
 The widget owns shared drawing helpers, layout, hit targets, scrolling, theme, drag-and-drop and section pins.
@@ -15,6 +15,11 @@ Detail windows inherit `PopupPanel`, which owns moving, resizing, pinning, focus
 The bundled plugins reuse the existing services and detail panels so their data formats and interactions remain compatible.
 
 ## Activation and settings
+
+The settings menu lists the general pages, then a Plugins page that switches plugins on and off, then each active plugin's page.
+A plugin can add pages of its own under its page with `CreateSubPages` – the electricity price has price alerts, appliances,
+Home Assistant rules and history. Each page has a key (the plugin's key, or e.g. `price-appliances`), and the gear by a section's
+title in the widget opens the settings at that key; a plugin that is switched off opens the Plugins page instead.
 
 The Sections page edits a cloned settings draft. Only Save applies changes to the running application; Cancel leaves it alone.
 Only active plugins appear in settings navigation. Temporarily switching a plugin off and on retains its unsaved controls.
