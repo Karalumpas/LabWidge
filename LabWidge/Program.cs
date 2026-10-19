@@ -30,6 +30,14 @@ internal static class Program
             return;
         }
 
+        // The MSIX package's logos (scripts/Build-Msix.ps1)
+        if (args.Length == 3 && args[0] == "--write-png" && int.TryParse(args[1], out var pngSize))
+        {
+            using var png = WidgetIcon.Render(pngSize, WidgetIcon.Amber);
+            png.Save(args[2], System.Drawing.Imaging.ImageFormat.Png);
+            return;
+        }
+
         if (args.Contains("--uninstall"))
         {
             L.Use(SettingsStore.Load().Language ?? L.FromWindows());
@@ -540,6 +548,8 @@ internal static class ToastHelper
 
     public static void EnsureToastRegistration()
     {
+        // A packaged app's toasts get their name and logo from the package
+        if (AppPackage.IsPackaged) return;
         try
         {
             SetCurrentProcessExplicitAppUserModelID(AppId);
@@ -573,6 +583,7 @@ internal static class ToastHelper
 
     public static void RebuildShortcut()
     {
+        if (AppPackage.IsPackaged) return;
         try
         {
             var shortcutPath = GetShortcutPath();
@@ -600,7 +611,7 @@ internal static class ToastHelper
         try
         {
             static string E(string? s) => System.Security.SecurityElement.Escape(s ?? "");
-            var logoUri = new Uri(LogoPath).AbsoluteUri;
+            var logoUri = AppPackage.IsPackaged ? AppPackage.ToastLogoUri : new Uri(LogoPath).AbsoluteUri;
 
             var sb = new StringBuilder();
             sb.Append("<toast launch=\"body\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\">");
@@ -637,7 +648,8 @@ internal static class ToastHelper
                 else action();
             };
 
-            ToastNotificationManager.CreateToastNotifier(AppId).Show(toast);
+            var notifier = AppPackage.IsPackaged ? ToastNotificationManager.CreateToastNotifier() : ToastNotificationManager.CreateToastNotifier(AppId);
+            notifier.Show(toast);
         }
         catch (Exception ex)
         {

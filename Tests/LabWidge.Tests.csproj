@@ -24,6 +24,7 @@
     <Compile Include="..\LabWidge\HomeAssistantService.cs" Link="HomeAssistantService.cs" />
     <Compile Include="..\LabWidge\NetworkClients.cs" Link="NetworkClients.cs" />
     <Compile Include="..\LabWidge\Settings.cs" Link="Settings.cs" />
+    <Compile Include="..\LabWidge\AppPackage.cs" Link="AppPackage.cs" />
     <Compile Include="..\LabWidge\AudioDevices.cs" Link="AudioDevices.cs" />
     <Compile Include="..\LabWidge\LaunchItem.cs" Link="LaunchItem.cs" />
     <Compile Include="..\LabWidge\UninstallCleanup.cs" Link="UninstallCleanup.cs" />

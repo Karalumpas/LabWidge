@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Microsoft Store (MSIX) package. scripts/Build-Msix.ps1 fills in the values in braces: the name and identity come from
+  Partner Center (the reserved name and Product identity), the version from LabWidge.csproj. The Store signs the package after certification.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap desktop rescap">
+
+  <Identity Name="{IdentityName}" Publisher="{Publisher}" Version="{Version}" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>{DisplayName}</DisplayName>
+    <PublisherDisplayName>{PublisherDisplayName}</PublisherDisplayName>
+    <Logo>PackageAssets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+    <Resource Language="da-dk" />
+  </Resources>
+
+  <Applications>
+    <Application Id="LabWidge" Executable="LabWidge.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="{DisplayName}"
+        Description="Electricity price, system, network and homelab by the clock"
+        BackgroundColor="transparent"
+        Square150x150Logo="PackageAssets\Square150x150Logo.png"
+        Square44x44Logo="PackageAssets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- Start at sign-in. The id must match AppPackage.StartupTaskId; the app turns it on from its settings. -->
+        <desktop:Extension Category="windows.startupTask" Executable="LabWidge.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="LabWidgeStartup" Enabled="false" DisplayName="{DisplayName}" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

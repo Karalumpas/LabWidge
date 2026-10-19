@@ -49,6 +49,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Building signing test inputs failed' }
           ./Tests/SigningPipeline.ps1 -AppDirectory dist/signing-check
 
+      - name: Store package (MSIX) builds
+        run: ./scripts/Build-Msix.ps1
+
       - name: Price Worker tests
         working-directory: worker
         run: node --test

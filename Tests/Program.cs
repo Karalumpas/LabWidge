@@ -74,7 +74,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("History: whole days are kept per area with savings and CSV", PriceHistoryDays),
     ("Appliances: a planned run switches on, survives edits and outages, and switches off once", PlannedRunFlow),
     ("Appliances: failed starts, changed addresses, switched-off plugins and late starts are safe", PlannedRunSafety),
-    ("Automation: rules switch on change, put back their old entity when edited, off or out of prices", RuleFlow)
+    ("Automation: rules switch on change, put back their old entity when edited, off or out of prices", RuleFlow),
+    ("Store package: the manifest matches the startup task, logos and values the app and build script use", StorePackageManifest)
 };
 foreach (var test in tests)
 {
@@ -82,6 +83,34 @@ foreach (var test in tests)
     Console.WriteLine("PASS " + test.Name);
 }
 Console.WriteLine($"{tests.Length} regression tests passed.");
+
+static Task StorePackageManifest()
+{
+    var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+    var template = File.ReadAllText(Path.Combine(root, "Packaging", "AppxManifest.xml"));
+    var script = File.ReadAllText(Path.Combine(root, "scripts", "Build-Msix.ps1"));
+    // The build script fills in exactly these values; any other brace would reach the Store unfilled
+    var values = System.Text.RegularExpressions.Regex.Matches(template, @"\{([A-Za-z]+)\}").Select(m => m.Groups[1].Value).Distinct().OrderBy(v => v).ToArray();
+    Check(values.SequenceEqual(new[] { "DisplayName", "IdentityName", "Publisher", "PublisherDisplayName", "Version" }), $"Unexpected manifest values: {string.Join(", ", values)}");
+    foreach (var value in values) Check(script.Contains($"{value} = $"), $"Build-Msix.ps1 does not fill in {value}.");
+
+    var xml = System.Xml.Linq.XDocument.Parse(template.Replace("{Version}", "1.0.0.0"));
+    var tasks = xml.Descendants().Where(e => e.Name.LocalName == "StartupTask").ToList();
+    Check(tasks.Count == 1 && (string?)tasks[0].Attribute("TaskId") == AppPackage.StartupTaskId, "The manifest's startup task does not match AppPackage.StartupTaskId.");
+    Check((string?)tasks[0].Attribute("Enabled") == "false", "Start at sign-in must follow the app's setting, not be on before the app has run.");
+
+    // Every logo the manifest and the toasts point to is one the build script writes
+    var logos = xml.Descendants().SelectMany(e => e.Attributes().Where(a => a.Value.StartsWith("PackageAssets\\")).Select(a => a.Value))
+        .Concat(xml.Descendants().Where(e => e.Name.LocalName == "Logo").Select(e => e.Value))
+        .Append(AppPackage.ToastLogoUri.Replace("ms-appx:///", "").Replace('/', '\\'))
+        .Distinct().ToList();
+    Check(logos.Count >= 3, "The manifest has fewer logos than expected.");
+    foreach (var logo in logos)
+        Check(script.Contains($"Join-Path $assets '{Path.GetFileName(logo)}'"), $"Build-Msix.ps1 does not write {logo}.");
+
+    Check(!AppPackage.IsPackaged, "The tests should run as an ordinary app.");
+    return Task.CompletedTask;
+}
 
 static void Check(bool condition, string message)
 {
