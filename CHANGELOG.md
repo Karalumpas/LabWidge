@@ -2,6 +2,13 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.23.0
+- New: plan your appliances. Enter how long the dishwasher or washing machine runs and when it must be done, and LabWidge finds the cheapest time to start, shows what you save, and can remind you or switch it on through Home Assistant.
+- Electricity prices now use quarter-hours everywhere, so cheap stretches and price alerts can start at e.g. 13:15. The length of the cheap-power alert can be set.
+- Home Assistant price rules: switch something on in the cheapest hours, below or above a price, or when power is cheap or expensive.
+- Price history: a 30-day chart, monthly averages and what your planned runs saved, with CSV export.
+- "Sections" in Settings is now called Plugins, and a small gear by each section in the widget opens its settings directly.
+
 ## 1.22.7
 - Every page in Settings can now be scrolled all the way to the bottom.
 - Fields and lists in Settings no longer run past the edge of their box – for example the disk list under System and the search field under Home Assistant.

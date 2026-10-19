@@ -114,11 +114,11 @@ gh api repos/Karalumpas/LabWidge/pulls/<nr>/comments --jq '.[] | select(.user.lo
   is `completed`. If it has not, check again a few minutes later.
 - If Codex has findings, check each one against the code. Fix the ones that hold up on the release branch, with a test where it
   makes sense, and push – without asking first.
-  Codex reviews cost the user's credits, so **never request a review per fix**. Before asking again, review the whole area
-  yourself: a finding is usually one example of a class of problems (state that outlives a settings change, a side effect that
-  must be undone, time zones), so find and fix every instance of that class in one commit. Then request `@codex review` once.
-  **At most two re-reviews per PR.** If Codex still has findings after that, fix the ones that hold up, and tell the user
-  instead of asking Codex again.
+  **Never write `@codex review` yourself.** Each review costs the user's credits, so asking Codex is the user's decision:
+  the command always asks for approval, and you only propose it. Codex reviews the PR once by itself when it is opened.
+  Use that review as a tool: a finding is usually one example of a kind of problem (state that outlives a settings change,
+  a side effect that must be undone, time zones), so fix every instance of that kind, with a test, in one commit. Then tell
+  the user what was found and fixed, and let them decide whether Codex should look again.
 - GitHub moves an old comment onto the newer commit when its lines are unchanged, so a finding you already fixed can show
   up again. Compare with the findings you have handled before treating one as new.
 - If you think a finding is wrong, leave the code as it is and explain why in the merge question.
