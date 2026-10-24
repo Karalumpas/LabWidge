@@ -449,6 +449,9 @@ internal static partial class UiChecks
             // An appliance and a price rule, so their editing cards are measured and shown too
             s.Appliances = new() { new Appliance { Name = "Opvaskemaskine", DurationMinutes = 150, EnergyKwh = 1.1, FinishBy = 7 * 60, HomeAssistantEntity = "switch.opvask" } };
             s.PriceAutomations = new() { new PriceAutomation { Name = "Elbil om natten", EntityId = "switch.lader", Hours = 4, FromHour = 18, ToHour = 7 } };
+            // The Home Assistant page loads entities on first show when a token is saved in Credential Manager.
+            // A closed local port makes that load fail at once, and the token never leaves the PC.
+            s.HomeAssistantUrl = "http://127.0.0.1:9";
             using var window = new SettingsWindow(s);
             window.Show();
             Application.DoEvents();
@@ -456,9 +459,12 @@ internal static partial class UiChecks
             for (var i = 0; i < pages.Length; i++)
             {
                 var task = (Task)window.GetType().GetMethod("ShowPageAsync", Private)!.Invoke(window, new object[] { i })!;
-                var until = DateTime.Now.AddSeconds(8);
+                // Measure the page only after its first-show loading is done: a status line that arrives later
+                // grows the last card after the layout check. Page requests time out after 30 s.
+                var until = DateTime.Now.AddSeconds(45);
                 while (!task.IsCompleted && DateTime.Now < until) { Application.DoEvents(); Thread.Sleep(20); }
-                if (task.IsFaulted) task.GetAwaiter().GetResult();
+                Check(task.IsCompleted, $"Settings page {i} was still loading after 45 s.");
+                task.GetAwaiter().GetResult();
                 Application.DoEvents();
                 using var bitmap = new Bitmap(window.Width, window.Height);
                 window.DrawToBitmap(bitmap, new Rectangle(Point.Empty, window.Size));
@@ -796,10 +802,13 @@ internal static partial class UiChecks
 
         public Fixture()
         {
+            // One fixed moment for the data and the widget's clock: text such as "Updated HH:mm" or "Outdated data"
+            // must not change between two renders a check compares.
+            var now = DateTime.Now;
             var price = new ElectricityPriceService(Http);
-            Set(price, "Prices", Enumerable.Range(0, 192).Select(i => new PricePoint(DateTime.Today.AddMinutes(i * 15), 65 + 35 * Math.Sin(i / 8.0))).ToList());
-            Set(price, "LastFetch", DateTime.Now);
-            Set(price, "LastSuccessfulFetch", DateTime.Now);
+            Set(price, "Prices", Enumerable.Range(0, 192).Select(i => new PricePoint(now.Date.AddMinutes(i * 15), 65 + 35 * Math.Sin(i / 8.0))).ToList());
+            Set(price, "LastFetch", now);
+            Set(price, "LastSuccessfulFetch", now);
             ElectricityPriceService.Shared = price;
             var audio = Audio = new AudioService();
             Set(audio, "Devices", new List<AudioDevice>
@@ -812,21 +821,21 @@ internal static partial class UiChecks
             Set(audio, "Volumes", new Dictionary<string, VolumeState> { ["speaker"] = new(.45f, false) });
             var ha = new HomeAssistantService(Http);
             Set(ha, "Entities", new List<HaEntity> { new("light.room", "Living room", "on", 180, null) });
-            Set(ha, "LastFetch", DateTime.Now);
+            Set(ha, "LastFetch", now);
             var cf = new CloudflareService(Http);
-            Set(cf, "LastFetch", DateTime.Now);
-            Set(cf, "LastSuccessfulDnsFetch", DateTime.Now);
+            Set(cf, "LastFetch", now);
+            Set(cf, "LastSuccessfulDnsFetch", now);
             Set(cf, "ARecords", new List<CloudflareRecord> { new() { Name = "home.example.test", Content = "203.0.113.10" } });
             Set(cf, "Tunnels", new List<CfTunnel> { new("tunnel", "Home network", "healthy", 4, Array.Empty<string>(), null, null, null,
                 new List<CfRoute> { new("home.example.test", "http://localhost:8123") }) });
             var pve = new ProxmoxService();
-            Set(pve, "LastFetch", DateTime.Now);
+            Set(pve, "LastFetch", now);
             Set(pve, "Nodes", new List<PveNode> { new("Server", true, .24, 8, 8L << 30, 32L << 30, 0, 0, TimeSpan.FromDays(3)) });
             Set(pve, "Guests", new List<PveGuest> { new(100, "Home Assistant", "qemu", "Server", "running", .1, 2, 2L << 30, 4L << 30, TimeSpan.FromDays(3)) });
             var network = new NetworkMonitor();
             Widget = new DashboardForm(price, new SystemMonitor(), network, audio, ha, cf, new ServiceMonitor(), pve,
                 Settings, () => SaveCount++, () => "203.0.113.10", () => "ajour", () => Task.CompletedTask, Menu,
-                () => (DateTime.Now, null));
+                () => (now, null)) { Clock = () => now };
         }
         public void Dispose() { Widget.Dispose(); Menu.Dispose(); Http.Dispose(); }
     }
