@@ -152,6 +152,12 @@ curl -s https://api.github.com/repos/Karalumpas/labwidge-releases/releases/lates
 
 `tag_name` must be `v<version>`, and `LabWidge-Setup-<version>.exe` must be attached.
 
+## 7. Microsoft Store
+
+When the job `store-package` succeeded, continue straight away with the `store-submit` skill: it uploads the artifact
+`labwidge-store-package` to Partner Center and submits it for certification. The merge approval covers this – do not ask again.
+If its one-time setup is missing, say what is missing and finish the release without the Store step.
+
 ## When the workflow fails
 
 Read the error with `gh run view <run-id> --log-failed`.

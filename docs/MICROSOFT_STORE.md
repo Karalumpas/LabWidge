@@ -53,6 +53,11 @@ In Partner Center, **Start submission** and fill in:
 Certification usually takes from a few hours to three working days. Each new version needs a new submission with the new
 package: run the Release workflow (it does that by itself when the version changes) and upload the artifact.
 
+Once the first submission is live, later updates can be uploaded and submitted from the command line with the
+[Microsoft Store Developer CLI](https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/commands) (`msstore`).
+The Claude Code skill `.claude/skills/store-submit` does that and lists the one-time setup (an Entra app with the Manager role
+in Partner Center, `msstore reconfigure`, and the repository variable `STORE_PRODUCT_ID`).
+
 ## Moving from the GitHub version
 
 Install the Store version, then uninstall the GitHub version under Settings → Apps → LabWidge and answer **No** when asked
