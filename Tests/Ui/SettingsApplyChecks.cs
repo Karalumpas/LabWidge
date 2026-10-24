@@ -78,6 +78,32 @@ internal static partial class UiChecks
             ((Button)window.AcceptButton!).PerformClick();
             Check(window.DialogResult == DialogResult.OK && commits == 3, "OK without detected edits did not save.");
         }
+        var withPlugins = saved!.Clone();
+        withPlugins.SetPluginEnabled("price", true);
+        withPlugins.SetPluginEnabled("proxmox", true);
+        withPlugins.ProxmoxUrl = "https://pve.test:8006";
+        withPlugins.ProxmoxCertThumbprint = "AABBCCDDEEFF00112233445566778899";
+        using (var window = new SettingsWindow(withPlugins, applySettings: Commit))
+        {
+            window.Show(); Application.DoEvents();
+            var apply = Get<Button>(window, "_apply");
+            var pages = Get<SettingsPage[]>(window, "_pages");
+            var history = pages.OfType<PriceHistoryPage>().Single();
+            var proxmox = pages.OfType<ProxmoxPage>().Single();
+            Call(window, "RefreshDirtyState");
+            Check(!apply.Enabled, "Apply is enabled before the certificate is forgotten.");
+            // A deferred edit that lives outside the page's controls must still enable Apply
+            Call(Get<Button>(proxmox, "_forgetCert"), "OnClick", EventArgs.Empty);
+            Call(window, "RefreshDirtyState");
+            Check(apply.Enabled, "Forgetting the Proxmox certificate did not enable Apply.");
+            apply.PerformClick(); Application.DoEvents();
+            // Pages that keep the draft (history, appliances, rules) must see what was applied
+            var draft = Get<AppSettings>(history, "_settings");
+            Check(commits == 4 && saved!.ProxmoxCertThumbprint == null && ReferenceEquals(draft, window.Settings)
+                && draft.ProxmoxCertThumbprint == null && !ReferenceEquals(draft, saved),
+                "After Apply a page kept the old draft, or the draft is shared with the running settings.");
+            window.Close();
+        }
         Console.WriteLine("PASS Settings Apply: disabled until edited; commits once without closing, jumping or scrolling; undo clears dirty state; Cancel keeps last Apply; OK saves and closes");
     }
 }

@@ -308,6 +308,16 @@ internal sealed class AppSettings
 
     public AppSettings Clone() =>
         JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(this)) ?? new AppSettings();
+
+    /// <summary>Makes this object a copy of <paramref name="other"/> while keeping its identity, so every page and editor
+    /// holding a reference to it sees the new values (as <see cref="Clone"/> would make them).</summary>
+    public void CopyFrom(AppSettings other)
+    {
+        var copy = other.Clone();
+        foreach (var property in typeof(AppSettings).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            if (property.CanRead && property.CanWrite && property.GetIndexParameters().Length == 0)
+                property.SetValue(this, property.GetValue(copy));
+    }
 }
 
 internal static class SettingsStore

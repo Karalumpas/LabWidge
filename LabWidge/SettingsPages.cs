@@ -198,6 +198,8 @@ internal abstract class SettingsPage : UserControl
     public virtual Task OnFirstShownAsync() => Task.CompletedTask;
     public virtual void UsePluginActivation() { }
     public virtual void AcceptChanges(AppSettings settings) { }
+    /// <summary>Pending edits kept outside the page's controls (e.g. a certificate to forget), so Apply notices them.</summary>
+    public virtual string PendingEditState => "";
 
     /// <summary>Asks the settings window to show another page: a plugin's key, or "plugins".</summary>
     public event Action<string>? NavigateRequested;
@@ -1033,6 +1035,7 @@ internal sealed class WindowsPage : SettingsPage
     private readonly CheckBox _highlightDetached = Ui.Check(L.T("Mark detached sections with a directional gradient", "Markér udtrukne sektioner med en retningsbestemt gradient"));
     private readonly NumericUpDown _highlightOpacity = new() { Width = 80, Minimum = 10, Maximum = 100, Value = 95, Increment = 5 };
     private readonly HashSet<string> _forget = new();
+    public override string PendingEditState => string.Join("|", _forget.Order());
     private Dictionary<string, SectionWindowState> _states = new();
 
     public override string Title => L.T("Windows", "Vinduer");
@@ -1367,6 +1370,7 @@ internal sealed class ProxmoxPage : SettingsPage
     private readonly Button _test = new() { Text = L.T("Test connection", "Test forbindelse"), AutoSize = true };
     private readonly Label _testResult = new() { AutoSize = true, MaximumSize = new Size(300, 0), ForeColor = Ui.Muted, Padding = new Padding(0, 5, 0, 0) };
     private string? _thumbprint;
+    public override string PendingEditState => _thumbprint ?? "";
     private string _loadedUrl = "";
 
     public override string Title => "Proxmox";
@@ -1575,6 +1579,7 @@ internal sealed class HomeAssistantPage : SettingsPage
 
     /// <summary>Selected entities in the order the user ticked them – also used in the widget.</summary>
     private readonly List<string> _selected = new();
+    public override string PendingEditState => string.Join("|", _selected);
     private IReadOnlyList<HaEntity> _all = Array.Empty<HaEntity>();
     private bool _updatingList;
 
@@ -1892,6 +1897,7 @@ internal sealed class AudioPage : SettingsPage
     private AppSettings? _loaded;
     /// <summary>Did the widget show "all devices" when loaded, and has the user not touched the ticks or the order?</summary>
     private bool _automatic;
+    public override string PendingEditState => _automatic.ToString();
     private bool _filling;
 
     public override string Title => L.T("Audio", "Lyd");

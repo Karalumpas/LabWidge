@@ -303,8 +303,11 @@ internal sealed class SettingsWindow : Form
             _previewActive = false;
             _previewAppearance?.Invoke(null);
             _applySettings?.Invoke(candidate);
-            Settings = _applySettings == null ? candidate : candidate.Clone();
-            _pluginsPage.LoadFrom(Settings); // its switches must edit the new draft, never the running settings
+            // The same draft object, updated in place: pages and their editors (price history, appliances, rules) keep a
+            // reference to it and must use the applied area and Home Assistant connection, not the values from when Settings opened.
+            // A copy, because the candidate is now the running settings object.
+            Settings.CopyFrom(candidate);
+            _pluginsPage.LoadFrom(Settings);
             foreach (var page in _pages) page.AcceptChanges(Settings);
             foreach (var page in _savedEditors.Keys.ToArray()) _savedEditors[page] = SettingsEditState.Capture(page);
             _savedMessageUntil = DateTime.UtcNow.AddSeconds(3);

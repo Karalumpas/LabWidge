@@ -16,6 +16,7 @@ internal static class SettingsEditState
         }
         void Visit(Control control)
         {
+            if (control is SettingsPage page) Value(page.PendingEditState);
             switch (control)
             {
                 case NumericUpDown number: Value(number.Value); return;
