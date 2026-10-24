@@ -155,8 +155,11 @@ curl -s https://api.github.com/repos/Karalumpas/labwidge-releases/releases/lates
 ## 7. Microsoft Store
 
 When the job `store-package` succeeded, continue straight away with the `store-submit` skill: it uploads the artifact
-`labwidge-store-package` to Partner Center and submits it for certification. The merge approval covers this – do not ask again.
-If its one-time setup is missing, say what is missing and finish the release without the Store step.
+`labwidge-store-package` to Partner Center in the user's Chrome and submits it for certification. The merge approval covers this –
+do not ask again. If Chrome is not connected, finish the release and say the Store step is waiting.
+
+The Store only accepts a version higher than the one live there, and the Store and GitHub share version numbers. Before choosing the
+version in step 2, make sure it is higher than both the last GitHub tag and the version live in the Store.
 
 ## When the workflow fails
 
