@@ -177,7 +177,8 @@ under **Settings → Proxmox**. Self-signed certificates can be trusted from the
 
 LabWidge reads the containers on all your Docker hosts from your Portainer server – its agents report every host, so only the
 server's address is needed. In Portainer, create an access token under your user → **My account → Access tokens**, then turn on
-**Docker** under **Settings → Plugins** and enter the address (e.g. `mgserver`; port 9443 is used by default) and the token.
+**Docker** under **Settings → Plugins** and enter the address (e.g. `localhost` on the Portainer PC; port 9443 is used by default) and the token.
+Use Portainer's own address on your network: an address behind Cloudflare Access only lets people sign in, not apps.
 LabWidge only reads the container lists; it never starts, stops or changes anything. Self-signed certificates can be trusted
 from the settings page.
 </details>

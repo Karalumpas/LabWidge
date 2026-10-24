@@ -1552,7 +1552,7 @@ internal sealed class DockerPage : SettingsPage
     private readonly NumericUpDown _interval = new() { Width = 70, Minimum = 10, Maximum = 600 };
     private readonly CheckBox _showInWidget = Ui.Check(L.T("Show Docker in the widget", "Vis Docker i widgetten"));
     private readonly FlowLayoutPanel _details;
-    private readonly TextBox _url = new() { Width = Ui.FieldWidth, PlaceholderText = L.T("e.g. mgserver or 192.168.1.50:9443", "fx mgserver eller 192.168.1.50:9443") };
+    private readonly TextBox _url = new() { Width = Ui.FieldWidth, PlaceholderText = L.T("e.g. localhost or 192.168.1.50:9443", "fx localhost eller 192.168.1.50:9443") };
     private readonly TextBox _token = new() { Width = Ui.FieldWidth, UseSystemPasswordChar = true };
     private readonly Label _tokenStatus = Ui.Inline("");
     private readonly Button _deleteToken = new() { Text = L.T("Delete", "Slet"), AutoSize = true };
@@ -1585,8 +1585,10 @@ internal sealed class DockerPage : SettingsPage
             _showInWidget,
             Ui.Row(L.T("Update interval", "Opdateringsinterval"), _interval, Ui.Inline(L.T("seconds (while shown)", "sekunder (mens den vises)"))),
             Ui.Row(L.T("Portainer address", "Portainer-adresse"), _url),
-            Ui.Help(L.T("The address you open Portainer on – the server, not an agent. Port 9443 is used unless you type another.",
-                        "Adressen du åbner Portainer på – serveren, ikke en agent. Port 9443 bruges, hvis du ikke skriver en anden.")),
+            Ui.Help(L.T("The Portainer server's own address on your network – not an agent, and not an address behind Cloudflare Access, which only lets people sign in. " +
+                        "On the PC that runs Portainer, use localhost. Port 9443 is used unless you type another.",
+                        "Portainer-serverens egen adresse på dit netværk – ikke en agent og ikke en adresse bag Cloudflare Access, som kun lader personer logge ind. " +
+                        "På den pc, der kører Portainer, bruger du localhost. Port 9443 bruges, hvis du ikke skriver en anden.")),
             Ui.Row(L.T("Access token", "Adgangstoken"), _token),
             Ui.Row("", _tokenStatus, _deleteToken),
             Ui.Help(L.T("Create an access token in Portainer under your user (top right) → My account → Access tokens. " +

@@ -31,6 +31,8 @@ internal sealed class PortainerService
         {
             ConnectTimeout = TimeSpan.FromSeconds(5),
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
+            // A redirect is never Portainer's answer to an API call: it is a login page in front of it (see GetAsync)
+            AllowAutoRedirect = false,
             SslOptions = new SslClientAuthenticationOptions { RemoteCertificateValidationCallback = ValidateCertificate }
         };
         _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
@@ -137,6 +139,15 @@ internal sealed class PortainerService
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{PortainerJson.Normalize(_settings.PortainerUrl ?? "")}/{path}");
         request.Headers.Add("X-API-Key", token.Trim());
         using var response = await _http.SendAsync(request, cancel).ConfigureAwait(true);
+        if ((int)response.StatusCode is >= 300 and < 400)
+        {
+            // Cloudflare Access (or another login) sits in front of Portainer and wants a person to sign in
+            var location = response.Headers.Location;
+            throw new InvalidOperationException(location?.Host.EndsWith("cloudflareaccess.com", StringComparison.OrdinalIgnoreCase) == true
+                ? L.T("Cloudflare Access is in front of Portainer – use its local address instead, e.g. https://localhost:9443 on the Portainer PC or the server's name on your network",
+                      "Cloudflare Access står foran Portainer – brug i stedet den lokale adresse, fx https://localhost:9443 på Portainer-pc'en eller serverens navn på dit netværk")
+                : L.T("The address sends LabWidge to a login page – use Portainer's own address", "Adressen sender LabWidge videre til en login-side – brug Portainers egen adresse"));
+        }
         var body = await response.Content.ReadAsStringAsync(cancel).ConfigureAwait(true);
         if (!response.IsSuccessStatusCode)
             throw new HttpRequestException($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}", null, response.StatusCode);

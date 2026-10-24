@@ -12,6 +12,8 @@ internal static partial class UiChecks
         public List<string> Requests { get; } = new();
         public List<string?> Keys { get; } = new();
         public TaskCompletionSource? Hold { get; set; }
+        /// <summary>Sent with a 3xx answer, like a login page in front of Portainer.</summary>
+        public Uri? Location { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancel)
         {
@@ -23,7 +25,9 @@ internal static partial class UiChecks
             }
             if (Hold is { } hold) await hold.Task.WaitAsync(cancel);
             var (status, body) = Answers.TryGetValue(path, out var answer) ? answer : (HttpStatusCode.NotFound, "{}");
-            return new HttpResponseMessage(status) { Content = new StringContent(body) };
+            var response = new HttpResponseMessage(status) { Content = new StringContent(body) };
+            if ((int)status is >= 300 and < 400) response.Headers.Location = Location;
+            return response;
         }
     }
 
@@ -146,7 +150,19 @@ internal static partial class UiChecks
         var wrongAddress = new PortainerService(notPortainer, () => "token");
         RunRefresh(wrongAddress, s);
         Check(wrongAddress.LastError != null && wrongAddress.LastError.Contains("Portainer"), "An address that is not Portainer gave no useful error.");
-        Console.WriteLine("PASS Docker: refused or missing token and a wrong address give clear errors and keep the last good lists");
+        // Portainer behind Cloudflare Access: the API call is sent to a login page, which must be named, not parsed
+        var behindAccess = new FakePortainer { Location = new Uri("https://example.cloudflareaccess.com/cdn-cgi/access/login/portainer.example.test") };
+        behindAccess.Answers["api/endpoints"] = (HttpStatusCode.Found, "<html>302 Found</html>");
+        var accessService = new PortainerService(behindAccess, () => "token");
+        RunRefresh(accessService, s);
+        Check(accessService.LastError != null && accessService.LastError.Contains("Cloudflare Access") && accessService.LastError.Contains("localhost"),
+            "Cloudflare Access in front of Portainer was not explained.");
+        var otherLogin = new FakePortainer { Location = new Uri("https://login.example.test/") };
+        otherLogin.Answers["api/endpoints"] = (HttpStatusCode.Redirect, "");
+        var loginService = new PortainerService(otherLogin, () => "token");
+        RunRefresh(loginService, s);
+        Check(loginService.LastError != null && loginService.LastError.Contains(L.T("login page", "login-side")), "A redirect to a login page was not explained.");
+        Console.WriteLine("PASS Docker: refused or missing token, a wrong address and Cloudflare Access give clear errors and keep the last good lists");
 
         // Cancellation: a refresh in flight stops, reports nothing and leaves the data alone
         SeedPortainer(fake);
