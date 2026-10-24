@@ -96,11 +96,14 @@ internal static partial class UiChecks
             Call(Get<Button>(proxmox, "_forgetCert"), "OnClick", EventArgs.Empty);
             Call(window, "RefreshDirtyState");
             Check(apply.Enabled, "Forgetting the Proxmox certificate did not enable Apply.");
+            // Turn Proxmox off before applying: saving it switched on would need a secret in this PC's Credential Manager
+            // and otherwise stop at a message box
+            Get<CheckBox>(proxmox, "_enabled").Checked = false;
             apply.PerformClick(); Application.DoEvents();
             // Pages that keep the draft (history, appliances, rules) must see what was applied
             var draft = Get<AppSettings>(history, "_settings");
-            Check(commits == 4 && saved!.ProxmoxCertThumbprint == null && ReferenceEquals(draft, window.Settings)
-                && draft.ProxmoxCertThumbprint == null && !ReferenceEquals(draft, saved),
+            Check(commits == 4 && !saved!.ProxmoxEnabled && ReferenceEquals(draft, window.Settings)
+                && !draft.ProxmoxEnabled && !ReferenceEquals(draft, saved),
                 "After Apply a page kept the old draft, or the draft is shared with the running settings.");
             window.Close();
         }
