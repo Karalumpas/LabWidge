@@ -2,6 +2,9 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.23.2
+- The Microsoft Store version catches up with 1.23.1: colour presets, fonts and text size, sections you drag out of the widget fold up and point to their window, and Settings has an Apply button. Nothing else has changed since 1.23.1.
+
 ## 1.23.1
 - Section drag handles now use a four-way move cursor when hovered and throughout dragging.
 - Detached sections: dragging a section onto the desktop collapses its widget section and marks its header with an accent gradient toward the open window. Windows settings control automatic collapse, highlighting and gradient strength.
