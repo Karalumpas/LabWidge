@@ -129,7 +129,7 @@ internal sealed partial class DashboardForm
         _tip.HideTip();
         _hoverKey = null;
         Capture = true;
-        Cursor = Cursors.SizeNS;
+        Cursor = Cursors.SizeAll;
         _dragTimer.Start();
         Invalidate();
     }
@@ -167,7 +167,7 @@ internal sealed partial class DashboardForm
             {
                 _ghost?.Hide();
             }
-            Cursor = outside ? Cursors.Hand : Cursors.SizeNS;
+            Cursor = Cursors.SizeAll;
             Invalidate();
         }
         if (outside) _ghost!.Location = new Point(cursor.X - (int)U(40), cursor.Y - (int)(d.Grab + d.SnapshotTop));
@@ -249,6 +249,7 @@ internal sealed partial class DashboardForm
             Cursor = Cursors.Default;
             FinishSectionDrag();
             SectionWindows.OpenPinnedAt(d.Key, System.Windows.Forms.Cursor.Position);
+            CollapseDetachedSection(d.Key);
             return;
         }
         d.Settling = true;

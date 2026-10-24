@@ -189,7 +189,7 @@ internal static class SettingsTheme
                 accent.FlatStyle = FlatStyle.Flat;
                 accent.FlatAppearance.BorderSize = 0;
                 accent.BackColor = p.Blue;
-                accent.ForeColor = Color.White;
+                accent.ForeColor = p.AccentText;
                 accent.Cursor = Cursors.Hand;
                 break;
             case LinkLabel l:

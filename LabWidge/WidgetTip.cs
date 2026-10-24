@@ -14,6 +14,8 @@ internal sealed class WidgetTip : Form
     private Palette _p = Palette.Dark;
     private Font? _font;
     private float _scale = 1;
+    private string? _fontKey;
+    private Bitmap? _preparedFrame;
 
     private const TextFormatFlags TF = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
 
@@ -34,43 +36,30 @@ internal sealed class WidgetTip : Form
             var cp = base.CreateParams;
             // Not Form.TopMost: it uses SetWindowPos when the handle is created and can activate the
             // tooltip before ShowWithoutActivation takes effect. Topmost follows the owner, see ShowBeside.
-            cp.ExStyle |= 0x80 | 0x08000000 | 0x20; // TOOLWINDOW | NOACTIVATE | TRANSPARENT
+            cp.ExStyle |= 0x80 | 0x08000000 | 0x20 | 0x80000; // TOOLWINDOW | NOACTIVATE | TRANSPARENT | LAYERED
             return cp;
         }
     }
 
     protected override bool ShowWithoutActivation => true;
 
-    protected override void OnHandleCreated(EventArgs e)
-    {
-        base.OnHandleCreated(e);
-        try
-        {
-            var round = 3; // DWMWCP_ROUNDSMALL
-            DwmSetWindowAttribute(Handle, 33, ref round, sizeof(int));
-        }
-        catch
-        {
-            // Older Windows: square corners.
-        }
-    }
-
     /// <summary>Shows the text beside <paramref name="owner"/>, vertically centred on <paramref name="screenY"/>.</summary>
-    public void ShowBeside(Form owner, string text, int screenY, Palette palette, double opacity, int durationMs = 0)
+    public void ShowBeside(Form owner, string text, int screenY, Palette palette, double opacity, int durationMs = 0, AppSettings? appearance = null)
     {
         _hideTimer.Stop();
         var scale = owner.DeviceDpi / 96f;
-        if (_font == null || Math.Abs(scale - _scale) > 0.01f)
+        appearance ??= new AppSettings();
+        var fontKey = $"{appearance.WidgetFontFamily}|{appearance.WidgetTextSize}|{appearance.WidgetBoldText}";
+        if (_font == null || Math.Abs(scale - _scale) > 0.01f || _fontKey != fontKey)
         {
             _font?.Dispose();
-            _font = new Font("Segoe UI", 12f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+            _font = AppearanceFonts.Create(appearance, 12f * scale);
+            _fontKey = fontKey;
             _scale = scale;
         }
         _text = text;
         _p = palette;
         BackColor = _p.Bg;
-        Opacity = opacity;
-        ApplyBorderColor();
 
         var pad = new Size((int)(10 * scale), (int)(7 * scale));
         var gap = (int)(8 * scale);
@@ -83,11 +72,32 @@ internal sealed class WidgetTip : Form
         if (x < wa.Left) x = Math.Min(owner.Right + gap, wa.Right - size.Width); // no room on the left
         var y = Math.Clamp(screenY - size.Height / 2, wa.Top, Math.Max(wa.Top, wa.Bottom - size.Height));
 
+        // Rasterise the text, background and border BEFORE making any window visible.
+        // WS_EX_TRANSPARENT otherwise defers WM_PAINT until sibling windows finish painting.
+        using (var opaque = new Bitmap(size.Width, size.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb))
+        {
+            using (var g = Graphics.FromImage(opaque))
+            {
+                g.Clear(_p.Bg);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                var rect = new Rectangle(pad.Width, pad.Height, size.Width - pad.Width * 2, size.Height - pad.Height * 2);
+                TextRenderer.DrawText(g, _text, _font, rect, _p.TextPrimary, TF | TextFormatFlags.WordBreak);
+                using var border = new Pen(_p.Line, Math.Max(1, scale));
+                var half = border.Width / 2;
+                using var path = WidgetIcon.RoundedRect(new RectangleF(half, half, size.Width - border.Width, size.Height - border.Width), 4 * scale);
+                g.DrawPath(border, path);
+            }
+            var prepared = LayeredWindowSurface.Round(opaque, 4 * scale);
+            _preparedFrame?.Dispose();
+            _preparedFrame = prepared;
+        }
+        if (Owner != owner) Owner = owner;
         Bounds = new Rectangle(x, y, size.Width, size.Height);
         // As an owned window it always stays above its owner; it only goes above other programs when the owner does
         SetWindowPos(Handle, owner.TopMost ? HwndTopMost : HwndNoTopMost, 0, 0, 0, 0, SwpNoSize | SwpNoMove | SwpNoActivate);
+        // Publish the entire tooltip atomically, then show it without activation.
+        if (!LayeredWindowSurface.Present(Handle, _preparedFrame, opacity)) { HideTip(); return; }
         if (!Visible) Show(owner);
-        Invalidate();
         if (durationMs > 0)
         {
             _hideTimer.Interval = durationMs;
@@ -101,29 +111,10 @@ internal sealed class WidgetTip : Form
         if (Visible) Hide();
     }
 
-    private void ApplyBorderColor()
-    {
-        if (!IsHandleCreated) CreateHandle();
-        try
-        {
-            var border = _p.Line.R | (_p.Line.G << 8) | (_p.Line.B << 16);
-            DwmSetWindowAttribute(Handle, 34, ref border, sizeof(int));
-        }
-        catch
-        {
-            // Not supported.
-        }
-    }
-
     protected override void OnPaint(PaintEventArgs e)
     {
-        var g = e.Graphics;
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.Clear(_p.Bg);
-        if (_font == null) return;
-        var pad = new Size((int)(10 * _scale), (int)(7 * _scale));
-        var rect = new Rectangle(pad.Width, pad.Height, ClientSize.Width - pad.Width * 2, ClientSize.Height - pad.Height * 2);
-        TextRenderer.DrawText(g, _text, _font, rect, _p.TextPrimary, TF | TextFormatFlags.WordBreak);
+        // The layered surface is already published; this also supports bitmap previews.
+        if (_preparedFrame != null) e.Graphics.DrawImageUnscaled(_preparedFrame, Point.Empty);
     }
 
     protected override void Dispose(bool disposing)
@@ -132,6 +123,7 @@ internal sealed class WidgetTip : Form
         {
             _hideTimer.Dispose();
             _font?.Dispose();
+            _preparedFrame?.Dispose();
         }
         base.Dispose(disposing);
     }
@@ -142,6 +134,4 @@ internal sealed class WidgetTip : Form
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 }
