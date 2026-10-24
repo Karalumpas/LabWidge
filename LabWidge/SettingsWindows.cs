@@ -22,13 +22,31 @@ internal sealed class SettingsWindow : Form
     private readonly Palette _p;
     private int _index = -1;
 
-    public AppSettings Settings { get; }
+    private readonly Action<AppSettings?>? _previewAppearance;
+    private AppSettings? _pendingAppearance;
+    private bool _previewQueued, _previewActive, _previewClosed;
+
+    private readonly Action<AppSettings>? _applySettings;
+    private readonly Button _apply = new() { Text = L.T("Apply", "Anvend"), Width = 104, Height = 32, Enabled = false, Margin = Padding.Empty };
+    private readonly Label _saveStatus = new() { AutoSize = true, Location = new Point(20, 10) };
+    private readonly System.Windows.Forms.Timer _editTimer = new() { Interval = 200 };
+    private readonly Dictionary<SettingsPage, string> _savedEditors = new();
+    private readonly HashSet<SettingsPage> _editedWhileLoading = new();
+    private readonly HashSet<SettingsPage> _loadingPages = new();
+    private readonly HashSet<Control> _observedEditors = new();
+    private readonly HashSet<SettingsPage> _styledPages = new();
+    private bool _applying;
+    private DateTime _savedMessageUntil;
+
+    public AppSettings Settings { get; private set; }
     public bool RunOnboardingRequested { get; private set; }
 
-    public SettingsWindow(AppSettings settings, string? startPage = null)
+    public SettingsWindow(AppSettings settings, string? startPage = null, Action<AppSettings?>? previewAppearance = null, Action<AppSettings>? applySettings = null)
     {
+        _previewAppearance = previewAppearance;
+        _applySettings = applySettings;
         Settings = settings.Clone();
-        _p = Palette.For(settings.Theme);
+        _p = Palette.For(settings);
         Ui.Palette = _p; // before the pages are created, so they pick up the theme's colours
 
         _pluginsPage = new PluginsPage();
@@ -39,8 +57,12 @@ internal sealed class SettingsWindow : Form
         foreach (var page in _commonPages.Append(_pluginsPage).Append(_aboutPage))
         {
             page.LoadFrom(Settings);
+            _savedEditors[page] = SettingsEditState.Capture(page);
+            ObserveEditors(page, page);
             page.NavigateRequested += key => ShowKey(key);
         }
+        _commonPages.OfType<GeneralPage>().Single().AppearanceChanged += QueueAppearancePreview;
+        FormClosed += (_, _) => EndAppearancePreview();
         _pluginsPage.ActivationChanged += RebuildPages;
         _pluginsPage.ConfigureRequested += key => ShowKey(key);
 
@@ -61,7 +83,7 @@ internal sealed class SettingsWindow : Form
         _menu.Selected += async index => await ShowPageAsync(index);
 
         // Bottom bar
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 58, BackColor = SettingsTheme.CardColor(_p) };
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 82, BackColor = SettingsTheme.CardColor(_p) };
         bottom.Paint += (_, e) =>
         {
             using var line = new Pen(_p.Line);
@@ -73,17 +95,20 @@ internal sealed class SettingsWindow : Form
             FlowDirection = FlowDirection.RightToLeft,
             WrapContents = false,
             AutoSize = true,
-            Padding = new Padding(0, 12, 16, 10),
+            Padding = new Padding(0, 36, 16, 10),
             BackColor = Color.Transparent
         };
-        var save = new Button { Text = L.T("Save", "Gem"), Width = 104, Height = 32, Tag = "accent", Margin = Padding.Empty };
+        var save = new Button { Text = "OK", Width = 104, Height = 32, Tag = "accent", Margin = new Padding(0, 0, 8, 0) };
         var cancel = new Button { Text = L.T("Cancel", "Annuller"), Width = 104, Height = 32, DialogResult = DialogResult.Cancel, Margin = new Padding(0, 0, 8, 0) };
-        buttons.Controls.AddRange(new Control[] { save, cancel });
-        var wizard = new LinkLabel { Text = L.T("Run the setup guide again", "Kør opsætningsguiden igen"), AutoSize = true, Location = new Point(20, 20), BackColor = Color.Transparent };
+        buttons.Controls.AddRange(new Control[] { _apply, cancel, save });
+        var wizard = new LinkLabel { Text = L.T("Run the setup guide again", "Kør opsætningsguiden igen"), AutoSize = true, Location = new Point(20, 46), BackColor = Color.Transparent };
         bottom.Controls.Add(buttons);
         bottom.Controls.Add(wizard);
+        _saveStatus.ForeColor = _p.TextSecondary;
+        bottom.Controls.Add(_saveStatus);
 
         save.Click += (_, _) => SaveAndClose();
+        _apply.Click += (_, _) => ApplyChanges();
         wizard.LinkClicked += (_, _) =>
         {
             RunOnboardingRequested = true;
@@ -101,8 +126,10 @@ internal sealed class SettingsWindow : Form
         CancelButton = cancel;
 
         HandleCreated += (_, _) => SettingsTheme.TitleBar(this, _p);
+        _editTimer.Tick += (_, _) => RefreshDirtyState();
         Shown += async (_, _) =>
         {
+            _editTimer.Start();
             if (startPage == null || !ShowKey(startPage)) await ShowPageAsync(0);
         };
     }
@@ -124,6 +151,8 @@ internal sealed class SettingsWindow : Form
     {
         page.LoadFrom(Settings);
         page.UsePluginActivation();
+        _savedEditors[page] = SettingsEditState.Capture(page);
+        ObserveEditors(page, page);
         page.NavigateRequested += k => ShowKey(k);
         _keys[page] = key;
         return page;
@@ -159,6 +188,7 @@ internal sealed class SettingsWindow : Form
                 _host.Controls.Add(page);
             }
             SettingsTheme.Apply(page, _p);
+            if (_styledPages.Add(page)) _savedEditors[page] = SettingsEditState.Capture(page);
         }
         var groups = new Dictionary<int, string>
         {
@@ -182,27 +212,121 @@ internal sealed class SettingsWindow : Form
         _host.ResumeLayout();
         if (_shown.Add(page))
         {
-            await page.OnFirstShownAsync();
+            _loadingPages.Add(page);
+            try { await page.OnFirstShownAsync(); }
+            finally { _loadingPages.Remove(page); }
             if (IsDisposed || page.IsDisposed) return;
             SettingsTheme.Apply(page, _p); // controls created while loading (e.g. lists) get the theme too
+            if (!_editedWhileLoading.Remove(page)) _savedEditors[page] = SettingsEditState.Capture(page);
+            ObserveEditors(page, page);
         }
+    }
+
+    private void QueueAppearancePreview(AppSettings appearance)
+    {
+        if (_previewAppearance == null || _previewClosed || !IsHandleCreated) return;
+        _pendingAppearance = appearance;
+        if (_previewQueued) return;
+        _previewQueued = true;
+        BeginInvoke(new Action(() =>
+        {
+            _previewQueued = false;
+            if (_previewClosed || IsDisposed || Disposing || _pendingAppearance == null) return;
+            _previewActive = true;
+            _previewAppearance(_pendingAppearance);
+        }));
+    }
+
+    private void EndAppearancePreview()
+    {
+        _previewClosed = true;
+        _pendingAppearance = null;
+        if (!_previewActive) return;
+        _previewActive = false;
+        _previewAppearance?.Invoke(null);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { _editTimer.Dispose(); EndAppearancePreview(); }
+        base.Dispose(disposing);
+    }
+
+    private void ObserveEditors(Control control, SettingsPage page)
+    {
+        if (!_observedEditors.Add(control)) return;
+        void Edited(object? sender, EventArgs args)
+        {
+            if (_loadingPages.Contains(page) && control.ContainsFocus) _editedWhileLoading.Add(page);
+        }
+        control.TextChanged += Edited;
+        if (control is CheckBox check) check.CheckedChanged += Edited;
+        if (control is RadioButton radio) radio.CheckedChanged += Edited;
+        if (control is CheckedListBox list) list.ItemCheck += (sender, args) => Edited(sender, args);
+        if (control is DataGridView grid) grid.CellValueChanged += (sender, args) => Edited(sender, args);
+        if (control is ComboBox combo) combo.SelectedIndexChanged += Edited;
+        if (control is NumericUpDown number) number.ValueChanged += Edited;
+        if (control is TrackBar track) track.ValueChanged += Edited;
+        if (control is Button button) button.Click += Edited;
+        control.ControlAdded += (_, args) => { if (args.Control != null) ObserveEditors(args.Control, page); };
+        foreach (Control child in control.Controls) ObserveEditors(child, page);
+    }
+
+    private void RefreshDirtyState()
+    {
+        if (_applying || IsDisposed) return;
+        _apply.Enabled = _pages.Any(page => _savedEditors.TryGetValue(page, out var baseline)
+            && baseline != SettingsEditState.Capture(page));
+        _saveStatus.Text = _apply.Enabled ? L.T("Unsaved changes", "Ikke-gemte ændringer")
+            : DateTime.UtcNow < _savedMessageUntil ? L.T("Changes saved", "Ændringerne er gemt") : "";
+    }
+
+    /// <param name="always">OK saves even when no change was detected, so an editor the change detection misses never loses its value.</param>
+    private bool ApplyChanges(bool always = false)
+    {
+        RefreshDirtyState();
+        if (!always && !_apply.Enabled) return true;
+        _applying = true;
+        try
+        {
+            var candidate = Settings.Clone();
+            foreach (var page in _pages)
+            {
+                var error = page.SaveTo(candidate);
+                if (error == null) continue;
+                _ = ShowPageAsync(Array.IndexOf(_pages, page));
+                MessageBox.Show(this, error, L.T("Settings", "Indstillinger"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return false;
+            }
+            // Clear any queued old preview before committing the new baseline.
+            _pendingAppearance = null;
+            _previewActive = false;
+            _previewAppearance?.Invoke(null);
+            _applySettings?.Invoke(candidate);
+            Settings = _applySettings == null ? candidate : candidate.Clone();
+            _pluginsPage.LoadFrom(Settings); // its switches must edit the new draft, never the running settings
+            foreach (var page in _pages) page.AcceptChanges(Settings);
+            foreach (var page in _savedEditors.Keys.ToArray()) _savedEditors[page] = SettingsEditState.Capture(page);
+            _savedMessageUntil = DateTime.UtcNow.AddSeconds(3);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Could not apply settings: {ex.Message}");
+            MessageBox.Show(this, L.T("Could not save changes. Please try again.", "Ændringerne kunne ikke gemmes. Prøv igen."),
+                L.T("Settings", "Indstillinger"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+        finally { _applying = false; RefreshDirtyState(); }
     }
 
     private void SaveAndClose()
     {
-        for (var i = 0; i < _pages.Length; i++)
-        {
-            var error = _pages[i].SaveTo(Settings);
-            if (error != null)
-            {
-                _ = ShowPageAsync(i);
-                MessageBox.Show(this, error, L.T("Settings", "Indstillinger"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-        }
+        if (!ApplyChanges(always: true)) return;
         DialogResult = DialogResult.OK;
         Close();
     }
+
 }
 
 /// <summary>The settings menu: the app at the top, then the pages with icons in groups. The chosen page is highlighted.</summary>
@@ -384,7 +508,7 @@ internal sealed class OnboardingForm : Form
     public OnboardingForm(AppSettings settings)
     {
         Settings = settings.Clone();
-        _p = Palette.For(settings.Theme);
+        _p = Palette.For(settings);
         Ui.Palette = _p; // before the pages are created
         _pages = new SettingsPage[] { new WelcomePage(), new GeneralPage(), new PricePage(), new HomeAssistantPage(), new CloudflarePage(), new NotificationsPage(withPriceAlerts: true) };
 

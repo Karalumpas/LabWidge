@@ -32,3 +32,6 @@ worker/.dev.vars
 
 # Claude Code personal permissions
 .claude/settings.local.json
+
+# Codex local config
+.codex/

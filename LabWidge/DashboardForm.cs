@@ -38,6 +38,7 @@ internal sealed partial class DashboardForm : Form
     private readonly List<Hit> _hits = new();
 
     private AppSettings _settings;
+    private AppSettings? _appearancePreview;
     private Palette _p;
     private FontSet _f;
     private Point _mouse = new(-1, -1);
@@ -71,7 +72,7 @@ internal sealed partial class DashboardForm : Form
         _externalIp = externalIp;
         _networkState = networkState ?? (() => (DateTime.MinValue, null));
         _cloudflareStatus = cloudflareStatus;
-        _p = Palette.For(settings.Theme);
+        _p = Palette.For(settings);
 
         Text = "LabWidge";
         FormBorderStyle = FormBorderStyle.None;
@@ -86,7 +87,7 @@ internal sealed partial class DashboardForm : Form
         Icon = AppIconProvider.GetIcon();
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
 
-        _f = new FontSet(DpiScale);
+        _f = new FontSet(DpiScale, _appearancePreview ?? _settings);
         ClientSize = new Size((int)U(LogicalWidth), (int)U(400));
 
         Services = new PluginServices
@@ -105,6 +106,9 @@ internal sealed partial class DashboardForm : Form
         _services.Updated += OnDataUpdated;
         _pve.Updated += OnDataUpdated;
         LaunchIcons.Updated += OnLaunchIconsUpdated;
+        SectionWindows.WindowChanged += OnSectionWindowChanged;
+        SectionWindows.WindowClosed += ExpandReturnedSection;
+        LocationChanged += (_, _) => { foreach (var key in SectionWindows.Keys) OnSectionWindowChanged(key); };
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
 
@@ -118,13 +122,34 @@ internal sealed partial class DashboardForm : Form
 
     public void ApplySettings(AppSettings settings)
     {
+        _appearancePreview = null;
         _settings = settings;
         SectionWindows.Settings = settings;
         SectionWindows.ApplySettings(settings);
-        _p = Palette.For(settings.Theme);
+        _p = Palette.For(settings);
         BackColor = _p.Bg;
+        _f.Dispose();
+        _f = new FontSet(DpiScale, settings);
+        _sectionMeasurements.Clear();
         TopMost = settings.WidgetTopMost;
         _opacity = Math.Clamp(settings.WidgetOpacity, 40, 100) / 100.0;
+        if (Visible) FitSize();
+        Invalidate();
+    }
+
+    /// <summary>Changes presentation only. Services and saved settings keep their current values.</summary>
+    public void PreviewAppearance(AppSettings? appearance)
+    {
+        _appearancePreview = appearance;
+        var effective = appearance ?? _settings;
+        _p = Palette.For(effective);
+        BackColor = _p.Bg;
+        _f.Dispose();
+        _f = new FontSet(DpiScale, effective);
+        _opacity = Math.Clamp(effective.WidgetOpacity, 40, 100) / 100.0;
+        _sectionMeasurements.Clear();
+        _tip.HideTip();
+        SectionWindows.PreviewAppearance(appearance);
         if (Visible) FitSize();
         Invalidate();
     }
@@ -214,7 +239,7 @@ internal sealed partial class DashboardForm : Form
     {
         base.OnDpiChanged(e);
         _f.Dispose();
-        _f = new FontSet(DpiScale);
+        _f = new FontSet(DpiScale, _appearancePreview ?? _settings);
         FitSize();
         Invalidate();
     }
@@ -241,12 +266,15 @@ internal sealed partial class DashboardForm : Form
             _services.Updated -= OnDataUpdated;
             _pve.Updated -= OnDataUpdated;
             LaunchIcons.Updated -= OnLaunchIconsUpdated;
+            SectionWindows.WindowChanged -= OnSectionWindowChanged;
+            SectionWindows.WindowClosed -= ExpandReturnedSection;
             _dragTimer.Dispose();
             _railTimer.Dispose();
             _drag?.Snapshot.Dispose();
             _ghost?.Dispose();
             _tip.Dispose();
             _mask?.Dispose();
+            _surfaceFrame?.Dispose();
             _sectionMenu?.Dispose();
             _f.Dispose();
         }
@@ -380,14 +408,14 @@ internal sealed partial class DashboardForm : Form
 
         UpdateRailHover(_mouse);
         var hit = _hits.LastOrDefault(h => h.Rect.Contains(_mouse));
-        Cursor = SectionHeaderAt(_mouse) != null ? Cursors.SizeNS : hit?.Click != null ? Cursors.Hand : Cursors.Default;
+        Cursor = SectionHeaderAt(_mouse) != null ? Cursors.SizeAll : hit?.Click != null ? Cursors.Hand : Cursors.Default;
         var key = hit == null ? null : $"{hit.Rect}|{hit.Tip}";
         if (key != _hoverKey)
         {
             _hoverKey = key;
             if (hit?.Tip != null) ShowTip(hit.Tip);
             else _tip.HideTip();
-            Invalidate();
+            InvalidateInteraction();
         }
     }
 
@@ -399,7 +427,7 @@ internal sealed partial class DashboardForm : Form
         _mouse = new Point(-1, -1);
         _hoverKey = null;
         _tip.HideTip();
-        Invalidate();
+        InvalidateInteraction();
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -491,7 +519,7 @@ internal sealed partial class DashboardForm : Form
     /// <summary>Shows the text left of the widget, at the height of the mouse – so it never covers the content.</summary>
     private void ShowTip(string text, int durationMs = 0)
     {
-        _tip.ShowBeside(this, text, Cursor.Position.Y, _p, _opacity, durationMs);
+        _tip.ShowBeside(this, text, Cursor.Position.Y, _p, _opacity, durationMs, _appearancePreview ?? _settings);
     }
 
     private void ShowTipAtMouse(string text) => ShowTip(text, 1500);
@@ -909,8 +937,12 @@ internal sealed partial class DashboardForm : Form
                          bool collapsed, Action toggle)
     {
         var rect = new RectangleF(x - U(6), y - U(4), w + U(12), U(24));
-        if (rect.Contains(_mouse)) FillRound(g, rect, _p.HoverBg, U(6));
         var key = _drawingSection;
+        var strongLeft = DetachedHeaderSide(key);
+        var marked = _settings.HighlightDetachedSections && strongLeft.HasValue;
+        if (marked) DrawDetachedHeader(g, rect, strongLeft!.Value);
+        else if (rect.Contains(_mouse)) FillRound(g, rect, _p.HoverBg, U(6));
+        Color Ink(Color colour) => marked ? Palette.Dark.TextPrimary : colour;
         var freshness = StatusFor(key);
         if (freshness is { } status && (!collapsed || status.Health != DataHealth.Current))
         {
@@ -923,35 +955,35 @@ internal sealed partial class DashboardForm : Form
                 ? (PinOf(key) == SectionPin.Top ? L.T("\nPinned to the top", "\nFastgjort øverst") : L.T("\nPinned to the bottom", "\nFastgjort nederst"))
                 : "")
             + (freshness is { } detail ? "\n" + detail.Detail : ""), key == null ? toggle : () => ToggleHeader(key, toggle)));
-        DrawHeaderGrip(g, x, y, key);
-        DrawText(g, glyph, _f.Icon, _p.TextSecondary, x + U(29), y + U(1));
+        DrawHeaderGrip(g, x, y, key, marked ? Ink(_p.TextDim) : null);
+        DrawHeaderText(g, marked, glyph, _f.Icon, Ink(_p.TextSecondary), x + U(29), y + U(1));
         var gearW = key != null ? U(22) : 0;
         var titleWidth = Math.Min(Measure(g, title, _f.SmallBold).Width, w * 0.62f - U(50) - gearW);
-        DrawText(g, Fit(g, title, _f.SmallBold, Math.Max(U(28), titleWidth)), _f.SmallBold, _p.TextSecondary, x + U(50), y);
+        DrawHeaderText(g, marked, Fit(g, title, _f.SmallBold, Math.Max(U(28), titleWidth)), _f.SmallBold, Ink(_p.TextSecondary), x + U(50), y);
         if (key != null)
         {
             // The gear by the title opens the section's settings
             var gear = new RectangleF(x + U(50) + Math.Max(U(28), titleWidth) + U(3), y - U(3), U(19), U(21));
             var overGear = gear.Contains(_mouse);
-            if (overGear) FillRound(g, gear, _p.Track, U(4));
-            DrawText(g, "", _f.IconSmall, overGear ? _p.TextPrimary : rect.Contains(_mouse) ? _p.TextSecondary : _p.TextDim, gear.X + U(4.5f), gear.Y + U(5));
+            if (overGear) FillRound(g, gear, marked ? Color.FromArgb(35, Color.White) : _p.Track, U(4));
+            DrawHeaderText(g, marked, "", _f.IconSmall, Ink(overGear ? _p.TextPrimary : rect.Contains(_mouse) ? _p.TextSecondary : _p.TextDim), gear.X + U(4.5f), gear.Y + U(5));
             _hits.Add(new Hit(gear, L.T("Settings for this section", "Indstillinger for denne sektion"), () => SettingsRequested(key)));
             titleWidth += gearW;
         }
-        DrawText(g, collapsed ? "" : "", _f.IconSmall, _p.TextDim, x + w - U(10), y + U(3));
+        DrawHeaderText(g, marked, collapsed ? "" : "", _f.IconSmall, Ink(_p.TextDim), x + w - U(10), y + U(3));
         var hovered = rect.Contains(_mouse) && _drag == null && key != null && SectionWindows.Supports(key);
         var rightW = 0f;
         if (right != null)
         {
-            rightW = DrawText(g, Fit(g, right, _f.Small, Math.Max(U(25), w - U(74) - titleWidth - (hovered ? U(24) : 0))), _f.Small,
-                rightColor ?? _p.TextDim, x + w - U(18), y, right: true);
+            rightW = DrawHeaderText(g, marked, Fit(g, right, _f.Small, Math.Max(U(25), w - U(74) - titleWidth - (hovered ? U(24) : 0))), _f.Small,
+                Ink(rightColor ?? _p.TextDim), x + w - U(18), y, right: true);
         }
         if (hovered)
         {
             var icon = new RectangleF(x + w - U(18) - rightW - U(26), y - U(3), U(22), U(21));
             var over = icon.Contains(_mouse);
-            if (over) FillRound(g, icon, _p.Track, U(4));
-            DrawText(g, "\uE8A7", _f.IconSmall, over ? _p.TextPrimary : _p.TextSecondary, icon.X + U(6), icon.Y + U(5));
+            if (over) FillRound(g, icon, marked ? Color.FromArgb(35, Color.White) : _p.Track, U(4));
+            DrawHeaderText(g, marked, "\uE8A7", _f.IconSmall, Ink(over ? _p.TextPrimary : _p.TextSecondary), icon.X + U(6), icon.Y + U(5));
             _hits.Add(new Hit(icon, L.T("Open in a window – or drag the section out of the widget", "Åbn i et vindue – eller træk sektionen ud af widgetten"),
                 () => SectionWindows.Toggle(key!, Bounds)));
         }
@@ -1055,13 +1087,28 @@ internal sealed partial class DashboardForm : Form
         g.FillPath(brush, path);
     }
 
-    private static SizeF Measure(Graphics g, string s, Font f) => TextRenderer.MeasureText(g, s, f, Size.Empty, TF);
+    // Font keys are weak: changing typography must not retain disposed font sets.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Font, Dictionary<(string Text, float DpiX, float DpiY), SizeF>> TextMeasurements = new();
+
+    private static SizeF Measure(Graphics g, string s, Font f)
+    {
+        var cache = TextMeasurements.GetOrCreateValue(f);
+        var key = (s, g.DpiX, g.DpiY);
+        if (cache.TryGetValue(key, out var size)) return size;
+        size = TextRenderer.MeasureText(g, s, f, Size.Empty, TF);
+        if (cache.Count >= 512) cache.Clear();
+        cache[key] = size;
+        return size;
+    }
 
     private static float DrawText(Graphics g, string s, Font f, Color c, float x, float y, bool right = false)
     {
         var size = Measure(g, s, f);
         var px = right ? x - size.Width : x;
-        TextRenderer.DrawText(g, s, f, new Point((int)Math.Round(px), (int)Math.Round(y)), c, TF);
+        // Invisible glyphs still contribute their width to layout, but need no HDC.
+        var ink = new RectangleF(px - f.Size / 2, y - 2, size.Width + f.Size, size.Height + 4);
+        if (g.IsVisible(ink))
+            TextRenderer.DrawText(g, s, f, new Point((int)Math.Round(px), (int)Math.Round(y)), c, TF);
         return size.Width;
     }
 
@@ -1095,15 +1142,15 @@ internal sealed partial class DashboardForm : Form
     {
         public readonly Font Big, Body, BodyBold, Small, SmallBold, Tiny, Icon, IconSmall, IconLarge;
 
-        public FontSet(float scale)
+        public FontSet(float scale, AppSettings settings)
         {
             var iconFamily = HasFont("Segoe Fluent Icons") ? "Segoe Fluent Icons" : "Segoe MDL2 Assets";
-            Big = new Font("Segoe UI", 38 * scale, FontStyle.Bold, GraphicsUnit.Pixel);
-            Body = new Font("Segoe UI", 12.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-            BodyBold = new Font("Segoe UI Semibold", 12.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-            Small = new Font("Segoe UI", 11.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-            SmallBold = new Font("Segoe UI Semibold", 11.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-            Tiny = new Font("Segoe UI", 10.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+            Big = AppearanceFonts.Create(settings, 38 * scale, true, large: true);
+            Body = AppearanceFonts.Create(settings, 12.5f * scale);
+            BodyBold = AppearanceFonts.Create(settings, 12.5f * scale, true);
+            Small = AppearanceFonts.Create(settings, 11.5f * scale);
+            SmallBold = AppearanceFonts.Create(settings, 11.5f * scale, true);
+            Tiny = AppearanceFonts.Create(settings, 10.5f * scale);
             Icon = new Font(iconFamily, 13 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
             IconSmall = new Font(iconFamily, 10 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
             IconLarge = new Font(iconFamily, 20 * scale, FontStyle.Regular, GraphicsUnit.Pixel);

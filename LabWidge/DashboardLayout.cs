@@ -15,9 +15,9 @@ internal sealed partial class DashboardForm
     private readonly Func<(DateTime Time, string? Error)> _networkState;
     private ContextMenuStrip? _sectionMenu;
 
-    private void DrawHeaderGrip(Graphics g, float x, float y, string? key)
+    private void DrawHeaderGrip(Graphics g, float x, float y, string? key, Color? markerInk = null)
     {
-        using var brush = new SolidBrush(_p.TextDim);
+        using var brush = markerInk.HasValue ? MarkerInk() : new SolidBrush(_p.TextDim);
         for (var col = 0; col < 2; col++)
             for (var row = 0; row < 3; row++)
                 g.FillEllipse(brush, x - U(2) + U(col * 4), y + U(4 + row * 4), U(2), U(2));
@@ -27,8 +27,8 @@ internal sealed partial class DashboardForm
         var pinned = PinOf(key) != SectionPin.None;
         var rect = new RectangleF(x + U(7), y - U(2), U(16), U(20));
         var hovered = rect.Contains(_mouse);
-        if (hovered) FillRound(g, rect, _p.Track, U(4));
-        DrawText(g, pinned ? "" : "", _f.IconSmall, pinned ? _p.Blue : hovered ? _p.TextSecondary : _p.TextDim, x + U(10), y + U(3));
+        if (hovered) FillRound(g, rect, markerInk.HasValue ? Color.FromArgb(35, Color.White) : _p.Track, U(4));
+        DrawHeaderText(g, markerInk.HasValue, pinned ? "" : "", _f.IconSmall, markerInk ?? (pinned ? _p.Blue : hovered ? _p.TextSecondary : _p.TextDim), x + U(10), y + U(3));
         var side = PinSideFor(key, y - _paintScroll);
         _hits.Add(new Hit(rect, pinned
                 ? (PinOf(key) == SectionPin.Top ? L.T("Pinned to the top", "Fastgjort øverst") : L.T("Pinned to the bottom", "Fastgjort nederst"))
@@ -142,7 +142,13 @@ internal sealed partial class DashboardForm
         foreach (var section in sections)
         {
             if (height > 0) height += U(SectionGap);
-            height += DrawSection(g, section, x, 0, w);
+            var key = (section.Key, _autoSummaries.Contains(section.Key));
+            if (!_reuseSectionMeasurements || !_sectionMeasurements.TryGetValue(key, out var measured))
+            {
+                measured = DrawSection(g, section, x, 0, w);
+                _sectionMeasurements[key] = measured;
+            }
+            height += measured;
         }
         g.Restore(state);
         return height;

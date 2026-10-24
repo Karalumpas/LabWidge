@@ -6,6 +6,9 @@ using Microsoft.Win32;
 internal enum WidgetTheme { System, Light, Dark }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum ColorPreset { Standard, Ocean, Forest, Amber, Rose, Violet, Slate }
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum SectionPin { None, Top, Bottom }
 
 /// <summary>Where the shortcuts are: docked as a rail on one side of the widget, or as a section among the others.</summary>
@@ -132,6 +135,9 @@ internal sealed class AppSettings
     public string[] ForgetWindows { get; set; } = Array.Empty<string>();
     /// <summary>Open the pinned section windows again when LabWidge starts.</summary>
     public bool RestorePinnedWindows { get; set; } = true;
+    public bool CollapseSectionOnDetach { get; set; } = true;
+    public bool HighlightDetachedSections { get; set; } = true;
+    public int DetachedSectionHighlightOpacity { get; set; } = 95;
     /// <summary>Show the rail with <see cref="LaunchItems"/> on the left of the widget.</summary>
     public bool ShowLaunchRail { get; set; } = true;
     /// <summary>Websites and programs in the rail, top to bottom.</summary>
@@ -189,6 +195,11 @@ internal sealed class AppSettings
     /// that Windows gives a new id. See <see cref="AudioDeviceMemory"/>.</summary>
     public Dictionary<string, string> AudioDeviceKeys { get; set; } = new();
     public WidgetTheme Theme { get; set; } = WidgetTheme.System;
+    public ColorPreset ColorPreset { get; set; } = ColorPreset.Standard;
+    public string WidgetFontFamily { get; set; } = "Segoe UI";
+    public int WidgetTextSize { get; set; } = 100;
+    public bool WidgetBoldText { get; set; }
+    public bool HighContrastText { get; set; }
     /// <summary>Opacity in percent (40-100).</summary>
     public int WidgetOpacity { get; set; } = 100;
 

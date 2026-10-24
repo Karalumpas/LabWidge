@@ -38,9 +38,10 @@ $logos = @(
     @{ Path = (Join-Path $outputDir 'StoreListingLogo-300.png'); Size = 300 }
 )
 foreach ($logo in $logos) {
-    # LabWidge is a Windows app, so PowerShell would not wait for it by itself
-    $process = Start-Process -FilePath $exe -ArgumentList @('--write-png', $logo.Size, "`"$($logo.Path)`"") -Wait -PassThru -WindowStyle Hidden
-    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $logo.Path)) { throw "The app did not write $($logo.Path)." }
+    # Run the logo generator with the installed .NET host. This also works on build
+    # machines where application control blocks the unsigned apphost before Store signing.
+    & dotnet (Join-Path $layout 'LabWidge.dll') --write-png $logo.Size $logo.Path
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $logo.Path)) { throw "The app did not write $($logo.Path)." }
 }
 
 $manifest = Get-Content (Join-Path $repoRoot 'Packaging/AppxManifest.xml') -Raw

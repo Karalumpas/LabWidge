@@ -30,13 +30,15 @@ internal abstract class PopupPanel : Form
     private float _contentHeight;
     private Control? _hosted;
     private bool _closingForShutdown;
+    internal bool ClosingForShutdown => _closingForShutdown;
 
     private readonly AppSettings _initialSettings;
+    private AppSettings? _appearancePreview;
 
     /// <summary>The current settings – the object is replaced when the user saves the settings window.</summary>
     protected AppSettings Settings => SectionWindows.Settings ?? _initialSettings;
     protected Palette P { get; private set; }
-    protected readonly PanelFonts F;
+    protected PanelFonts F;
     protected Point Mouse { get; private set; } = new(-1, -1);
 
     /// <summary>The section key, e.g. "price" – also the key of the stored window state.</summary>
@@ -55,7 +57,7 @@ internal abstract class PopupPanel : Form
         _logicalWidth = logicalWidth;
         _saveSettings = saveSettings;
         _initialSettings = settings;
-        P = Palette.For(settings.Theme);
+        P = Palette.For(settings);
 
         Text = title;
         FormBorderStyle = FormBorderStyle.None;
@@ -65,7 +67,7 @@ internal abstract class PopupPanel : Form
         BackColor = P.Bg;
         Icon = AppIconProvider.GetIcon();
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        F = new PanelFonts(DpiScale);
+        F = new PanelFonts(DpiScale, settings);
         MinimumSize = new Size((int)U(260), (int)U(140));
         // The header acts as a title bar; without this a double-click on it would maximize the window
         MaximizeBox = false;
@@ -173,6 +175,7 @@ internal abstract class PopupPanel : Form
         Location = new Point(x, y);
         RememberBounds();
         ShowAndFocus();
+        SectionWindows.NotifyChanged(Key);
     }
 
     /// <summary>Opens a pinned window where it was when LabWidge closed, without taking focus.</summary>
@@ -218,10 +221,36 @@ internal abstract class PopupPanel : Form
 
     public void ApplySettings(AppSettings settings)
     {
-        P = Palette.For(settings.Theme);
+        _appearancePreview = null;
+        P = Palette.For(settings);
+        F.Dispose();
+        F = new PanelFonts(DpiScale, settings);
         BackColor = P.Bg;
         if (_hosted != null) _hosted.BackColor = P.Bg;
         ApplyTopMost();
+        FitSize();
+        Invalidate();
+    }
+
+    public void PreviewAppearance(AppSettings? appearance)
+    {
+        _appearancePreview = appearance;
+        var effective = appearance ?? Settings;
+        P = Palette.For(effective);
+        F.Dispose();
+        F = new PanelFonts(DpiScale, effective);
+        BackColor = P.Bg;
+        if (_hosted != null) _hosted.BackColor = P.Bg;
+        _tip.HideTip();
+        FitSize();
+        Invalidate();
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        F.Dispose();
+        F = new PanelFonts(DpiScale, _appearancePreview ?? Settings);
         FitSize();
         Invalidate();
     }
@@ -233,6 +262,7 @@ internal abstract class PopupPanel : Form
     {
         State.Pinned = !State.Pinned;
         State.Open = State.Pinned;
+        SectionWindows.NotifyChanged(Key);
         ApplyTopMost();
         if (State.Pinned) RememberBounds();
         _saveSettings();
@@ -387,7 +417,7 @@ internal abstract class PopupPanel : Form
         {
             _hoverTip = hit?.Tip;
             if (_hoverTip == null) _tip.HideTip();
-            else _tip.ShowBeside(this, _hoverTip, Cursor.Position.Y, P, 1.0);
+            else _tip.ShowBeside(this, _hoverTip, Cursor.Position.Y, P, 1.0, appearance: _appearancePreview ?? Settings);
         }
         Invalidate();
     }
@@ -706,15 +736,16 @@ internal sealed class PanelFonts : IDisposable
 {
     public readonly Font Big, Body, BodyBold, Small, SmallBold, Tiny, Icon, IconSmall, IconLarge;
 
-    public PanelFonts(float scale)
+    public PanelFonts(float scale, AppSettings? settings = null)
     {
         var iconFamily = HasFont("Segoe Fluent Icons") ? "Segoe Fluent Icons" : "Segoe MDL2 Assets";
-        Big = new Font("Segoe UI", 40 * scale, FontStyle.Bold, GraphicsUnit.Pixel);
-        Body = new Font("Segoe UI", 12.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-        BodyBold = new Font("Segoe UI Semibold", 12.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-        Small = new Font("Segoe UI", 11.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-        SmallBold = new Font("Segoe UI Semibold", 11.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-        Tiny = new Font("Segoe UI", 10.5f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        settings ??= new AppSettings();
+        Big = AppearanceFonts.Create(settings, 40 * scale, true, large: true);
+        Body = AppearanceFonts.Create(settings, 12.5f * scale);
+        BodyBold = AppearanceFonts.Create(settings, 12.5f * scale, true);
+        Small = AppearanceFonts.Create(settings, 11.5f * scale);
+        SmallBold = AppearanceFonts.Create(settings, 11.5f * scale, true);
+        Tiny = AppearanceFonts.Create(settings, 10.5f * scale);
         Icon = new Font(iconFamily, 13 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
         IconSmall = new Font(iconFamily, 10 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
         IconLarge = new Font(iconFamily, 20 * scale, FontStyle.Regular, GraphicsUnit.Pixel);

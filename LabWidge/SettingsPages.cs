@@ -197,6 +197,7 @@ internal abstract class SettingsPage : UserControl
     /// <summary>Called when the page is shown for the first time (e.g. to fetch data).</summary>
     public virtual Task OnFirstShownAsync() => Task.CompletedTask;
     public virtual void UsePluginActivation() { }
+    public virtual void AcceptChanges(AppSettings settings) { }
 
     /// <summary>Asks the settings window to show another page: a plugin's key, or "plugins".</summary>
     public event Action<string>? NavigateRequested;
@@ -260,7 +261,7 @@ internal sealed class PricePage : SettingsPage
     private readonly RadioButton _dk2 = new() { Text = L.T("DK2 – Zealand, Lolland-Falster and Bornholm", "DK2 – Sjælland, Lolland-Falster og Bornholm"), AutoSize = true };
     private readonly CheckBox _spotOnly = Ui.Check(L.T("Show the spot price only (without grid tariff and taxes)", "Vis kun spotpris (uden nettarif og afgifter)"));
     private readonly ComboBox _company = new() { Width = Ui.FieldWidth, DropDownStyle = ComboBoxStyle.DropDown, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
-    private readonly Label _companyStatus = Ui.Inline("");
+    private readonly Label _companyStatus = new() { AutoSize = true, MaximumSize = new Size(Ui.FieldWidth, 0), ForeColor = Ui.Muted, Padding = new Padding(0, 5, 0, 0) };
     private readonly ComboBox _tariff = new() { Width = Ui.FieldWidth, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _tariffPreview = Ui.Help("", Ui.ContentWidth);
     private readonly TextBox _supplierName = new() { Width = 200, PlaceholderText = L.T("e.g. Aura Energi", "fx Aura Energi") };
@@ -622,6 +623,7 @@ internal sealed class NotificationsPage : SettingsPage
 
 internal sealed class GeneralPage : SettingsPage
 {
+    private readonly AppearanceOptions _appearance = new();
     private readonly ComboBox _language = new() { Width = 180, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly ComboBox _theme = new() { Width = 180, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TrackBar _opacity = new() { Minimum = 40, Maximum = 100, TickFrequency = 10, SmallChange = 5, LargeChange = 10, Width = 200, AutoSize = false, Height = 30 };
@@ -634,11 +636,22 @@ internal sealed class GeneralPage : SettingsPage
     public override string Title => L.T("General", "Generelt");
     public override string Glyph => "";
 
+    internal event Action<AppSettings>? AppearanceChanged;
+
+    private void PreviewAppearance()
+    {
+        var appearance = new AppSettings { Theme = (WidgetTheme)Math.Max(0, _theme.SelectedIndex), WidgetOpacity = _opacity.Value };
+        _appearance.SaveTo(appearance);
+        AppearanceChanged?.Invoke(appearance);
+    }
+
     public GeneralPage()
     {
         _language.Items.AddRange(new object[] { "English", "Dansk" });
         _theme.Items.AddRange(new object[] { L.T("Follow Windows", "Følg Windows"), L.T("Light", "Lyst"), L.T("Dark", "Mørkt") });
-        _opacity.ValueChanged += (_, _) => _opacityValue.Text = $"{_opacity.Value} %";
+        _theme.SelectedIndexChanged += (_, _) => _appearance.SetTheme((WidgetTheme)Math.Max(0, _theme.SelectedIndex));
+        _appearance.Changed += PreviewAppearance;
+        _opacity.ValueChanged += (_, _) => { _opacityValue.Text = $"{_opacity.Value} %"; PreviewAppearance(); };
         _autoUpdate.CheckedChanged += (_, _) => _autoInstall.Enabled = _autoUpdate.Checked;
 
         Add(Ui.Heading(L.T("General", "Generelt")),
@@ -648,6 +661,7 @@ internal sealed class GeneralPage : SettingsPage
             Ui.Help(L.T("LabWidge restarts to switch language.", "LabWidge genstarter for at skifte sprog.")),
             Ui.Section(L.T("Appearance", "Udseende")),
             Ui.Row(L.T("Theme", "Tema"), _theme),
+            _appearance,
             Ui.Row(L.T("Opacity", "Uigennemsigtighed"), _opacity, _opacityValue),
             _topMost,
             Ui.Section(L.T("Startup and updates", "Opstart og opdatering")),
@@ -670,6 +684,7 @@ internal sealed class GeneralPage : SettingsPage
     {
         _language.SelectedIndex = L.Normalize(s.Language) == L.Danish ? 1 : 0;
         _theme.SelectedIndex = (int)s.Theme;
+        _appearance.LoadFrom(s);
         _opacity.Value = Math.Clamp(s.WidgetOpacity, 40, 100);
         _opacityValue.Text = $"{_opacity.Value} %";
         _topMost.Checked = s.WidgetTopMost;
@@ -683,6 +698,7 @@ internal sealed class GeneralPage : SettingsPage
     {
         s.Language = _language.SelectedIndex == 1 ? L.Danish : L.English;
         s.Theme = (WidgetTheme)Math.Max(0, _theme.SelectedIndex);
+        _appearance.SaveTo(s);
         s.WidgetOpacity = _opacity.Value;
         s.WidgetTopMost = _topMost.Checked;
         s.StartWithWindows = _startup.Checked;
@@ -747,6 +763,14 @@ internal sealed class WidgetPage : SettingsPage
         _autoHeight.Checked = s.WidgetHeight == null;
         _width.Enabled = !_autoWidth.Checked;
         _height.Enabled = !_autoHeight.Checked;
+    }
+
+    public override void AcceptChanges(AppSettings settings)
+    {
+        _orderReset = _pinsReset = false;
+        _resetOrder.Enabled = true;
+        _resetOrder.Text = L.T("Reset the order", "Nulstil rækkefølgen");
+        _resetPins.Text = L.T("Unpin all sections", "Frigør alle sektioner");
     }
 
     public override string? SaveTo(AppSettings s)
@@ -1005,6 +1029,9 @@ internal sealed class WindowsPage : SettingsPage
 {
     private readonly CheckBox _restore = Ui.Check(L.T("Open pinned windows again when LabWidge starts", "Åbn fastgjorte vinduer igen, når LabWidge starter"));
     private readonly FlowLayoutPanel _list = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
+    private readonly CheckBox _collapseDetached = Ui.Check(L.T("Collapse a section in the widget when dragged out", "Fold sektionen sammen i widgetten, når den trækkes ud"));
+    private readonly CheckBox _highlightDetached = Ui.Check(L.T("Mark detached sections with a directional gradient", "Markér udtrukne sektioner med en retningsbestemt gradient"));
+    private readonly NumericUpDown _highlightOpacity = new() { Width = 80, Minimum = 10, Maximum = 100, Value = 95, Increment = 5 };
     private readonly HashSet<string> _forget = new();
     private Dictionary<string, SectionWindowState> _states = new();
 
@@ -1013,6 +1040,7 @@ internal sealed class WindowsPage : SettingsPage
 
     public WindowsPage()
     {
+        _highlightDetached.CheckedChanged += (_, _) => _highlightOpacity.Enabled = _highlightDetached.Checked;
         var forgetAll = new Button { Text = L.T("Forget all windows", "Glem alle vinduer"), AutoSize = true };
         forgetAll.Click += (_, _) =>
         {
@@ -1027,6 +1055,11 @@ internal sealed class WindowsPage : SettingsPage
                         "eller vælg \"Åbn i et vindue\", når du højreklikker. Et vindue lukker, når du klikker andre steder – medmindre du fastgør det.")),
             Ui.Section(L.T("Behaviour", "Adfærd")),
             _restore,
+            _collapseDetached,
+            _highlightDetached,
+            Ui.Row(L.T("Gradient strength", "Gradientstyrke"), _highlightOpacity, Ui.Inline("%")),
+            Ui.Help(L.T("The accent colour fades away from the detached window. Closing it removes the marker. You can still expand the section in the widget yourself.",
+                "Primærfarven toner ud væk fra sektionsvinduet. Markeringen forsvinder, når vinduet lukkes. Du kan stadig selv folde sektionen ud i widgetten.")),
             Ui.Section(L.T("Your windows", "Dine vinduer")),
             Ui.Help(L.T("Pinned windows remember their place and size. Forget a window to unpin it and let it open next to the widget again.",
                         "Fastgjorte vinduer husker deres plads og størrelse. Glem et vindue for at frigøre det og lade det åbne ved siden af widgetten igen.")),
@@ -1069,13 +1102,27 @@ internal sealed class WindowsPage : SettingsPage
     public override void LoadFrom(AppSettings s)
     {
         _restore.Checked = s.RestorePinnedWindows;
+        _collapseDetached.Checked = s.CollapseSectionOnDetach;
+        _highlightDetached.Checked = s.HighlightDetachedSections;
+        _highlightOpacity.Value = Math.Clamp(s.DetachedSectionHighlightOpacity, 10, 100);
+        _highlightOpacity.Enabled = s.HighlightDetachedSections;
         _states = s.SectionWindows.ToDictionary(kv => kv.Key, kv => kv.Value);
+        Fill();
+    }
+
+    public override void AcceptChanges(AppSettings settings)
+    {
+        _forget.Clear();
+        _states = settings.SectionWindows.ToDictionary(kv => kv.Key, kv => kv.Value);
         Fill();
     }
 
     public override string? SaveTo(AppSettings s)
     {
         s.RestorePinnedWindows = _restore.Checked;
+        s.CollapseSectionOnDetach = _collapseDetached.Checked;
+        s.HighlightDetachedSections = _highlightDetached.Checked;
+        s.DetachedSectionHighlightOpacity = (int)_highlightOpacity.Value;
         s.ForgetWindows = _forget.ToArray();
         return null;
     }

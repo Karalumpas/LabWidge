@@ -15,6 +15,13 @@ internal sealed partial class DashboardForm
 
     private double _opacity = 1;
     private bool _presentQueued;
+    private Bitmap? _surfaceFrame;
+    private bool _surfaceDirty = true;
+    private Point _paintedMouse = new(-1, -1);
+    private SizeF _surfaceContentSize;
+    private bool _interactionInvalidation;
+    private bool _reuseSectionMeasurements;
+    private readonly Dictionary<(string Key, bool Summary), float> _sectionMeasurements = new();
     private byte[] _frameBytes = Array.Empty<byte>(), _maskBytes = Array.Empty<byte>(), _outBytes = Array.Empty<byte>();
     private Bitmap? _mask;
     private string? _maskKey;
@@ -22,7 +29,16 @@ internal sealed partial class DashboardForm
     protected override void OnInvalidated(InvalidateEventArgs e)
     {
         base.OnInvalidated(e);
+        // Data/settings/size changes invalidate measurements; pointer movement does not.
+        if (!_interactionInvalidation) { _sectionMeasurements.Clear(); _surfaceDirty = true; }
         QueuePresent();
+    }
+
+    private void InvalidateInteraction()
+    {
+        _interactionInvalidation = true;
+        try { Invalidate(); }
+        finally { _interactionInvalidation = false; }
     }
 
     /// <summary>Redraws once for any number of Invalidate calls in a row.</summary>
@@ -42,14 +58,8 @@ internal sealed partial class DashboardForm
         {
             int w = ClientSize.Width, h = ClientSize.Height;
             if (w <= 0 || h <= 0) return;
-            // GDI text needs an opaque surface; the transparency comes from the shape afterwards
-            using var frame = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-            SizeF size;
-            using (var g = Graphics.FromImage(frame))
-            {
-                g.Clear(_p.Bg);
-                size = Render(g);
-            }
+            var frame = PaintSurface();
+            var size = _surfaceContentSize;
             var height = ViewHeight(size.Height);
             if (Math.Abs(h - height) > 1 || Math.Abs(w - size.Width) > 1)
             {
@@ -64,6 +74,62 @@ internal sealed partial class DashboardForm
             PresentFrame(frame);
             return;
         }
+    }
+
+    /// <summary>Retained RGB frame. Only interaction damage is repainted until data/layout changes.</summary>
+    internal Bitmap PaintSurface(bool forceFull = false)
+    {
+        var size = ClientSize;
+        if (_surfaceFrame == null || _surfaceFrame.Size != size)
+        {
+            _surfaceFrame?.Dispose();
+            _surfaceFrame = new Bitmap(Math.Max(1, size.Width), Math.Max(1, size.Height), PixelFormat.Format24bppRgb);
+            _surfaceDirty = true;
+        }
+        using var g = Graphics.FromImage(_surfaceFrame);
+        if (!forceFull && !_surfaceDirty && _drag == null && _railDrag == null && _iconDrag == null)
+        {
+            using var damage = InteractionDamage();
+            g.SetClip(damage, CombineMode.Replace);
+        }
+        // Graphics.Clear ignores the clip. Filling preserves all undamaged pixels.
+        using (var background = new SolidBrush(_p.Bg)) g.FillRectangle(background, ClientRectangle);
+        _reuseSectionMeasurements = true;
+        try { _surfaceContentSize = Render(g); }
+        finally { _reuseSectionMeasurements = false; }
+        _surfaceDirty = false;
+        _paintedMouse = _mouse;
+        return _surfaceFrame; // owned and disposed by the widget
+    }
+
+    private Region InteractionDamage()
+    {
+        var damage = new Region();
+        damage.MakeEmpty();
+        if (RailDocked)
+        {
+            var column = RailColumn();
+            column.Inflate(U(3), 0); // include the join with the widget outline
+            damage.Union(Rectangle.Ceiling(column));
+        }
+        var left = ContentLeft;
+        var width = ClientSize.Width - RailWidth;
+        // The scroll thumb appears/disappears when the mouse enters/leaves.
+        damage.Union(Rectangle.Ceiling(new RectangleF(left + width - U(8), 0, U(8), ClientSize.Height)));
+        void IncludeHover(Point mouse)
+        {
+            if (mouse.X < 0 || (RailDocked && RailColumn().Contains(mouse))) return;
+            foreach (var hit in _hits.Where(hit => hit.Rect.Contains(mouse)))
+            {
+                var top = (int)Math.Floor(hit.Rect.Top - U(6));
+                var bottom = (int)Math.Ceiling(hit.Rect.Bottom + U(6));
+                // Whole row: header icons and truncated values can change outside the hit itself.
+                damage.Union(new Rectangle((int)Math.Floor(left), top, (int)Math.Ceiling(width), bottom - top));
+            }
+        }
+        IncludeHover(_paintedMouse);
+        IncludeHover(_mouse);
+        return damage;
     }
 
     /// <summary>The rounded content: everything but the rail column.</summary>
@@ -159,55 +225,6 @@ internal sealed partial class DashboardForm
     private void PresentFrame(Bitmap frame)
     {
         using var output = Compose(frame);
-        int w = output.Width, h = output.Height;
-        var screen = GetDC(IntPtr.Zero);
-        var memory = CreateCompatibleDC(screen);
-        var bitmap = output.GetHbitmap(Color.FromArgb(0)); // premultiplied, as UpdateLayeredWindow wants
-        var old = SelectObject(memory, bitmap);
-        try
-        {
-            var size = new NativeSize { Width = w, Height = h };
-            var source = new NativePoint();
-            var blend = new BlendFunction { BlendOp = 0, SourceConstantAlpha = (byte)Math.Round(255 * _opacity), AlphaFormat = 1 /* AC_SRC_ALPHA */ };
-            UpdateLayeredWindow(Handle, screen, IntPtr.Zero, ref size, memory, ref source, 0, ref blend, 2 /* ULW_ALPHA */);
-        }
-        finally
-        {
-            SelectObject(memory, old);
-            DeleteObject(bitmap);
-            DeleteDC(memory);
-            ReleaseDC(IntPtr.Zero, screen);
-        }
+        LayeredWindowSurface.Present(Handle, output, _opacity);
     }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeSize { public int Width, Height; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint { public int X, Y; }
-
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    private struct BlendFunction { public byte BlendOp, BlendFlags, SourceConstantAlpha, AlphaFormat; }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, IntPtr pptDst, ref NativeSize psize, IntPtr hdcSrc,
-        ref NativePoint pptSrc, int crKey, ref BlendFunction pblend, int dwFlags);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetDC(IntPtr hwnd);
-
-    [DllImport("user32.dll")]
-    private static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
-
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
-
-    [DllImport("gdi32.dll")]
-    private static extern bool DeleteDC(IntPtr hdc);
-
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
-
-    [DllImport("gdi32.dll")]
-    private static extern bool DeleteObject(IntPtr obj);
 }

@@ -2,6 +2,15 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.23.1
+- Section drag handles now use a four-way move cursor when hovered and throughout dragging.
+- Detached sections: dragging a section onto the desktop collapses its widget section and marks its header with an accent gradient toward the open window. Windows settings control automatic collapse, highlighting and gradient strength.
+- Hover: tooltips publish a complete frame before showing, so their border and text appear together. Widget interactions repaint only damaged rows and the shortcut rail, reuse the RGB surface and cache text measurements; rail timing uses a monotonic clock.
+- Settings: Apply saves without closing or changing the current page, OK saves and closes, and Cancel restores appearance to the last applied settings. Apply is enabled only for pending editor changes and confirms when changes are saved.
+- Performance: reuse section height measurements during widget hover and shortcut rail animation; refresh them when data, settings or size changes.
+- Shortcuts: faster drawer opening and a shorter close delay.
+- Appearance: seven colour presets with light/dark variants, installed fonts, text size (90–120%), bold text, higher contrast, live preview in the widget and open section windows, and reset. Cancel restores the previous appearance. Choices apply to the widget and section windows; default typography keeps the original Windows text rendering.
+
 ## 1.23.0
 - New: plan your appliances. Enter how long the dishwasher or washing machine runs and when it must be done, and LabWidge finds the cheapest time to start, shows what you save, and can remind you or switch it on through Home Assistant.
 - Electricity prices now use quarter-hours everywhere, so cheap stretches and price alerts can start at e.g. 13:15. The length of the cheap-power alert can be set.

@@ -406,10 +406,9 @@ internal sealed class TrayAppContext : ApplicationContext
         bool runWizard;
         try
         {
-            using var form = new SettingsWindow(_settings, key);
-            var result = form.ShowDialog();
+            using var form = new SettingsWindow(_settings, key, _dashboard.PreviewAppearance, ApplyNewSettings);
+            form.ShowDialog();
             runWizard = form.RunOnboardingRequested;
-            if (result == DialogResult.OK) ApplyNewSettings(form.Settings);
         }
         finally
         {

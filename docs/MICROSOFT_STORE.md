@@ -58,3 +58,40 @@ package: run the Release workflow (it does that by itself when the version chang
 Install the Store version, then uninstall the GitHub version under Settings → Apps → LabWidge and answer **No** when asked
 whether to delete your settings. While both are installed, the GitHub version starts at sign-in first and the Store version
 stops, because only one LabWidge runs at a time.
+
+## Update strategy (October 2026)
+
+Keep the current two distribution channels and build both from the same versioned source:
+
+| Installation | Update delivery | Release timing |
+|---|---|---|
+| Microsoft Store MSIX | Microsoft Store | Submit the new MSIX in Partner Center; certification is required before delivery. |
+| GitHub EXE | Existing in-app GitHub updater | Available after the GitHub release pipeline finishes; no Store certification. |
+
+Use GitHub for promptly delivering tested fixes. Submit stable Store updates regularly, combining small fixes when useful;
+submit critical fixes immediately. Keep version numbers increasing across both channels and never replace an already
+published installer at the same version. The existing updater reads GitHub's latest regular release, not prereleases;
+an opt-in beta channel would need separate implementation.
+
+Release procedure:
+
+1. Run the regression and UI integration checks, then check the change in a local running app.
+2. Increment both app and Setup versions and add the corresponding changelog heading. Check the signing configuration
+   described in CODE_SIGNING.md before distributing an EXE; the workflow supports both signed and unsigned releases.
+3. Merge the tested release: the existing workflow publishes the GitHub installer and, when Store identity variables are
+   configured, builds the `labwidge-store-package` artifact.
+4. Upload that MSIX as an update to the existing Partner Center product and submit it for certification.
+5. Verify each channel separately after publication. Do not run the EXE updater inside the MSIX installation.
+
+This does not bypass Store approval for existing MSIX users. Remote price data and service responses can change without
+replacing the app; the native hover rendering code is part of the installed binary and needs an app update.
+
+An alternative is a Store listing distributed as an EXE/MSI: Microsoft explicitly allows those apps to update existing
+users through their own installer. That requires a CA-trusted signing certificate, a suitable Store submission, and a
+planned migration for existing MSIX users. It is not a switch to turn on in the current MSIX package. Keep MSIX for now;
+reconsider EXE/MSI distribution if immediate updates for all users become a firm requirement.
+
+Microsoft references:
+- [MSIX updates](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/publish-update-to-your-app-on-store)
+- [EXE/MSI in-app updates](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msi/publish-update-to-your-app-on-store)
+- [Store policies, including signing requirements in 10.2.9](https://learn.microsoft.com/en-us/windows/apps/publish/store-policies)

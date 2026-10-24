@@ -404,8 +404,8 @@ internal sealed partial class DashboardForm
     private const float RailTile = 44;          // the shortcuts section and its compact row
     private const float RailGap = 6;
     private const float RailEdge = 14;          // the drawer keeps this far from the widget's top and bottom
-    private const double RailOpenMs = 170;
-    private const double RailCloseDelayMs = 350;
+    private const double RailOpenMs = 110;
+    private const double RailCloseDelayMs = 220;
 
     private float _railScroll;
     private bool _downRail;
@@ -416,8 +416,8 @@ internal sealed partial class DashboardForm
     /// <summary>0 = tucked in behind the widget with small icons, 1 = pulled out like a drawer with large ones.</summary>
     private float _railOpen;
     private bool _railWantOpen;
-    private DateTime _railCloseAt = DateTime.MaxValue;
-    private DateTime _railTick;
+    private long _railCloseAt = long.MaxValue;
+    private long _railTick;
     private readonly System.Windows.Forms.Timer _railTimer = new() { Interval = 15 };
     private bool _railTimerHooked;
 
@@ -619,12 +619,12 @@ internal sealed partial class DashboardForm
     {
         if (over)
         {
-            _railCloseAt = DateTime.MaxValue;
+            _railCloseAt = long.MaxValue;
             if (!_railWantOpen) { _railWantOpen = true; StartRailTimer(); }
         }
-        else if (_railWantOpen && _railCloseAt == DateTime.MaxValue)
+        else if (_railWantOpen && _railCloseAt == long.MaxValue)
         {
-            _railCloseAt = DateTime.Now.AddMilliseconds(RailCloseDelayMs);
+            _railCloseAt = Stopwatch.GetTimestamp() + (long)(RailCloseDelayMs * Stopwatch.Frequency / 1000);
             StartRailTimer();
         }
     }
@@ -636,22 +636,22 @@ internal sealed partial class DashboardForm
             _railTimer.Tick += (_, _) => OnRailTick();
             _railTimerHooked = true;
         }
-        _railTick = DateTime.Now;
+        _railTick = Stopwatch.GetTimestamp();
         _railTimer.Start();
     }
 
     private void OnRailTick()
     {
-        var now = DateTime.Now;
-        var elapsed = (float)((now - _railTick).TotalMilliseconds / RailOpenMs);
+        var now = Stopwatch.GetTimestamp();
+        var elapsed = (float)(Stopwatch.GetElapsedTime(_railTick, now).TotalMilliseconds / RailOpenMs);
         _railTick = now;
         if (_railWantOpen && now >= _railCloseAt && _iconDrag == null && _railDrag == null) _railWantOpen = false;
         var target = _railWantOpen ? 1f : 0f;
         var before = _railOpen;
         _railOpen = target > _railOpen ? Math.Min(target, _railOpen + elapsed) : Math.Max(target, _railOpen - elapsed);
-        if (Math.Abs(before - _railOpen) > 0.0001f) Invalidate();
+        if (Math.Abs(before - _railOpen) > 0.0001f) InvalidateInteraction();
         // Keep ticking while it moves or waits to close
-        if (_railOpen == target && (!_railWantOpen || _railCloseAt == DateTime.MaxValue)) _railTimer.Stop();
+        if (_railOpen == target && (!_railWantOpen || _railCloseAt == long.MaxValue)) _railTimer.Stop();
     }
 
     /// <summary>One shortcut: its icon (or letter) on a tile that highlights under the mouse and opens the shortcut when clicked.</summary>

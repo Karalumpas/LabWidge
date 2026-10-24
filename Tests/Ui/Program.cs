@@ -18,12 +18,19 @@ internal static partial class UiChecks
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Directory.CreateDirectory(Output);
+        AppearanceChecks();
+        LiveAppearanceChecks();
+        SettingsApplyChecks();
+        TooltipFirstFrameChecks();
+        DetachedSectionChecks();
         PluginChecks();
         using var fixture = new Fixture();
         var widget = fixture.Widget;
         var settings = fixture.Settings;
         Call(widget, "FitSize");
         using var first = Frame(widget, "pinned-dark.png");
+        HoverRendering(widget);
+        RetainedRendering();
         var layout = Get<WidgetLayout>(widget, "_layout");
         Check(layout.ScrollMax > 0, "Fixture must contain scrollable middle content.");
         Call(widget, "ScrollTo", 140f);
@@ -608,11 +615,13 @@ internal static partial class UiChecks
         var top = (float)bounds.GetType().GetProperty("Top")!.GetValue(bounds)!;
         Call(widget, "StartSectionDrag", "system", new Point(16, (int)top + 6));
         Cursor.Position = new Point(widget.Left > 500 ? widget.Left - 300 : widget.Right + 300, widget.Top + 100);
-        Check((bool)Call(widget, "UpdateTearOff")!, "Dragging a section out of the widget was not noticed.");
+        Check((bool)Call(widget, "UpdateTearOff")!, $"Dragging a section out of the widget was not noticed. Bounds={widget.Bounds}; Cursor={Cursor.Position}; settling={Get<object>(widget, "_drag").GetType().GetField("Settling")!.GetValue(Get<object>(widget, "_drag"))}");
+        Check(widget.Cursor == Cursors.SizeAll, "Tearing off a section lost the four-way drag cursor.");
         var savesBeforeDrop = fixture.SaveCount;
         Call(widget, "DropSectionDrag");
         Application.DoEvents();
         Check(SectionWindows.IsOpen("system") && s.SectionWindows["system"].Pinned, "A section dropped outside did not open a pinned window.");
+        Check(s.CollapsedSystem, "A torn-off section did not collapse in the widget.");
         Check(s.SectionWindows["system"].Open && fixture.SaveCount > savesBeforeDrop,
             "A newly torn-off window was not saved as open immediately.");
         Check(s.SectionOrder!.SequenceEqual(orderBefore), "Dragging a section out changed the order.");
@@ -679,6 +688,48 @@ internal static partial class UiChecks
     private static T Get<T>(object target, string field) => (T)target.GetType().GetField(field, Private)!.GetValue(target)!;
     private static void Set(object target, string property, object value) => target.GetType().GetProperty(property)!.SetValue(target, value);
     private static void Check(bool ok, string message) { if (!ok) throw new Exception(message); }
+
+    private static void HoverRendering(DashboardForm widget)
+    {
+        var reuse = widget.GetType().GetField("_reuseSectionMeasurements", Private)!;
+        var mouse = widget.GetType().GetField("_mouse", Private)!;
+        var originalMouse = mouse.GetValue(widget);
+        mouse.SetValue(widget, new Point(100, 60));
+        try
+        {
+            using var normal = Frame(widget, "hover-full.png");
+            var hits = Hits(widget).Select(h => (h.Rect, h.Tip)).ToArray();
+            reuse.SetValue(widget, true);
+            using var cached = Frame(widget, "hover-cached.png");
+            Check(Equal(normal, cached, 0, normal.Height), "Hover measurement reuse changed rendered pixels.");
+            Check(hits.SequenceEqual(Hits(widget).Select(h => (h.Rect, h.Tip))), "Hover measurement reuse changed hit targets.");
+            Call(widget, "InvalidateInteraction");
+            var measurements = Get<IDictionary>(widget, "_sectionMeasurements");
+            Check(measurements.Count > 0, "Hover discarded section measurements.");
+            widget.Invalidate();
+            Check(measurements.Count == 0, "Data invalidation retained stale section measurements.");
+            using var refreshed = Frame(widget, "hover-refreshed.png");
+            Check(Equal(normal, refreshed, 0, normal.Height), "A cache miss changed the layout.");
+
+            using var canvas = new Bitmap(widget.Width, widget.Height);
+            using var g = Graphics.FromImage(canvas);
+            double Time(bool cachedMeasurements)
+            {
+                reuse.SetValue(widget, cachedMeasurements);
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                for (var i = 0; i < 30; i++) Call(widget, "Render", g);
+                return timer.Elapsed.TotalMilliseconds / 30;
+            }
+            var fullMs = Time(false);
+            var hoverMs = Time(true);
+            Console.WriteLine($"PASS UI: hover pixels/hit targets match; data changes invalidate cache; render {fullMs:0.00} ms full / {hoverMs:0.00} ms cached");
+        }
+        finally
+        {
+            reuse.SetValue(widget, false);
+            mouse.SetValue(widget, originalMouse);
+        }
+    }
 
     private static Bitmap Frame(DashboardForm widget, string name)
     {

@@ -9,6 +9,7 @@ internal static class SectionWindows
     /// <summary>The sections that have a window, in the order they are offered.</summary>
     public static readonly string[] Keys = WidgetPlugins.All.Select(p => p.Key).ToArray();
 
+    private static AppSettings? _appearancePreview;
     private static readonly Dictionary<string, PopupPanel> Open = new();
     private static readonly Dictionary<string, DateTime> ClosedAt = new();
 
@@ -18,6 +19,11 @@ internal static class SectionWindows
     /// <summary>Creates the window for a section, or null if the section has nothing to show (e.g. not set up).</summary>
     public static Func<string, PopupPanel?>? Factory { get; set; }
     public static event Action<string>? WindowOpened;
+    public static event Action<string>? WindowChanged;
+    public static event Action<string>? WindowClosed;
+    internal static void NotifyChanged(string key) => WindowChanged?.Invoke(key);
+    internal static Rectangle? DetachedBounds(string key) => Open.TryGetValue(key, out var window)
+        && !window.IsDisposed && window.Visible && window.Pinned ? window.Bounds : null;
 
     public static bool Supports(string key) => Keys.Contains(key);
 
@@ -92,8 +98,16 @@ internal static class SectionWindows
         Open.Clear();
     }
 
+    public static void PreviewAppearance(AppSettings? appearance)
+    {
+        _appearancePreview = appearance;
+        foreach (var window in Open.Values.ToList())
+            if (!window.IsDisposed) window.PreviewAppearance(appearance);
+    }
+
     public static void ApplySettings(AppSettings settings)
     {
+        _appearancePreview = null;
         foreach (var w in Open.Values.ToList())
             if (!w.IsDisposed)
             {
@@ -106,12 +120,18 @@ internal static class SectionWindows
     {
         var window = Factory?.Invoke(key);
         if (window == null) return null;
+        if (_appearancePreview != null) window.PreviewAppearance(_appearancePreview);
         Open[key] = window;
-        window.Shown += (_, _) => WindowOpened?.Invoke(key);
+        window.Shown += (_, _) => { WindowOpened?.Invoke(key); NotifyChanged(key); };
+        window.LocationChanged += (_, _) => NotifyChanged(key);
+        window.SizeChanged += (_, _) => NotifyChanged(key);
+        window.VisibleChanged += (_, _) => NotifyChanged(key);
         window.FormClosed += (_, _) =>
         {
             ClosedAt[key] = DateTime.Now;
             if (Open.TryGetValue(key, out var current) && ReferenceEquals(current, window)) Open.Remove(key);
+            NotifyChanged(key);
+            if (window.Pinned && !window.ClosingForShutdown) WindowClosed?.Invoke(key);
         };
         return window;
     }
