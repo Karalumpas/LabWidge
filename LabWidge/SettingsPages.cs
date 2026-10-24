@@ -1076,6 +1076,7 @@ internal sealed class WindowsPage : SettingsPage
         "ha" => "Home Assistant",
         "cloudflare" => "Cloudflare",
         "proxmox" => "Proxmox",
+        "docker" => "Docker",
         "system" => "System",
         "network" => L.T("Network", "Netværk"),
         "audio" => L.T("Audio", "Lyd"),
@@ -1544,6 +1545,190 @@ internal sealed class ProxmoxPage : SettingsPage
 }
 
 // ---------------------------------------------------------------------------
+
+internal sealed class DockerPage : SettingsPage
+{
+    private readonly CheckBox _enabled = Ui.Check(L.T("I use Portainer and want to see my Docker containers in the widget", "Jeg bruger Portainer og vil se mine Docker-containere i widgetten"));
+    private readonly NumericUpDown _interval = new() { Width = 70, Minimum = 10, Maximum = 600 };
+    private readonly CheckBox _showInWidget = Ui.Check(L.T("Show Docker in the widget", "Vis Docker i widgetten"));
+    private readonly FlowLayoutPanel _details;
+    private readonly TextBox _url = new() { Width = Ui.FieldWidth, PlaceholderText = L.T("e.g. mgserver or 192.168.1.50:9443", "fx mgserver eller 192.168.1.50:9443") };
+    private readonly TextBox _token = new() { Width = Ui.FieldWidth, UseSystemPasswordChar = true };
+    private readonly Label _tokenStatus = Ui.Inline("");
+    private readonly Button _deleteToken = new() { Text = L.T("Delete", "Slet"), AutoSize = true };
+    private readonly CheckBox _selfSigned = Ui.Check(L.T("Accept Portainer's self-signed certificate", "Acceptér Portainers selvsignerede certifikat"));
+    private readonly Label _certStatus = Ui.Inline("");
+    private readonly Button _forgetCert = new() { Text = L.T("Forget certificate", "Glem certifikat"), AutoSize = true };
+    private readonly Button _test = new() { Text = L.T("Test connection", "Test forbindelse"), AutoSize = true };
+    private readonly Label _testResult = new() { AutoSize = true, MaximumSize = new Size(300, 0), ForeColor = Ui.Muted, Padding = new Padding(0, 5, 0, 0) };
+    private string? _thumbprint;
+    public override string PendingEditState => _thumbprint ?? "";
+    private string _loadedUrl = "";
+    private bool _managedPlugin;
+
+    public override string Title => "Docker";
+    public override string Glyph => "";
+
+    public override void UsePluginActivation()
+    {
+        _managedPlugin = true;
+        _enabled.Visible = false;
+        _enabled.Checked = true;
+        _details.Enabled = true;
+    }
+
+    public DockerPage()
+    {
+        _details = Ui.Group();
+        _details.Controls.AddRange(new Control[]
+        {
+            _showInWidget,
+            Ui.Row(L.T("Update interval", "Opdateringsinterval"), _interval, Ui.Inline(L.T("seconds (while shown)", "sekunder (mens den vises)"))),
+            Ui.Row(L.T("Portainer address", "Portainer-adresse"), _url),
+            Ui.Help(L.T("The address you open Portainer on – the server, not an agent. Port 9443 is used unless you type another.",
+                        "Adressen du åbner Portainer på – serveren, ikke en agent. Port 9443 bruges, hvis du ikke skriver en anden.")),
+            Ui.Row(L.T("Access token", "Adgangstoken"), _token),
+            Ui.Row("", _tokenStatus, _deleteToken),
+            Ui.Help(L.T("Create an access token in Portainer under your user (top right) → My account → Access tokens. " +
+                        "LabWidge only reads the container lists; it never starts, stops or changes anything. " +
+                        "The token is stored in Windows Credential Manager. Leave the field empty to keep the saved token.",
+                        "Opret et adgangstoken i Portainer under din bruger (øverst til højre) → My account → Access tokens. " +
+                        "LabWidge læser kun listerne over containere; den starter, stopper eller ændrer aldrig noget. " +
+                        "Tokenet gemmes i Windows Credential Manager. Lad feltet stå tomt for at beholde det gemte token.")),
+            _selfSigned,
+            Ui.Row("", _certStatus, _forgetCert),
+            Ui.Help(L.T("The first time, the certificate's fingerprint is remembered. If the certificate changes later, the connection is refused " +
+                        "until you press \"Forget certificate\" – so nobody can pretend to be your server.",
+                        "Første gang huskes certifikatets fingeraftryk. Skifter certifikatet senere, afvises forbindelsen, " +
+                        "indtil du trykker \"Glem certifikat\" – så ingen kan udgive sig for at være din server.")),
+            Ui.Row("", _test, _testResult)
+        });
+
+        Add(Ui.Heading(L.T("Docker (optional)", "Docker (valgfrit)")),
+            Ui.Help(L.T("See the Docker containers on all the hosts your Portainer manages – which run, which stopped and which are unhealthy. " +
+                        "Portainer's agents report every host, so LabWidge only needs the Portainer server. The widget only fetches data while it is visible.",
+                        "Se Docker-containerne på alle de værter, din Portainer styrer – hvilke der kører, er stoppet eller er usunde. " +
+                        "Portainers agenter melder om hver vært, så LabWidge behøver kun Portainer-serveren. Widgetten henter kun data, mens den er synlig.")),
+            _enabled,
+            _details);
+
+        _enabled.CheckedChanged += (_, _) => _details.Enabled = _enabled.Checked;
+        _deleteToken.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this, L.T("Delete the saved Portainer access token?", "Slet det gemte Portainer-adgangstoken?"), "Docker", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            CredentialStore.DeletePortainerToken();
+            UpdateTokenStatus();
+        };
+        _forgetCert.Click += (_, _) =>
+        {
+            _thumbprint = null;
+            UpdateCertStatus();
+        };
+        _test.Click += async (_, _) => await TestAsync();
+    }
+
+    private void UpdateTokenStatus()
+    {
+        var has = !string.IsNullOrWhiteSpace(CredentialStore.ReadPortainerToken());
+        _tokenStatus.Text = has ? L.T("✓ Token saved", "✓ Token gemt") : L.T("No token saved", "Intet token gemt");
+        _tokenStatus.ForeColor = has ? Ui.Ok : Ui.Muted;
+        _deleteToken.Visible = has;
+    }
+
+    private void UpdateCertStatus()
+    {
+        _certStatus.Text = _thumbprint is { Length: > 16 } t ? L.T("Remembered: ", "Husket: ") + t[..16] + "…" : L.T("No certificate remembered yet", "Intet certifikat husket endnu");
+        _forgetCert.Visible = _thumbprint != null;
+    }
+
+    private async Task TestAsync()
+    {
+        var token = string.IsNullOrWhiteSpace(_token.Text) ? CredentialStore.ReadPortainerToken() : _token.Text.Trim();
+        if (string.IsNullOrWhiteSpace(_url.Text) || string.IsNullOrWhiteSpace(token))
+        {
+            _testResult.Text = L.T("Fill in the address and access token", "Udfyld adresse og adgangstoken");
+            _testResult.ForeColor = Ui.Warn;
+            return;
+        }
+
+        var probe = new AppSettings
+        {
+            DockerEnabled = true,
+            PortainerUrl = _url.Text.Trim(),
+            PortainerAllowSelfSigned = _selfSigned.Checked,
+            PortainerCertThumbprint = UrlChanged ? null : _thumbprint
+        };
+        _test.Enabled = false;
+        _testResult.Text = L.T("Testing…", "Tester…");
+        _testResult.ForeColor = Ui.Muted;
+        try
+        {
+            _testResult.Text = "✓ " + await new PortainerService().TestAsync(probe, token);
+            _testResult.ForeColor = Ui.Ok;
+            _thumbprint = probe.PortainerCertThumbprint;
+            _loadedUrl = _url.Text.Trim();
+            UpdateCertStatus();
+        }
+        catch (Exception ex)
+        {
+            _testResult.Text = L.T("Error: ", "Fejl: ") + (ex is System.Net.Http.HttpRequestException { InnerException: System.Security.Authentication.AuthenticationException }
+                ? L.T("the certificate was refused", "certifikatet blev afvist") + (_selfSigned.Checked
+                    ? L.T(" – it changed since last time. Press \"Forget certificate\" if that is expected.", " – det er ændret siden sidst. Tryk \"Glem certifikat\", hvis det er forventet.")
+                    : L.T(". Turn on the self-signed certificate.", ". Slå selvsigneret certifikat til."))
+                : PortainerService.Describe(ex));
+            _testResult.ForeColor = Ui.Error;
+        }
+        finally
+        {
+            _test.Enabled = true;
+        }
+    }
+
+    private bool UrlChanged => !string.Equals(PortainerJson.Normalize(_url.Text), PortainerJson.Normalize(_loadedUrl), StringComparison.OrdinalIgnoreCase);
+
+    public override void LoadFrom(AppSettings s)
+    {
+        _enabled.Checked = s.DockerEnabled;
+        _details.Enabled = s.DockerEnabled;
+        _interval.Value = Math.Clamp(s.DockerRefreshSeconds, 10, 600);
+        _showInWidget.Checked = s.ShowDocker;
+        _url.Text = s.PortainerUrl ?? "";
+        _loadedUrl = _url.Text;
+        _selfSigned.Checked = s.PortainerAllowSelfSigned;
+        _thumbprint = s.PortainerCertThumbprint;
+        UpdateTokenStatus();
+        UpdateCertStatus();
+    }
+
+    public override string? SaveTo(AppSettings s)
+    {
+        if (!_managedPlugin) s.SetPluginEnabled("docker", _enabled.Checked);
+        s.DockerEnabled = _enabled.Checked;
+        s.DockerRefreshSeconds = (int)_interval.Value;
+        s.ShowDocker = _showInWidget.Checked;
+        if (!_enabled.Checked) return null;
+
+        var url = _url.Text.Trim();
+        var token = _token.Text.Trim();
+        if (url.Length == 0 || PortainerJson.Normalize(url).Length == 0)
+            return L.T("Fill in the address of your Portainer server – or turn Docker off.", "Udfyld adressen på din Portainer-server – eller slå Docker fra.");
+        if (token.Length == 0 && string.IsNullOrWhiteSpace(CredentialStore.ReadPortainerToken()))
+            return L.T("Paste a Portainer access token – or turn Docker off.", "Indsæt et Portainer-adgangstoken – eller slå Docker fra.");
+
+        s.PortainerUrl = PortainerJson.Normalize(url);
+        s.PortainerAllowSelfSigned = _selfSigned.Checked;
+        s.PortainerCertThumbprint = UrlChanged ? null : _thumbprint;
+
+        if (token.Length > 0)
+        {
+            CredentialStore.WritePortainerToken(token);
+            _token.Clear();
+            UpdateTokenStatus();
+            Logger.Info("Portainer access token updated in Credential Manager.");
+        }
+        return null;
+    }
+}
 
 internal sealed class HomeAssistantPage : SettingsPage
 {

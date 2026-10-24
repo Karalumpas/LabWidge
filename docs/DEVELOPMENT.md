@@ -60,7 +60,7 @@ The widget sections are bundled internal plugins. See [PLUGINS.md](PLUGINS.md) f
 
 - Settings: `%APPDATA%\LabWidge\settings.json`, written atomically via `settings.json.tmp`; the previous version is kept as
   `settings.json.bak` and used automatically if the main file is damaged.
-- Tokens (Cloudflare, Home Assistant, Proxmox) are kept in Windows Credential Manager.
+- Tokens (Cloudflare, Home Assistant, Proxmox, Portainer) are kept in Windows Credential Manager.
 - The Home Assistant dashboard session: `%LOCALAPPDATA%\LabWidgeData\webview`.
 
 ## Installer

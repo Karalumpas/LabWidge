@@ -36,7 +36,7 @@ It is small, fast and private – no account, no ads and no telemetry.
 ## Features
 
 **🧩 Choose your plugins**
-- Electricity price, system, network, audio, Home Assistant, Cloudflare and Proxmox are bundled internal plugins.
+- Electricity price, system, network, audio, Home Assistant, Cloudflare, Proxmox and Docker are bundled internal plugins.
 - Enable or disable them under **Settings → Plugins**. Disabled plugins stop polling; their configuration and pinned window positions are kept.
 - Each active plugin has its own settings page, compact summary, expanded section and detachable detail window.
 
@@ -63,6 +63,7 @@ It is small, fast and private – no account, no ads and no telemetry.
 **🏠 Your home lab (optional)**
 - **Home Assistant** – lights, switches and sensors you choose, or a full Home Assistant dashboard in a pop-up panel.
 - **Proxmox VE** – CPU, RAM and storage of your server, and start, shut down or reboot VMs and containers.
+- **Docker (through Portainer)** – the containers on every host your Portainer manages: which run, which stopped and which are unhealthy.
 - **Cloudflare** – reads your DNS records without changing them, and shows whether your tunnels and the services
   behind them are up.
 
@@ -169,6 +170,16 @@ or leave it empty for a simple list of switches. Only the entities you chose are
 Create an API token in Proxmox under **Datacenter → Permissions → API Tokens** and give it the role **PVEAuditor** on `/` to see
 the status – add **PVEVMUser** to start, shut down and reboot machines from the widget. Enter the address, token ID and secret
 under **Settings → Proxmox**. Self-signed certificates can be trusted from the settings page.
+</details>
+
+<details>
+<summary><b>Docker (through Portainer)</b></summary>
+
+LabWidge reads the containers on all your Docker hosts from your Portainer server – its agents report every host, so only the
+server's address is needed. In Portainer, create an access token under your user → **My account → Access tokens**, then turn on
+**Docker** under **Settings → Plugins** and enter the address (e.g. `mgserver`; port 9443 is used by default) and the token.
+LabWidge only reads the container lists; it never starts, stops or changes anything. Self-signed certificates can be trusted
+from the settings page.
 </details>
 
 <details>

@@ -362,6 +362,7 @@ internal static class CredentialStore
     private const string CloudflareTarget = "LabWidge.CloudflareToken";
     private const string HomeAssistantTarget = "LabWidge.HomeAssistantToken";
     private const string ProxmoxTarget = "LabWidge.ProxmoxToken";
+    private const string PortainerTarget = "LabWidge.PortainerToken";
 
     public static void WriteToken(string token) => Write(CloudflareTarget, token);
     public static string? ReadToken() => Read(CloudflareTarget);
@@ -374,6 +375,10 @@ internal static class CredentialStore
     public static void WriteProxmoxSecret(string secret) => Write(ProxmoxTarget, secret);
     public static string? ReadProxmoxSecret() => Read(ProxmoxTarget);
     public static void DeleteProxmoxSecret() => Delete(ProxmoxTarget);
+
+    public static void WritePortainerToken(string token) => Write(PortainerTarget, token);
+    public static string? ReadPortainerToken() => Read(PortainerTarget);
+    public static void DeletePortainerToken() => Delete(PortainerTarget);
 
     private static void Write(string targetName, string token)
     {

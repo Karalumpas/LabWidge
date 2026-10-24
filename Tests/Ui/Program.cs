@@ -24,6 +24,7 @@ internal static partial class UiChecks
         TooltipFirstFrameChecks();
         DetachedSectionChecks();
         PluginChecks();
+        DockerChecks();
         using var fixture = new Fixture();
         var widget = fixture.Widget;
         var settings = fixture.Settings;
@@ -518,6 +519,7 @@ internal static partial class UiChecks
         var widget = fixture.Widget;
         var s = fixture.Settings;
         s.Theme = WidgetTheme.Dark;
+        s.SetPluginEnabled("docker", true); // every section's window is checked, so the optional Docker plugin is on too
         widget.ApplySettings(s);
         foreach (var key in SectionWindows.Keys)
         {
@@ -785,13 +787,14 @@ internal static partial class UiChecks
             SectionPinSummaries = new[] { "price" }, HomeAssistantEnabled = true,
             HomeAssistantUrl = "http://example.test", HomeAssistantEntities = new[] { "light.room" },
             CloudflareEnabled = true, ZoneId = "test", ProxmoxEnabled = true,
-            ProxmoxUrl = "https://example.test", ProxmoxTokenId = "test@pve!widget",
+            ProxmoxUrl = "https://example.test", ProxmoxTokenId = "test@pve!widget", PortainerUrl = "https://example.test:9443",
             AudioDeviceIds = new[] { "speaker", "headset", "display" }, PriceShowTotal = false,
             Appliances = new() { new Appliance { Name = "Opvaskemaskine", DurationMinutes = 150, EnergyKwh = 1.1, ShowInWidget = false } },
             PriceAutomations = new() { new PriceAutomation { Name = "Varmtvandsbeholder", EntityId = "switch.vvb", Hours = 3 } }
         };
         public DashboardForm Widget { get; }
         public AudioService Audio { get; }
+        public FakePortainer Portainer { get; } = new();
         public int SaveCount { get; private set; }
 
         public Fixture()
@@ -823,10 +826,17 @@ internal static partial class UiChecks
             Set(pve, "LastFetch", DateTime.Now);
             Set(pve, "Nodes", new List<PveNode> { new("Server", true, .24, 8, 8L << 30, 32L << 30, 0, 0, TimeSpan.FromDays(3)) });
             Set(pve, "Guests", new List<PveGuest> { new(100, "Home Assistant", "qemu", "Server", "running", .1, 2, 2L << 30, 4L << 30, TimeSpan.FromDays(3)) });
+            var docker = new PortainerService(Portainer, () => "test-token");
+            Set(docker, "LastFetch", DateTime.Now);
+            Set(docker, "Environments", new List<DockerEnvironment> { new(1, "mgserver", true, null, new List<DockerContainer>
+            {
+                new("a1", "home-assistant", "ghcr.io/home-assistant/home-assistant", "running", "Up 3 days (healthy)", DateTime.Now, ContainerHealth.Healthy, "home"),
+                new("a2", "zigbee2mqtt", "koenkk/zigbee2mqtt", "running", "Up 3 days", DateTime.Now, ContainerHealth.None, "home")
+            }) });
             var network = new NetworkMonitor();
             Widget = new DashboardForm(price, new SystemMonitor(), network, audio, ha, cf, new ServiceMonitor(), pve,
                 Settings, () => SaveCount++, () => "203.0.113.10", () => "ajour", () => Task.CompletedTask, Menu,
-                () => (DateTime.Now, null));
+                () => (DateTime.Now, null), docker);
         }
         public void Dispose() { Widget.Dispose(); Menu.Dispose(); Http.Dispose(); }
     }

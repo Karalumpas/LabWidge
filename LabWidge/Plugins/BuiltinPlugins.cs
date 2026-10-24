@@ -72,6 +72,22 @@ internal sealed class ProxmoxPlugin : WidgetPlugin
             ct => (c.WidgetVisible() && s.ShowProxmox) || SectionWindows.IsOpen(Key) ? c.Proxmox.RefreshAsync(s, ct) : Task.CompletedTask);
     }
 }
+internal sealed class DockerPlugin : WidgetPlugin
+{
+    public override string Key => "docker";
+    public override string Title => "Docker";
+    public override string Glyph => "";
+    public override string Description => L.T("Containers on all your Docker hosts, through Portainer.", "Containere på alle dine Docker-værter via Portainer.");
+    public override bool IsVisible(DashboardForm h, AppSettings s) => s.ShowDocker && s.HasDocker;
+    public override float RenderExpanded(DashboardForm h, Graphics g, float x, float y, float w) => h.DrawDocker(g, x, y, w);
+    public override PopupPanel? CreateWindow(DashboardForm h, AppSettings s, Action save) => s.HasDocker ? new DockerPanel(h.Services.Docker, s, save) : null;
+    public override SettingsPage CreateSettingsPage() => new DockerPage();
+    public override IEnumerable<PluginJob> CreateJobs(PluginServices c, AppSettings s)
+    {
+        if (s.HasDocker) yield return new("containers", Math.Clamp(s.DockerRefreshSeconds, 10, 600) * 1000,
+            ct => (c.WidgetVisible() && s.ShowDocker) || SectionWindows.IsOpen(Key) ? c.Docker.RefreshAsync(s, ct) : Task.CompletedTask);
+    }
+}
 internal sealed class SystemPlugin : WidgetPlugin
 {
     public override string Key => "system";

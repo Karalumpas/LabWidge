@@ -36,7 +36,7 @@ internal static class WidgetPlugins
 {
     public static readonly IReadOnlyList<IWidgetPlugin> All = new IWidgetPlugin[]
     {
-        new PricePlugin(), new HomeAssistantPlugin(), new CloudflarePlugin(), new ProxmoxPlugin(), new SystemPlugin(), new NetworkPlugin(), new AudioPlugin()
+        new PricePlugin(), new HomeAssistantPlugin(), new CloudflarePlugin(), new ProxmoxPlugin(), new DockerPlugin(), new SystemPlugin(), new NetworkPlugin(), new AudioPlugin()
     };
     public static IWidgetPlugin? Find(string key) => All.FirstOrDefault(p => p.Key == key);
 }
@@ -51,6 +51,7 @@ internal sealed class PluginServices
     public required CloudflareService Cloudflare { get; init; }
     public required ServiceMonitor ServiceMonitor { get; init; }
     public required ProxmoxService Proxmox { get; init; }
+    public required PortainerService Docker { get; init; }
     public required Func<string?> ExternalIp { get; init; }
     public required Func<(DateTime Time, string? Error)> NetworkState { get; init; }
     public required Action<string> SwitchAudio { get; init; }
