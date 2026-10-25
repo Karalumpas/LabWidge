@@ -2,6 +2,10 @@
 
 The top section is used as the release notes when the version is published. The heading must be the version number.
 
+## 1.24.0
+- New: a Docker plugin. If you use Portainer, see the containers on all your servers in the widget – which run, which stopped and which are unhealthy – and open any of them in Portainer with a click. Turn it on under Settings → Plugins.
+- LabWidge only reads the container lists; it never starts, stops or changes anything. If Portainer sits behind Cloudflare Access, LabWidge tells you to use its local address instead.
+
 ## 1.23.2
 - The Microsoft Store version catches up with 1.23.1: colour presets, fonts and text size, sections you drag out of the widget fold up and point to their window, and Settings has an Apply button. Nothing else has changed since 1.23.1.
 
