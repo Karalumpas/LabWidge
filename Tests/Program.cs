@@ -75,7 +75,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Appliances: a planned run switches on, survives edits and outages, and switches off once", PlannedRunFlow),
     ("Appliances: failed starts, changed addresses, switched-off plugins and late starts are safe", PlannedRunSafety),
     ("Automation: rules switch on change, put back their old entity when edited, off or out of prices", RuleFlow),
-    ("Store package: the manifest matches the startup task, logos and values the app and build script use", StorePackageManifest)
+    ("Store package: the manifest matches the startup task, logos and values the app and build script use", StorePackageManifest),
+    ("Docker: Portainer environments, containers, health, exit codes and addresses are read correctly", PortainerParsing)
 };
 foreach (var test in tests)
 {
@@ -109,6 +110,57 @@ static Task StorePackageManifest()
         Check(script.Contains($"Join-Path $assets '{Path.GetFileName(logo)}'"), $"Build-Msix.ps1 does not write {logo}.");
 
     Check(!AppPackage.IsPackaged, "The tests should run as an ordinary app.");
+    return Task.CompletedTask;
+}
+
+static Task PortainerParsing()
+{
+    // Only Docker environments (local, agent, Edge agent); Kubernetes is skipped. Status 1 = up, 2 = down.
+    var endpoints = PortainerJson.ParseEndpoints("""
+        [ { "Id": 1, "Name": "mgserver", "Type": 1, "Status": 1 },
+          { "Id": 3, "Name": "web", "Type": 2, "Status": 2 },
+          { "Id": 4, "Name": "ubserver", "Type": 4, "Status": 1 },
+          { "Id": 7, "Name": "k8s", "Type": 5, "Status": 1 },
+          { "Name": "no id", "Type": 1, "Status": 1 } ]
+        """);
+    Check(endpoints.Count == 3, "Kubernetes or broken environments were not skipped.");
+    Check(endpoints[0] == (1, "mgserver", true) && endpoints[1] == (3, "web", false) && endpoints[2].Name == "ubserver",
+        "Environment ids, names or status were read wrongly.");
+    Check(PortainerJson.ParseEndpoints("{}").Count == 0, "An unexpected object was not treated as no environments.");
+
+    var containers = PortainerJson.ParseContainers("""
+        [ { "Id": "aaaaaaaaaaaaaaaa", "Names": ["/zigbee2mqtt"], "Image": "koenkk/zigbee2mqtt", "State": "running",
+            "Status": "Up 3 hours (healthy)", "Created": 1729000000, "Labels": { "com.docker.compose.project": "home" } },
+          { "Id": "bbbbbbbbbbbbbbbb", "Names": ["/backup"], "Image": "restic", "State": "exited", "Status": "Exited (137) 2 hours ago", "Created": 1729000000 },
+          { "Id": "cccccccccccccccc", "Names": ["/old"], "Image": "nginx", "State": "exited", "Status": "Exited (0) 5 days ago" },
+          { "Id": "dddddddddddddddd", "Names": ["/db"], "Image": "postgres", "State": "running", "Status": "Up 2 minutes (unhealthy)" },
+          { "Id": "eeeeeeeeeeeeeeee", "Names": ["/web"], "Image": "caddy", "State": "restarting", "Status": "Restarting (1) 4 seconds ago" },
+          { "Id": "ffffffffffffffffff", "Image": "app", "State": "Running", "Status": "Up 1 minute (health: starting)" } ]
+        """);
+    Check(containers.Count == 6, "Containers were lost.");
+    Check(containers.Take(3).All(c => c.IsRunning), "Running containers are not listed first.");
+    var zigbee = containers.Single(c => c.Name == "zigbee2mqtt");
+    Check(zigbee.Health == ContainerHealth.Healthy && zigbee.Stack == "home" && !zigbee.NeedsAttention && zigbee.Created.Year == 2024,
+        "Health, stack or creation time of a healthy container was read wrongly.");
+    Check(containers.Single(c => c.Name == "ffffffffffff").Health == ContainerHealth.Starting,
+        "A container without a name should show its short id, and '(health: starting)' must not count as healthy.");
+    var backup = containers.Single(c => c.Name == "backup");
+    Check(backup.ExitCode == 137 && backup.NeedsAttention, "A container that exited with an error does not need attention.");
+    var old = containers.Single(c => c.Name == "old");
+    Check(old.ExitCode == 0 && !old.NeedsAttention, "A container that exited cleanly was flagged.");
+    Check(containers.Single(c => c.Name == "db").NeedsAttention && containers.Single(c => c.Name == "web").NeedsAttention,
+        "Unhealthy or restarting containers do not need attention.");
+    Check(containers.Single(c => c.Name == "web").ExitCode == null, "A restarting container must not report an exit code.");
+
+    var env = new DockerEnvironment(1, "mgserver", true, null, containers);
+    Check(env.Running == 3 && env.Stopped == 3 && env.Attention == 3, "Environment counts are wrong.");
+
+    Check(PortainerJson.Normalize("mgserver") == "https://mgserver:9443", "The default Portainer port was not added.");
+    Check(PortainerJson.Normalize("http://192.168.0.10") == "http://192.168.0.10:9000", "Plain HTTP should default to port 9000.");
+    Check(PortainerJson.Normalize(" https://mgserver:9443/#!/home ") == "https://mgserver:9443", "The path was not removed from the address.");
+    Check(PortainerJson.Normalize("[fd00::5]") == "https://[fd00::5]:9443" && PortainerJson.Normalize("[fd00::5]:9000") == "https://[fd00::5]:9000",
+        "An IPv6 address was mistaken for one with a port.");
+    Check(PortainerJson.Normalize("  ") == "", "An empty address became a URL.");
     return Task.CompletedTask;
 }
 

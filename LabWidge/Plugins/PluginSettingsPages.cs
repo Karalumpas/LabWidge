@@ -16,7 +16,7 @@ internal sealed class PluginsPage : SettingsPage
     {
         (L.T("ELECTRICITY", "ELPRIS"), new[] { "price" }),
         (L.T("YOUR PC", "DIN PC"), new[] { "system", "network", "audio" }),
-        (L.T("HOME LAB", "HJEMMELAB"), new[] { "ha", "cloudflare", "proxmox" }),
+        (L.T("HOME LAB", "HJEMMELAB"), new[] { "ha", "cloudflare", "proxmox", "docker" }),
     };
 
     public PluginsPage()

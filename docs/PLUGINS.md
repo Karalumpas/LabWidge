@@ -1,6 +1,6 @@
 # Internal plugins
 
-LabWidge currently ships seven plugins as part of the application. No server, marketplace, external assembly loading,
+LabWidge currently ships eight plugins as part of the application. No server, marketplace, external assembly loading,
 account or payment mechanism is required. This is an internal extension contract, not a published third-party API.
 
 ## Responsibilities
@@ -34,12 +34,12 @@ Existing settings keys, credential storage, section order, pins and window state
 `PluginRuntime` owns a cancellation lifetime for each active plugin and a timer for each declared job. It starts no jobs for
 disabled plugins. On settings changes it cancels the old generation, disposes timers, releases GPU counters and unsubscribes
 network notifications. New workers wait for old scheduled work to finish before starting; each worker skips overlapping ticks.
-Cancellation flows through price sources and tariffs, Home Assistant requests, Proxmox requests, Cloudflare DNS and tunnel
+Cancellation flows through price sources and tariffs, Home Assistant requests, Proxmox and Portainer requests, Cloudflare DNS and tunnel
 requests, external IP lookups, service checks and ping. Cancellation does not count as a service outage.
 Native headset reads already in progress finish within their normal device timeout; canceled results are discarded and no new
 read is scheduled. Plugin job failures are logged and do not stop other plugins.
 
-System, network, Home Assistant and Proxmox sampling is skipped when neither their widget section nor detail window is visible.
+System, network, Home Assistant, Proxmox and Docker sampling is skipped when neither their widget section nor detail window is visible.
 Cloudflare monitoring/DNS and electricity alerts keep running while the application is hidden, provided the plugin is active.
 Opening a detail window or showing the widget refreshes the relevant workers without starting disabled plugins.
 
