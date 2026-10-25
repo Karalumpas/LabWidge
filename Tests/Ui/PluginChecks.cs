@@ -7,7 +7,7 @@ internal static partial class UiChecks
         using var fixture = new Fixture();
         var s = fixture.Settings;
         var widget = fixture.Widget;
-        Check(WidgetPlugins.All.Select(p => p.Key).Distinct().Count() == 7, "Plugin registration must contain seven unique sections.");
+        Check(WidgetPlugins.All.Select(p => p.Key).Distinct().Count() == 8, "Plugin registration must contain eight unique sections.");
 
         // Private DNS is intentional; rendering and refreshing must not offer to replace it.
         foreach (var plugin in WidgetPlugins.All) s.SetPluginEnabled(plugin.Key, false);
@@ -152,8 +152,8 @@ internal static partial class UiChecks
         var hits = Get<IEnumerable<object>>(widget, "_hits");
         Check(hits.Any(), "Compact plugin views are not interactive.");
         widget.SetCompact(false);
-        Check(visible == 7, "Not every plugin supplies an expanded view.");
-        Console.WriteLine("PASS Plugins: all seven expanded and compact views remain interactive");
+        Check(visible == 8, "Not every plugin supplies an expanded view.");
+        Console.WriteLine("PASS Plugins: all eight expanded and compact views remain interactive");
     }
 
     private static void PumpUntil(Func<bool> done)

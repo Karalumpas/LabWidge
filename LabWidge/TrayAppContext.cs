@@ -35,6 +35,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly CloudflareService _cloudflare = new(HttpClientFactory.Create(TimeSpan.FromSeconds(15)));
     private readonly ServiceMonitor _services = new();
     private readonly ProxmoxService _proxmox = new();
+    private readonly PortainerService _docker = new();
     /// <summary>Last known status per tunnel id, so a change can be reported.</summary>
     private readonly Dictionary<string, string> _tunnelStatus = new();
     private readonly DashboardForm _dashboard;
@@ -140,7 +141,7 @@ internal sealed class TrayAppContext : ApplicationContext
 
         _dashboard = new DashboardForm(_prices, _system, _network, _audio, _homeAssistant, _cloudflare, _services, _proxmox, _settings, () => SettingsStore.Save(_settings),
             () => _lastIp, BuildCloudflareWidgetStatus, () => RefreshCloudflareAsync(), _menu,
-            () => (_lastSuccessfulIpUpdate, _lastError));
+            () => (_lastSuccessfulIpUpdate, _lastError), _docker);
 
         _dashboard.SettingsRequested = key => OpenSettings(key);
         ElectricityPriceService.Shared = _prices;
@@ -154,6 +155,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _services.Changed += OnServiceChanged;
         // Called from the TLS handshake in the background; saved on the UI thread
         _proxmox.CertificatePinned += () => _ui?.Post(_ => SettingsStore.Save(_settings), null);
+        _docker.CertificatePinned += () => _ui?.Post(_ => SettingsStore.Save(_settings), null);
 
         _priceActions = new PriceActionRunner(_prices, _homeAssistant.SetStateAsync, () => _settings, () => SettingsStore.Save(_settings),
             (tag, title, line1, line2) => ToastHelper.Show(tag, title, line1, line2,
@@ -551,7 +553,7 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private void RefreshVisiblePlugins()
     {
-        foreach (var key in new[] { "system", "network", "ha", "proxmox" }) _plugins.Refresh(key);
+        foreach (var key in new[] { "system", "network", "ha", "proxmox", "docker" }) _plugins.Refresh(key);
     }
 
     private void ShowWidgetFromToast()

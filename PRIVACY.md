@@ -29,6 +29,7 @@ the time window and the currency (and, like any website, sees your IP address), 
 | [Cloudflare](https://www.cloudflare.com/privacypolicy/) (`api.cloudflare.com`) | Read your DNS records and show tunnel status | Your API token, zone ID and account ID |
 | Your own Home Assistant server | Show and control the entities you selected, and switch the entities your price rules and appliances name | Your long-lived access token |
 | Your own Proxmox server | Show and control your virtual machines | Your API token |
+| Your own Portainer server | Show the Docker containers on your hosts (read-only) | Your access token |
 | The websites you add as shortcuts | Fetch the site's icon once (it is then kept in `%LOCALAPPDATA%\LabWidgeData\icons`) | A normal web request to the site |
 | DuckDuckGo (`icons.duckduckgo.com`) | The icon of a shortcut whose website does not give one | The site's host name, e.g. `chatgpt.com` |
 | Microsoft (`aka.ms`, during installation) | Download the .NET Desktop Runtime if it is missing | A normal web request, only after you agree |

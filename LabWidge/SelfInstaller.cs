@@ -106,13 +106,14 @@ internal static class SelfInstaller
         ToastHelper.RemoveRegistration();
         try { Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(UninstallKeyPath, throwOnMissingSubKey: false); } catch { /* ignoreres */ }
 
-        if (MessageBox.Show(L.T("Also delete your settings, saved tokens (Cloudflare, Home Assistant and Proxmox) and the Home Assistant login?",
-                                "Skal dine indstillinger, gemte tokens (Cloudflare, Home Assistant og Proxmox) og Home Assistant-login også slettes?"),
+        if (MessageBox.Show(L.T("Also delete your settings, saved tokens (Cloudflare, Home Assistant, Proxmox and Portainer) and the Home Assistant login?",
+                                "Skal dine indstillinger, gemte tokens (Cloudflare, Home Assistant, Proxmox og Portainer) og Home Assistant-login også slettes?"),
                 L.T("Uninstall LabWidge", "Afinstallér LabWidge"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
         {
             CredentialStore.DeleteToken();
             CredentialStore.DeleteHomeAssistantToken();
             CredentialStore.DeleteProxmoxSecret();
+            CredentialStore.DeletePortainerToken();
             var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LabWidge");
             foreach (var dir in new[] { dataDir, WebViewProfile.DataDir })
             {

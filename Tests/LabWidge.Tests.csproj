@@ -29,6 +29,7 @@
     <Compile Include="..\LabWidge\LaunchItem.cs" Link="LaunchItem.cs" />
     <Compile Include="..\LabWidge\UninstallCleanup.cs" Link="UninstallCleanup.cs" />
     <Compile Include="..\LabWidge\Localization.cs" Link="Localization.cs" />
+    <Compile Include="..\LabWidge\DockerModels.cs" Link="DockerModels.cs" />
     <Compile Include="..\Setup\InstallTransaction.cs" Link="InstallTransaction.cs" />
     <Compile Include="..\Setup\InstallerEnvironment.cs" Link="InstallerEnvironment.cs" />
   </ItemGroup>

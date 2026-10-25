@@ -29,6 +29,7 @@ internal sealed partial class DashboardForm : Form
     private readonly CloudflareService _cf;
     private readonly ServiceMonitor _services;
     private readonly ProxmoxService _pve;
+    private readonly PortainerService _docker;
     private readonly Func<string?> _externalIp;
     private readonly Func<string?> _cloudflareStatus;
     private readonly Func<Task> _refreshCloudflare;
@@ -56,11 +57,12 @@ internal sealed partial class DashboardForm : Form
     public DashboardForm(ElectricityPriceService el, SystemMonitor sys, NetworkMonitor net, AudioService audio, HomeAssistantService ha,
                          CloudflareService cf, ServiceMonitor services, ProxmoxService pve, AppSettings settings, Action saveSettings,
                          Func<string?> externalIp, Func<string?> cloudflareStatus, Func<Task> refreshCloudflare, ContextMenuStrip menu,
-                         Func<(DateTime Time, string? Error)>? networkState = null)
+                         Func<(DateTime Time, string? Error)>? networkState = null, PortainerService? docker = null)
     {
         _cf = cf;
         _services = services;
         _pve = pve;
+        _docker = docker ?? new PortainerService();
         _refreshCloudflare = refreshCloudflare;
         _el = el;
         _sys = sys;
@@ -93,7 +95,7 @@ internal sealed partial class DashboardForm : Form
         Services = new PluginServices
         {
             Price = el, System = sys, Network = net, Audio = audio, HomeAssistant = ha,
-            Cloudflare = cf, ServiceMonitor = services, Proxmox = pve, ExternalIp = externalIp,
+            Cloudflare = cf, ServiceMonitor = services, Proxmox = pve, Docker = _docker, ExternalIp = externalIp,
             NetworkState = _networkState, SwitchAudio = SwitchAudio, Redraw = Invalidate, WidgetVisible = () => Visible
         };
 
@@ -105,6 +107,7 @@ internal sealed partial class DashboardForm : Form
         _cf.Updated += OnDataUpdated;
         _services.Updated += OnDataUpdated;
         _pve.Updated += OnDataUpdated;
+        _docker.Updated += OnDataUpdated;
         LaunchIcons.Updated += OnLaunchIconsUpdated;
         SectionWindows.WindowChanged += OnSectionWindowChanged;
         SectionWindows.WindowClosed += ExpandReturnedSection;
@@ -265,6 +268,7 @@ internal sealed partial class DashboardForm : Form
             _cf.Updated -= OnDataUpdated;
             _services.Updated -= OnDataUpdated;
             _pve.Updated -= OnDataUpdated;
+            _docker.Updated -= OnDataUpdated;
             LaunchIcons.Updated -= OnLaunchIconsUpdated;
             SectionWindows.WindowChanged -= OnSectionWindowChanged;
             SectionWindows.WindowClosed -= ExpandReturnedSection;

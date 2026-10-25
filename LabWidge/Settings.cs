@@ -45,7 +45,7 @@ internal sealed class AppSettings
     public bool IsPluginEnabled(string key) => Plugins.TryGetValue(key, out var enabled) ? enabled : key switch
     {
         "price" => ShowPrice, "system" => ShowSystem, "network" => ShowNetwork, "audio" => ShowAudio,
-        "ha" => HomeAssistantEnabled, "cloudflare" => CloudflareEnabled, "proxmox" => ProxmoxEnabled,
+        "ha" => HomeAssistantEnabled, "cloudflare" => CloudflareEnabled, "proxmox" => ProxmoxEnabled, "docker" => DockerEnabled,
         _ => false
     };
 
@@ -72,6 +72,7 @@ internal sealed class AppSettings
                 case "ha": HomeAssistantEnabled = true; break;
                 case "cloudflare": CloudflareEnabled = true; break;
                 case "proxmox": ProxmoxEnabled = true; break;
+                case "docker": DockerEnabled = true; break;
             }
         }
     }
@@ -102,6 +103,17 @@ internal sealed class AppSettings
     public string? ProxmoxCertThumbprint { get; set; }
     public bool ShowProxmox { get; set; } = true;
     public bool CollapsedProxmox { get; set; }
+
+    // Docker through Portainer (optional)
+    public bool DockerEnabled { get; set; }
+    /// <summary>The Portainer server, e.g. https://mgserver:9443. Its agents report the containers on every host.</summary>
+    public string? PortainerUrl { get; set; }
+    public bool PortainerAllowSelfSigned { get; set; } = true;
+    /// <summary>SHA-256 fingerprint of the self-signed certificate that was accepted the first time.</summary>
+    public string? PortainerCertThumbprint { get; set; }
+    public bool ShowDocker { get; set; } = true;
+    public bool CollapsedDocker { get; set; }
+    public int DockerRefreshSeconds { get; set; } = 30;
 
     // Widget
     public bool WidgetVisible { get; set; } = true;
@@ -280,6 +292,9 @@ internal sealed class AppSettings
     [JsonIgnore]
     public bool HasProxmox =>
         IsPluginEnabled("proxmox") && ProxmoxEnabled && !string.IsNullOrWhiteSpace(ProxmoxUrl) && !string.IsNullOrWhiteSpace(ProxmoxTokenId);
+
+    [JsonIgnore]
+    public bool HasDocker => IsPluginEnabled("docker") && DockerEnabled && !string.IsNullOrWhiteSpace(PortainerUrl);
 
     [JsonIgnore]
     public Country? PriceCountry => Countries.Find(Country);

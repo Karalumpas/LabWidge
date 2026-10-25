@@ -73,6 +73,7 @@ internal sealed partial class DashboardForm
         "ha" => DataFreshness.Describe(_ha.LastFetch, _ha.LastError, TimeSpan.FromMinutes(1), Clock()),
         "cloudflare" => DataFreshness.Describe(_cf.LastSuccessfulDnsFetch, _cf.DnsError, TimeSpan.FromMinutes(5), Clock()),
         "proxmox" => DataFreshness.Describe(_pve.LastFetch, _pve.LastError, TimeSpan.FromMinutes(1), Clock()),
+        "docker" => DataFreshness.Describe(_docker.LastFetch, _docker.LastError, TimeSpan.FromMinutes(Math.Max(2, _settings.DockerRefreshSeconds * 4 / 60.0)), Clock()),
         "network" => DataFreshness.Describe(_networkState().Time, _networkState().Error, TimeSpan.FromMinutes(10), Clock()),
         _ => null
     };
@@ -98,7 +99,7 @@ internal sealed partial class DashboardForm
         "price" => _settings.CollapsedPrice, "system" => _settings.CollapsedSystem,
         "network" => _settings.CollapsedNetwork, "audio" => _settings.CollapsedAudio,
         "ha" => _settings.CollapsedHomeAssistant,
-        "cloudflare" => _settings.CollapsedCloudflare, "proxmox" => _settings.CollapsedProxmox,
+        "cloudflare" => _settings.CollapsedCloudflare, "proxmox" => _settings.CollapsedProxmox, "docker" => _settings.CollapsedDocker,
         ShortcutsKey => _settings.CollapsedShortcuts,
         _ => true
     };
@@ -114,6 +115,7 @@ internal sealed partial class DashboardForm
             case "ha": _settings.CollapsedHomeAssistant = value; break;
             case "cloudflare": _settings.CollapsedCloudflare = value; break;
             case "proxmox": _settings.CollapsedProxmox = value; break;
+            case "docker": _settings.CollapsedDocker = value; break;
             case ShortcutsKey: _settings.CollapsedShortcuts = value; break;
         }
     }
