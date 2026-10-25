@@ -102,7 +102,12 @@ From `…/managelanguages`, open **Dansk (Danmark)** and **Engelsk (USA)** in tu
 *"Nyheder i denne version"* (max 1500 characters). Read the current text first to keep its style, then write the release's points
 from `CHANGELOG.md` for an ordinary user: a line "Version <version>:" and up to four "• " bullets – English for en-us, a faithful
 Danish version for da-dk. Set it with `form_input` (it fires the events the page needs), then click **Gem** at the bottom; the page
-returns to the overview. Do not touch the description, features, screenshots or anything else in the listing.
+returns to the overview.
+
+The rest of the listing – description, short description, features, keywords and screenshot captions – comes from
+`docs/STORE_LISTING.md`. If that file changed since the last submission (`git log -1 -- docs/STORE_LISTING.md` against the date
+of the live submission), copy every field from it into both languages in the same submission. Otherwise leave the listing alone.
+Never change screenshots or logos without being asked.
 
 ## 5. Submit
 

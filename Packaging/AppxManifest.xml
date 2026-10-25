@@ -31,7 +31,7 @@
     <Application Id="LabWidge" Executable="LabWidge.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="{DisplayName}"
-        Description="Electricity price, system, network and homelab by the clock"
+        Description="Your PC, your home lab and the electricity price at a glance"
         BackgroundColor="transparent"
         Square150x150Logo="PackageAssets\Square150x150Logo.png"
         Square44x44Logo="PackageAssets\Square44x44Logo.png" />

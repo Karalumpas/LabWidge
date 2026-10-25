@@ -5,7 +5,7 @@
 <h1 align="center">LabWidge</h1>
 
 <p align="center">
-  <b>Your electricity price, your PC and your home lab – at a glance, right by the clock.</b><br>
+  <b>Your PC, your home lab and the electricity price – at a glance, right by the clock.</b><br>
   A free, open-source desktop widget for Windows 10 and 11.
 </p>
 
@@ -21,7 +21,7 @@
   <a href="https://github.com/Karalumpas/labwidge-releases/releases/latest"><b>⬇ Download for Windows</b></a>
   &nbsp;·&nbsp; <a href="#install">Install</a>
   &nbsp;·&nbsp; <a href="#features">Features</a>
-  &nbsp;·&nbsp; <a href="#electricity-prices-in-14-countries">Countries</a>
+  &nbsp;·&nbsp; <a href="#electricity-prices-in-26-countries">Countries</a>
   &nbsp;·&nbsp; <a href="#faq">FAQ</a>
 </p>
 
@@ -29,8 +29,9 @@
   <img src="docs/images/hero.png" width="820" alt="The LabWidge widget in the dark and the light theme: electricity price with chart, Home Assistant, system, audio, Proxmox and network">
 </p>
 
-LabWidge sits quietly next to the clock and answers the questions you would otherwise open five apps for:
-*Is power cheap right now? When is it cheapest today? Is my server up? What is my IP? Which speakers are on?*
+LabWidge is a small dashboard that sits quietly next to the clock and answers the questions you would otherwise open five apps for:
+*How busy is my PC? Are my servers and containers up? What is my IP? Which speakers are on? Is power cheap right now?*
+Turn on the plugins you use – PC, network, audio, your home lab and the electricity price – and leave the rest off.
 It is small, fast and private – no account, no ads and no telemetry.
 
 ## Features
@@ -49,7 +50,7 @@ It is small, fast and private – no account, no ads and no telemetry.
 - **Home Assistant rules**: switch the water heater on in the cheapest hours, charge the car overnight, or switch something off
   when power is expensive.
 - **History**: the last 30 days, monthly averages and what your planned runs saved – kept on your PC and exportable as CSV.
-- Day-ahead spot prices for **14 European countries**. In Denmark it is your real total price: grid tariff (found automatically
+- Day-ahead spot prices for **26 European countries**. In Denmark it is your real total price: grid tariff (found automatically
   from your grid company), taxes, your supplier's add-on and VAT. Elsewhere: spot price plus your own add-on and VAT.
 - The tray icon's bolt changes colour with the price, so you can see it even when the widget is hidden.
 
@@ -81,8 +82,9 @@ It is small, fast and private – no account, no ads and no telemetry.
 
 **✨ Made to stay out of your way**
 - Collapse, reorder and pin sections; resize the widget; double-click for compact plugin summaries.
-- Dark and light theme (or follow Windows), adjustable opacity, always on top if you want.
-- English and Danish. Updates install themselves while you are away from the PC.
+- Dark and light theme (or follow Windows), seven colour presets, your choice of font, text size, bold text and higher contrast –
+  previewed live – plus adjustable opacity and always on top if you want.
+- English and Danish. Updates install themselves while you are away from the PC (the Microsoft Store version is updated by the Store).
 - A modern settings window in the same theme: choose sections, disks, the ping target (e.g. your router), refresh intervals for
   your home lab and how the windows behave.
 
