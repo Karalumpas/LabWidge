@@ -66,8 +66,8 @@ desktop widget · system monitor · home lab · docker · proxmox · home assist
 
 ### Screenshot captions
 
-1. LabWidge in the dark and the light theme: PC status, home lab, audio and electricity prices. Sample data; the app is in English or Danish.
-2. Detail windows for the electricity price, system load and network. Shown with sample data.
+1. LabWidge in dark and light themes with electricity prices, PC stats, audio controls and optional home lab modules. Example data shown.
+2. Separate detail windows for electricity prices, system activity and network status. Example data shown.
 
 ---
 
@@ -128,5 +128,5 @@ skrivebordswidget · systemovervågning · homelab · docker · proxmox · home 
 
 ### Billedtekster til skærmbilleder
 
-1. LabWidge i mørkt og lyst tema med pc-status, homelab, lyd og elpriser. Eksempeldata; brugerfladen kan vælges på dansk eller engelsk.
+1. LabWidge i mørkt og lyst tema med elpriser, pc-status, lyd og valgfrie homelab-moduler. Eksempeldata; brugerfladen kan vælges på dansk eller engelsk.
 2. Detaljevinduer med elprisdiagram, systembelastning og netværksstatus. Vist med eksempeldata.
