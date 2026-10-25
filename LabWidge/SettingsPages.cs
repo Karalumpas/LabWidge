@@ -225,18 +225,18 @@ internal sealed class WelcomePage : SettingsPage
         Add(logo,
             Ui.Heading(L.T("Welcome to LabWidge", "Velkommen til LabWidge")),
             Ui.Help(L.T("A small widget by the clock that keeps you up to date on:", "En lille widget ved uret, der holder dig opdateret om:")),
-            Ui.Help(L.T("•  The electricity price right now in 14 European countries – with a chart and the cheapest hours\n" +
-                        "•  A heads-up before power gets cheap or expensive\n" +
-                        "•  CPU, RAM and disks\n" +
-                        "•  Local and external IP address, ping and traffic\n" +
-                        "•  Optional: control lights and switches through Home Assistant\n" +
-                        "•  Optional: automatic Cloudflare DNS updates",
-                        "•  Elprisen lige nu i 14 europæiske lande – med graf og de billigste timer\n" +
-                        "•  Besked før strømmen bliver billig eller dyr\n" +
-                        "•  CPU, RAM og diske\n" +
-                        "•  Intern og ekstern IP-adresse, ping og trafik\n" +
-                        "•  Valgfrit: styring af lys og kontakter via Home Assistant\n" +
-                        "•  Valgfrit: automatisk opdatering af Cloudflare DNS")),
+            Ui.Help(L.T("•  Your PC: CPU, RAM, disks and graphics card\n" +
+                        "•  Network: external and local IP address, ping and traffic\n" +
+                        "•  Audio: switch speakers and headset in one click and mute the microphone\n" +
+                        "•  Electricity prices in 26 countries, with a heads-up before cheap hours\n" +
+                        "•  Optional home lab: Docker, Proxmox, Home Assistant and Cloudflare\n" +
+                        "•  Shortcuts to programs and websites, and sections that become windows",
+                        "•  Din pc: CPU, RAM, diske og grafikkort\n" +
+                        "•  Netværk: ekstern og lokal IP-adresse, ping og trafik\n" +
+                        "•  Lyd: skift mellem højttalere og headset med ét klik, og slå mikrofonen fra\n" +
+                        "•  Elprisen i 26 lande – med graf og besked før de billigste timer\n" +
+                        "•  Valgfrit homelab: Docker, Proxmox, Home Assistant og Cloudflare\n" +
+                        "•  Genveje til programmer og hjemmesider, og sektioner der bliver til vinduer")),
             Ui.Help(L.T("Setup takes a minute. You can always change everything under Settings in the tray icon's menu.",
                         "Opsætningen tager et minut. Du kan altid ændre alt under Indstillinger i menuen på tray-ikonet.")));
     }
@@ -1148,8 +1148,8 @@ internal sealed class AboutPage : SettingsPage
 
         Add(logo,
             Ui.Heading("LabWidge"),
-            Ui.Help(L.T($"Version {UpdateService.Current}  ·  Electricity price, PC and home lab – at a glance, right by the clock.",
-                        $"Version {UpdateService.Current}  ·  Elpris, pc og hjemmelab – med et blik, lige ved uret.")),
+            Ui.Help(L.T($"Version {UpdateService.Current}  ·  Your PC, your home lab and the electricity price – at a glance, right by the clock.",
+                        $"Version {UpdateService.Current}  ·  Din pc, dit homelab og elprisen – samlet ved uret.")),
             Ui.Section(L.T("Links", "Links")),
             Link(L.T("The project on GitHub – features, help and source code", "Projektet på GitHub – funktioner, hjælp og kildekode"), "https://github.com/Karalumpas/LabWidge"),
             Link(L.T("What's new in each version", "Nyheder i hver version"), "https://github.com/Karalumpas/LabWidge/blob/main/CHANGELOG.md"),

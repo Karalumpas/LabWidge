@@ -10,7 +10,7 @@
     <AssemblyVersion>1.24.0.0</AssemblyVersion>
     <FileVersion>1.24.0.0</FileVersion>
     <Product>LabWidge</Product>
-    <Description>Electricity price, system, network and homelab by the clock</Description>
+    <Description>Your PC, your home lab and the electricity price at a glance</Description>
     <!-- Also run on newer .NET runtimes (9, 10 …) if 8 is not installed -->
     <RollForward>Major</RollForward>
     <!--

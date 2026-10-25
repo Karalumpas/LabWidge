@@ -155,8 +155,8 @@ namespace LabWidgeSetup
         {
             var installed = AppInstaller.InstalledVersion;
             Text = L.T("LabWidge – Installation", "LabWidge – Installation");
-            _tagline.Text = L.T($"Version {AppInstaller.PackagedVersion}  ·  Power price, system and homelab by the clock",
-                                $"Version {AppInstaller.PackagedVersion}  ·  Elpris, system og hjemmelab ved uret");
+            _tagline.Text = L.T($"Version {AppInstaller.PackagedVersion}  ·  Your PC, home lab and electricity price by the clock",
+                                $"Version {AppInstaller.PackagedVersion}  ·  Din pc, dit homelab og elprisen ved uret");
             _languageLabel.Text = L.T("Language", "Sprog");
             _countryLabel.Text = L.T("Country", "Land");
             FillCountries();

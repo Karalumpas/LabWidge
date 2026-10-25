@@ -532,7 +532,7 @@ internal sealed class OnboardingForm : Form
         var sidebar = new Panel { Dock = DockStyle.Left, Width = 200, BackColor = Color.FromArgb(19, 23, 30), Padding = new Padding(20, 24, 12, 16) };
         var logo = new PictureBox { Image = WidgetIcon.Render(96, WidgetIcon.Amber), SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(44, 44), Location = new Point(20, 24) };
         var appName = new Label { Text = "LabWidge", ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 12F), AutoSize = true, Location = new Point(20, 76) };
-        var tagline = new Label { Text = L.T("Power price · system · homelab", "Elpris · system · hjemmelab"), ForeColor = Color.FromArgb(145, 154, 164), AutoSize = true, Location = new Point(20, 100) };
+        var tagline = new Label { Text = L.T("PC · home lab · power price", "Pc · homelab · elpris"), ForeColor = Color.FromArgb(145, 154, 164), AutoSize = true, Location = new Point(20, 100) };
         sidebar.Controls.AddRange(new Control[] { logo, appName, tagline });
 
         _stepLabels = _stepNames.Select((name, i) => new Label

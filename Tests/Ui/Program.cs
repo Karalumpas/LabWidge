@@ -264,6 +264,33 @@ internal static partial class UiChecks
         SectionWindowChecks(fixture);
         SettingsScreens(s);
         SettingsStartPages(s);
+        OnboardingWelcome(s);
+    }
+
+    /// <summary>The setup guide's first page describes the whole app and fits its card in both languages.</summary>
+    private static void OnboardingWelcome(AppSettings settings)
+    {
+        foreach (var language in new[] { L.English, L.Danish })
+        {
+            L.Use(language);
+            using var form = new OnboardingForm(settings);
+            form.Show();
+            Application.DoEvents();
+            var welcome = Get<SettingsPage[]>(form, "_pages")[0];
+            Check(welcome is WelcomePage, "The setup guide does not start with the welcome page.");
+            var text = string.Join("\n", Descendants(welcome).OfType<Label>().Select(l => l.Text));
+            Check(text.Contains("26") && text.Contains("Docker") && text.Contains("Proxmox") && !text.Contains("Cloudflare DNS"),
+                "The welcome page does not describe the current app.");
+            LayoutProblems.Clear();
+            SettingsPageLayout(welcome, $"Onboarding welcome {language}");
+            Check(LayoutProblems.Count == 0, "Welcome page layout:\n" + string.Join("\n", LayoutProblems.Distinct()));
+            using var bitmap = new Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(Output, "settings", $"onboarding-welcome-{language}.png"), ImageFormat.Png);
+            form.Close();
+        }
+        L.Use(L.English);
+        Console.WriteLine("PASS UI: the setup guide's welcome page describes the whole app and fits in English and Danish");
     }
 
     /// <summary>
