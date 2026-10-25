@@ -674,7 +674,7 @@ internal sealed partial class DashboardForm : Form
 
     private (double? Price, PriceLevel Level) CurrentPrice()
     {
-        var cur = _el.Current(DateTime.Now);
+        var cur = _el.Current(Clock());
         if (cur == null) return (null, PriceLevel.Medium);
         var values = _el.HourlyConsumer(_settings).Select(h => h.Value).ToList();
         var total = _el.Consumer(cur.Time, cur.Spot, _settings);

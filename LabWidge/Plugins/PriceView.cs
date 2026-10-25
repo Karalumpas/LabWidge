@@ -7,7 +7,7 @@ internal sealed partial class DashboardForm
     internal float DrawPrice(Graphics g, float x, float y, float w)
     {
         var s = _settings;
-        var now = DateTime.Now;
+        var now = Clock();
         var cur = _el.Current(now);
         var country = s.PriceCountry;
         var area = country?.AreaOrDefault(s.PriceArea);

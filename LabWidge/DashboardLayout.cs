@@ -62,16 +62,19 @@ internal sealed partial class DashboardForm
         _saveSettings(); FitSize(); Invalidate();
     }
 
+    /// <summary>The time the widget draws for: freshness labels and the current price. Tests freeze it so two renders match.</summary>
+    internal Func<DateTime> Clock { get; set; } = () => DateTime.Now;
+
     private DataFreshness? StatusFor(string? key) => key switch
     {
         "price" => _el.TariffError != null && _settings.PriceShowTotal
             ? new DataFreshness(DataHealth.Stale, L.T("Price incomplete", "Pris ufuldstændig"), _el.TariffError)
-            : DataFreshness.Describe(_el.LastSuccessfulFetch, _el.LastError, TimeSpan.FromMinutes(90), DateTime.Now),
-        "ha" => DataFreshness.Describe(_ha.LastFetch, _ha.LastError, TimeSpan.FromMinutes(1), DateTime.Now),
-        "cloudflare" => DataFreshness.Describe(_cf.LastSuccessfulDnsFetch, _cf.DnsError, TimeSpan.FromMinutes(5), DateTime.Now),
-        "proxmox" => DataFreshness.Describe(_pve.LastFetch, _pve.LastError, TimeSpan.FromMinutes(1), DateTime.Now),
-        "docker" => DataFreshness.Describe(_docker.LastFetch, _docker.LastError, TimeSpan.FromMinutes(Math.Max(2, _settings.DockerRefreshSeconds * 4 / 60.0)), DateTime.Now),
-        "network" => DataFreshness.Describe(_networkState().Time, _networkState().Error, TimeSpan.FromMinutes(10), DateTime.Now),
+            : DataFreshness.Describe(_el.LastSuccessfulFetch, _el.LastError, TimeSpan.FromMinutes(90), Clock()),
+        "ha" => DataFreshness.Describe(_ha.LastFetch, _ha.LastError, TimeSpan.FromMinutes(1), Clock()),
+        "cloudflare" => DataFreshness.Describe(_cf.LastSuccessfulDnsFetch, _cf.DnsError, TimeSpan.FromMinutes(5), Clock()),
+        "proxmox" => DataFreshness.Describe(_pve.LastFetch, _pve.LastError, TimeSpan.FromMinutes(1), Clock()),
+        "docker" => DataFreshness.Describe(_docker.LastFetch, _docker.LastError, TimeSpan.FromMinutes(Math.Max(2, _settings.DockerRefreshSeconds * 4 / 60.0)), Clock()),
+        "network" => DataFreshness.Describe(_networkState().Time, _networkState().Error, TimeSpan.FromMinutes(10), Clock()),
         _ => null
     };
 
