@@ -40,6 +40,10 @@ internal sealed class SettingsWindow : Form
 
     public AppSettings Settings { get; private set; }
     public bool RunOnboardingRequested { get; private set; }
+    /// <summary>The key that opens the About page.</summary>
+    public const string AboutKey = "about";
+    /// <summary>Start the update check on About as soon as the window shows (the tray menu's "Check for updates").</summary>
+    public bool CheckForUpdatesOnShow { get; init; }
 
     public SettingsWindow(AppSettings settings, string? startPage = null, Action<AppSettings?>? previewAppearance = null, Action<AppSettings>? applySettings = null)
     {
@@ -131,13 +135,14 @@ internal sealed class SettingsWindow : Form
         {
             _editTimer.Start();
             if (startPage == null || !ShowKey(startPage)) await ShowPageAsync(0);
+            if (CheckForUpdatesOnShow && !IsDisposed) await _aboutPage.Updates.CheckAsync();
         };
     }
 
     /// <summary>Shows the page with <paramref name="key"/>; a plugin that is switched off shows the plugins page. False if there is no such page.</summary>
     private bool ShowKey(string key)
     {
-        var page = _keys.FirstOrDefault(k => k.Value == key).Key;
+        var page = key == AboutKey ? _aboutPage : _keys.FirstOrDefault(k => k.Value == key).Key;
         if (page == null || Array.IndexOf(_pages, page) < 0)
         {
             if (WidgetPlugins.Find(key) == null && !key.StartsWith("price-", StringComparison.Ordinal)) return false;
@@ -388,12 +393,6 @@ internal sealed class NavMenu : Control
         g.SmoothingMode = SmoothingMode.AntiAlias;
         _rects.Clear();
 
-        // The app
-        using (var logo = WidgetIcon.Render((int)S(64), WidgetIcon.Amber))
-            g.DrawImage(logo, new RectangleF(S(20), S(22), S(34), S(34)));
-        TextRenderer.DrawText(g, "LabWidge", _title, new Point((int)S(64), (int)S(22)), _p.TextPrimary, TextFormatFlags.NoPadding);
-        TextRenderer.DrawText(g, L.T("Settings", "Indstillinger"), Font, new Point((int)S(64), (int)S(42)), _p.TextSecondary, TextFormatFlags.NoPadding);
-
         var y = S(80) - _scroll;
         var clip = g.Save();
         g.SetClip(new RectangleF(0, S(76), Width, Math.Max(0, Height - S(76))));
@@ -404,7 +403,7 @@ internal sealed class NavMenu : Control
                 y += S(10);
                 if (group.Length > 0)
                 {
-                    TextRenderer.DrawText(g, group, _group, new Point((int)S(24), (int)y), _p.TextDim, TextFormatFlags.NoPadding);
+                    TextRenderer.DrawText(g, group, _group, new Point((int)S(24), (int)y), _p.TextDim, TextFormatFlags.NoPadding | TextFormatFlags.PreserveGraphicsClipping);
                     y += S(20);
                 }
                 else
@@ -433,13 +432,26 @@ internal sealed class NavMenu : Control
             }
             var color = selected ? _p.TextPrimary : _p.TextSecondary;
             var top = _items[i].Indent ? r.Y - S(3) : r.Y;
-            TextRenderer.DrawText(g, _items[i].Glyph, _icon, new Point((int)(r.X + S(14)), (int)(top + S(10))), selected ? _p.Blue : color, TextFormatFlags.NoPadding);
-            TextRenderer.DrawText(g, _items[i].Title, Font, new Point((int)(r.X + S(42)), (int)(top + S(9))), color, TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+            // TextRenderer ignores the Graphics clip unless asked to keep it
+            TextRenderer.DrawText(g, _items[i].Glyph, _icon, new Point((int)(r.X + S(14)), (int)(top + S(10))), selected ? _p.Blue : color, TextFormatFlags.NoPadding | TextFormatFlags.PreserveGraphicsClipping);
+            TextRenderer.DrawText(g, _items[i].Title, Font, new Point((int)(r.X + S(42)), (int)(top + S(9))), color, TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis | TextFormatFlags.PreserveGraphicsClipping);
             y += r.Height + S(2);
         }
 
         _contentHeight = y + _scroll + S(12);
         g.Restore(clip);
+
+        // The app, on a box of its own over the list, so nothing scrolled up shows through behind the logo
+        using (var header = new SolidBrush(BackColor)) g.FillRectangle(header, 0, 0, Width, S(76));
+        if (_scroll > 0)
+        {
+            using var divider = new Pen(_p.Line);
+            g.DrawLine(divider, S(12), S(76), Width - S(12), S(76));
+        }
+        using (var logo = WidgetIcon.Render((int)S(64), WidgetIcon.Amber))
+            g.DrawImage(logo, new RectangleF(S(20), S(22), S(34), S(34)));
+        TextRenderer.DrawText(g, "LabWidge", _title, new Point((int)S(64), (int)S(22)), _p.TextPrimary, TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, L.T("Settings", "Indstillinger"), Font, new Point((int)S(64), (int)S(42)), _p.TextSecondary, TextFormatFlags.NoPadding);
         if (_contentHeight > Height)
         {
             var track = Math.Max(1, Height - S(80));

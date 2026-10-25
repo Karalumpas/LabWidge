@@ -3,6 +3,9 @@ using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
 
+/// <summary>Controls that show status or run actions but hold no setting, e.g. the update check on About.</summary>
+internal interface IIgnoredByEditState { }
+
 /// <summary>Reads editor values without calling SaveTo (which can write credentials).</summary>
 internal static class SettingsEditState
 {
@@ -16,6 +19,7 @@ internal static class SettingsEditState
         }
         void Visit(Control control)
         {
+            if (control is IIgnoredByEditState) return;
             if (control is SettingsPage page) Value(page.PendingEditState);
             switch (control)
             {

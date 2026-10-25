@@ -112,7 +112,8 @@ internal sealed class TrayAppContext : ApplicationContext
             new ToolStripSeparator(),
             new ToolStripMenuItem(L.T("Settings...", "Indstillinger..."), null, (_, _) => OpenSettings()),
             new ToolStripMenuItem(L.T("Setup guide...", "Opsætningsguide..."), null, (_, _) => RunOnboarding()),
-            new ToolStripMenuItem(L.T("Check for updates...", "Søg efter opdateringer..."), null, async (_, _) => await CheckForUpdatesAsync(manual: true)) { Visible = !AppPackage.IsPackaged },
+            // Both versions: About asks GitHub or, for the Store version, Microsoft Store
+            new ToolStripMenuItem(L.T("Check for updates...", "Søg efter opdateringer..."), null, (_, _) => OpenSettings(SettingsWindow.AboutKey, checkForUpdates: true)),
             new ToolStripSeparator(),
             new ToolStripMenuItem(L.T("Exit", "Afslut"), null, (_, _) => ExitThread())
         });
@@ -401,20 +402,37 @@ internal sealed class TrayAppContext : ApplicationContext
     private void OpenSettings() => OpenSettings(null);
 
     /// <summary>Opens the settings, at the page of the plugin with <paramref name="key"/> if one is given.</summary>
-    private void OpenSettings(string? key)
+    private void OpenSettings(string? key, bool checkForUpdates = false)
     {
         if (_dialogOpen) return;
         _dialogOpen = true;
         bool runWizard;
         try
         {
-            using var form = new SettingsWindow(_settings, key, _dashboard.PreviewAppearance, ApplyNewSettings);
+            using var form = new SettingsWindow(_settings, key, _dashboard.PreviewAppearance, ApplyNewSettings) { CheckForUpdatesOnShow = checkForUpdates };
             form.ShowDialog();
             runWizard = form.RunOnboardingRequested;
         }
         finally
         {
             _dialogOpen = false;
+        }
+        // An update downloaded and verified from About runs now that the settings window has closed
+        if (AppUpdates.PendingInstaller is { } installer)
+        {
+            AppUpdates.PendingInstaller = null;
+            try
+            {
+                UpdateService.Launch(installer);
+                Logger.Info("The installer chosen in Settings has started.");
+                ExitThread();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Could not start the installer: {ex.Message}");
+                ShowInfo(L.T("The installer could not be started:\n\n", "Installationsprogrammet kunne ikke startes:\n\n") + ex.Message);
+            }
         }
         if (runWizard) RunOnboarding();
     }

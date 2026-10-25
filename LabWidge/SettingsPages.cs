@@ -1136,6 +1136,8 @@ internal sealed class WindowsPage : SettingsPage
 
 internal sealed class AboutPage : SettingsPage
 {
+    /// <summary>The update check – "Check for updates" in the tray menu opens this page and starts it.</summary>
+    internal UpdatePanel Updates { get; } = new();
     public override string Title => L.T("About", "Om");
     public override string Glyph => "";
 
@@ -1150,6 +1152,8 @@ internal sealed class AboutPage : SettingsPage
             Ui.Heading("LabWidge"),
             Ui.Help(L.T($"Version {UpdateService.Current}  ·  Your PC, your home lab and the electricity price – at a glance, right by the clock.",
                         $"Version {UpdateService.Current}  ·  Din pc, dit homelab og elprisen – samlet ved uret.")),
+            Ui.Section(L.T("Updates", "Opdateringer")),
+            Updates,
             Ui.Section(L.T("Links", "Links")),
             Link(L.T("The project on GitHub – features, help and source code", "Projektet på GitHub – funktioner, hjælp og kildekode"), "https://github.com/Karalumpas/LabWidge"),
             Link(L.T("What's new in each version", "Nyheder i hver version"), "https://github.com/Karalumpas/LabWidge/blob/main/CHANGELOG.md"),
