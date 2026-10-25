@@ -85,6 +85,8 @@ It is small, fast and private – no account, no ads and no telemetry.
 - Dark and light theme (or follow Windows), seven colour presets, your choice of font, text size, bold text and higher contrast –
   previewed live – plus adjustable opacity and always on top if you want.
 - English and Danish. Updates install themselves while you are away from the PC (the Microsoft Store version is updated by the Store).
+  **Check for updates** in the tray menu or under **Settings → About** looks right away and installs a newer version with one click –
+  from GitHub, or through Microsoft Store for the Store version.
 - A modern settings window in the same theme: choose sections, disks, the ping target (e.g. your router), refresh intervals for
   your home lab and how the windows behave.
 
