@@ -27,6 +27,7 @@ internal static partial class UiChecks
         DockerChecks();
         UpdateChecks();
         ZOrderChecks();
+        GridLookupChecks();
         SettingsMenuHeader();
         using var fixture = new Fixture();
         var widget = fixture.Widget;

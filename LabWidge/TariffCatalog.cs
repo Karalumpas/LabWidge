@@ -10,6 +10,9 @@ internal sealed record TariffCandidate(string Code, string Note, double NightOre
     public override string ToString() => $"{Note} ({Code})";
 }
 
+/// <summary>The grid company the address lookup found: its name, grid area number (e.g. "740") and website.</summary>
+internal sealed record GridCompanyFound(string Name, string Area, string? Website);
+
 internal sealed record TariffDetection(IReadOnlyList<TariffCandidate> Candidates, IReadOnlyList<TariffCandidate> Discounts);
 
 /// <summary>
@@ -88,6 +91,84 @@ internal static class TariffCatalog
             return await response.Content.ReadAsStringAsync();
         }
     }
+
+    // ---------- Grid company from an address ----------
+
+    /// <summary>Green Power Denmark's "Find netselskab" (elnet.dk): which grid company supplies an address. Free and without a key.</summary>
+    private const string LookupApi = "https://api.elnet.greenpowerdenmark.dk/api/supplierlookup/";
+
+    /// <summary>The page where users can look the address up themselves.</summary>
+    public const string LookupPage = "https://elnet.dk/find-netselskab";
+
+    /// <summary>
+    /// Builds "street number postcode" from what the user typed. Floor and door ("1. th") would make the lookup
+    /// find nothing, and without a postcode it answers for the first street of that name anywhere in Denmark, so the
+    /// postcode comes from the text or else <paramref name="postalFallback"/>. Null when street, number or postcode is missing.
+    /// </summary>
+    internal static (string Query, string PostalCode)? LookupQuery(string? address, string? postalFallback)
+    {
+        if (string.IsNullOrWhiteSpace(address)) return null;
+        // Dots and other signs break the request path ("H.C. Andersens" works as "H C Andersens")
+        var text = Regex.Replace(address, @"[^\p{L}\p{N}\s,\-]", " ");
+        var house = Regex.Match(text, @"^\s*(?<street>[^\d,]*\p{L}[^\d,]*?)\s+(?<no>\d{1,4})\s*(?<letter>\p{L})?(?=[^\p{L}\p{N}]|$)");
+        if (!house.Success) return null;
+        var postal = Regex.Match(text[(house.Index + house.Length)..], @"(?<!\d)\d{4}(?!\d)");
+        var code = postal.Success ? postal.Value : AreaFromPostalCode(postalFallback) != null ? postalFallback!.Trim() : null;
+        if (code == null || AreaFromPostalCode(code) == null) return null;
+        var street = Regex.Replace(house.Groups["street"].Value, @"\s+", " ").Trim().Trim('-', ' ');
+        return ($"{street} {house.Groups["no"].Value}{house.Groups["letter"].Value} {code}", code);
+    }
+
+    /// <summary>Asks which grid company supplies the address. Null when the address is not found.</summary>
+    public static async Task<GridCompanyFound?> LookupAddressAsync(HttpClient http, string query, CancellationToken cancel = default)
+    {
+        using var response = await http.GetAsync(LookupApi + Uri.EscapeDataString(query), cancel);
+        response.EnsureSuccessStatusCode();
+        return ParseLookup(await response.Content.ReadAsStringAsync(cancel));
+    }
+
+    internal static GridCompanyFound? ParseLookup(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || root.GetProperty("name").GetString() is not { Length: > 0 } name) return null;
+        string? Text(string key) => root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        return new GridCompanyFound(name.Trim(), Text("def")?.Trim() ?? "", Text("website"));
+    }
+
+    /// <summary>
+    /// The name in Energinet's list for the company the lookup found. The two spell names differently ("Elnetselskabet N1"
+    /// vs "N1 A/S - 344"), and companies with several grid areas carry the area number in Energinet's name.
+    /// </summary>
+    internal static string? MatchOwner(GridCompanyFound found, IEnumerable<string> owners)
+    {
+        var area = int.TryParse(found.Area, out var a) ? a : (int?)null;
+        var key = NameKey(found.Name);
+        var split = owners.Select(o => (Owner: o, Parts: SplitArea(o))).ToList();
+        var byName = split.Where(x => NameKey(x.Parts.Name) == key).ToList();
+        if (byName.Count == 1) return byName[0].Owner;
+        if (byName.Count > 1 && area != null && byName.Where(x => x.Parts.Area == area).ToList() is [var exact]) return exact.Owner;
+        // The area number alone, when only one company carries it
+        if (area != null && split.Where(x => x.Parts.Area == area).ToList() is [var onlyArea]) return onlyArea.Owner;
+        return null;
+    }
+
+    private static (string Name, int? Area) SplitArea(string owner)
+    {
+        var m = Regex.Match(owner, @"^(?<name>.*?)\s*-\s*(?<area>\d{3})\s*$");
+        return m.Success ? (m.Groups["name"].Value, int.Parse(m.Groups["area"].Value, CultureInfo.InvariantCulture)) : (owner, null);
+    }
+
+    private static readonly HashSet<string> NameNoise = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "a/s", "as", "amba", "a.m.b.a", "a.m.b.a.", "a", "m", "b", "net", "elnet", "el-net", "elnetselskabet"
+    };
+
+    /// <summary>A company name without legal form and "net" words, lower case and letters/digits only: "KONSTANT Net A/S" → "konstant".</summary>
+    internal static string NameKey(string name) =>
+        string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => !NameNoise.Contains(w))
+            .SelectMany(w => w.ToLowerInvariant().Where(char.IsLetterOrDigit)));
 
     /// <summary>Postal codes 1000-4999 are east of the Great Belt (DK2), the rest in DK1.</summary>
     public static string? AreaFromPostalCode(string? postalCode) =>
