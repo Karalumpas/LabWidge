@@ -86,16 +86,21 @@ internal static partial class UiChecks
 
         // Windows 11 keeps a new tray icon under ^ until the user turns it on by the clock
         var win11 = new Version(10, 0, 26100);
+        var win10 = new Version(10, 0, 19045);
         const string exe = @"C:\Program Files\WindowsApps\Mede.LabWidge_1.24.0.0_x64__mt9dvqt5fydp0\LabWidge.exe";
         const string stored = @"{6D809377-6AF0-444B-8957-A3773F02200E}\WindowsApps\Mede.LabWidge_1.24.0.0_x64__mt9dvqt5fydp0\LabWidge.exe";
+        var none = Array.Empty<(string, bool)>();
         Check(TrayIconVisibility.SamePath(stored, exe), "A path stored with a known folder id was not recognised.");
         Check(!TrayIconVisibility.SamePath(@"{6D809377-6AF0-444B-8957-A3773F02200E}\Other\LabWidge.exe", exe), "Another program's path matched.");
-        Check(TrayIconVisibility.IsHidden(exe, new[] { (stored, false) }, win11), "An icon under ^ was not seen as hidden.");
-        Check(TrayIconVisibility.IsHidden(exe, Array.Empty<(string, bool)>(), win11), "A new icon without an entry was not seen as hidden.");
-        Check(!TrayIconVisibility.IsHidden(exe, new[] { (stored, true) }, win11), "An icon by the clock was seen as hidden.");
-        Check(!TrayIconVisibility.IsHidden(@"C:\Users\x\AppData\Local\LabWidge\LabWidge.exe", new[] { (@"C:\Users\x\AppData\Local\LabWidge\labwidge.EXE", true) }, win11),
+        Check(TrayIconVisibility.IsHidden(exe, new[] { (stored, false) }, win11, null), "An icon under ^ was not seen as hidden.");
+        Check(TrayIconVisibility.IsHidden(exe, none, win11, null), "A new icon without an entry was not seen as hidden.");
+        Check(!TrayIconVisibility.IsHidden(exe, new[] { (stored, true) }, win11, null), "An icon by the clock was seen as hidden.");
+        Check(!TrayIconVisibility.IsHidden(@"C:\Users\x\AppData\Local\LabWidge\LabWidge.exe", new[] { (@"C:\Users\x\AppData\Local\LabWidge\labwidge.EXE", true) }, win11, null),
             "A plain path was not matched without regard to case.");
-        Check(!TrayIconVisibility.IsHidden(exe, Array.Empty<(string, bool)>(), new Version(10, 0, 19045)), "Windows 10 was told about Windows 11's ^.");
+        // Windows 10: a new icon goes under ^ unless "Always show all icons" (EnableAutoTray = 0) is on
+        Check(TrayIconVisibility.IsHidden(exe, none, win10, null), "Windows 10's default did not count as hidden.");
+        Check(TrayIconVisibility.IsHidden(exe, none, win10, 1), "Windows 10 with automatic hiding did not count as hidden.");
+        Check(!TrayIconVisibility.IsHidden(exe, none, win10, 0), "Windows 10 showing all icons counted as hidden.");
         Console.WriteLine("PASS UI: the welcome hint knows when Windows keeps the bolt under ^");
     }
 

@@ -749,8 +749,7 @@ internal sealed class WidgetPage : SettingsPage
             var showBolt = new Button { Text = L.T("Show the bolt by the clock...", "Vis lynet ved uret..."), AutoSize = true };
             showBolt.Click += (_, _) => TrayIconVisibility.OpenSettings();
             Add(Ui.Section(L.T("Tray icon", "Ikon ved uret")),
-                Ui.Help(L.T("Windows keeps the bolt under ^ by the clock. Turn LabWidge on under \"Other system tray icons\" to keep it in view.",
-                            "Windows gemmer lynet under ^ ved uret. Slå LabWidge til under \"Andre ikoner i systembakken\" for altid at kunne se det.")),
+                Ui.Help(L.T("Windows can keep the bolt under ^ by the clock. ", "Windows kan gemme lynet under ^ ved uret. ") + TrayIconVisibility.HowToShow),
                 Ui.Row("", showBolt));
         }
         Add(
