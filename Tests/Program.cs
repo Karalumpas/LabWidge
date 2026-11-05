@@ -97,7 +97,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Automation: rules switch on change, put back their old entity when edited, off or out of prices", RuleFlow),
     ("Store package: the manifest matches the startup task, logos and values the app and build script use", StorePackageManifest),
     ("Docker: Portainer environments, containers, health, exit codes and addresses are read correctly", PortainerParsing),
-    ("Grid company: an address finds the company and its name in Energinet's list", GridCompanyLookup)
+    ("Grid company: an address finds the company and its name in Energinet's list", GridCompanyLookup),
+    ("Prices: tariffs are fetched again when Energinet answers \"too many requests\"", TariffRetryOn429)
 };
 foreach (var test in tests)
 {
@@ -539,6 +540,40 @@ static Task LegacyCloudflareSettings()
     Check(!saved.Contains("CloudflareAutoUpdate") && !saved.Contains("UpdateAllARecords") && !saved.Contains("IncludedHosts"),
           "Legacy DNS automation remained in the saved settings.");
     return Task.CompletedTask;
+}
+
+static async Task TariffRetryOn429()
+{
+    var tariffCalls = 0;
+    var waits = new List<TimeSpan>();
+    using var http = new HttpClient(new Handler(request =>
+    {
+        var url = Uri.UnescapeDataString(request.RequestUri!.ToString());
+        if (url.Contains("DayAheadPrices"))
+            return Task.FromResult(Json(new { records = new[] { new { TimeUTC = DateTime.Today.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss"), DayAheadPriceDKK = 1000 } } }));
+        // The first two tariff calls are turned away, as right after the setup guide
+        if (++tariffCalls <= 2)
+        {
+            var busy = new HttpResponseMessage((HttpStatusCode)429);
+            busy.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(tariffCalls == 1 ? 3 : 60));
+            return Task.FromResult(busy);
+        }
+        return Task.FromResult(Json(new { records = new[] { new { ChargeTypeCode = "C", Note = "", ValidFrom = "2020-01-01T00:00:00", ValidTo = (string?)null, Price1 = 0.5 } } }));
+    }));
+    var service = new ElectricityPriceService(http) { RetryDelay = (wait, _) => { waits.Add(wait); return Task.CompletedTask; } };
+    var settings = new AppSettings { Country = "DK", PriceArea = "DK1", NetTariffOwner = "Cerius A/S", NetTariffCodes = new[] { "C" } };
+    await service.RefreshAsync(settings);
+    Check(service.TariffError == null, $"A busy answer was reported as an error: {service.TariffError}");
+    Check(service.NetTariffs.Single().HourlyOre[0] == 50, "The tariff was not fetched after the retries.");
+    Check(waits.SequenceEqual(new[] { TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(20) }), $"The waits did not follow Retry-After with a 20 s cap: {string.Join(", ", waits)}");
+
+    // Still busy after four tries: reported, so the widget can say the price is incomplete
+    using var busyHttp = new HttpClient(new Handler(request => Task.FromResult(Uri.UnescapeDataString(request.RequestUri!.ToString()).Contains("DayAheadPrices")
+        ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"records\":[]}") }
+        : new HttpResponseMessage((HttpStatusCode)429))));
+    var stuck = new ElectricityPriceService(busyHttp) { RetryDelay = (_, _) => Task.CompletedTask };
+    await stuck.RefreshAsync(settings);
+    Check(stuck.TariffError != null, "Four busy answers were not reported.");
 }
 
 static async Task ChangedTariff()

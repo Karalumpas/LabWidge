@@ -11,7 +11,8 @@ The program only contacts the network services below, and only for the purpose d
 |---|---|---|
 | The electricity price source for your country (see below) | Electricity spot prices, and in Denmark grid tariffs | The price area and, in Denmark, the grid company chosen in the settings |
 | `api.ipify.org`, `ipv4.icanhazip.com`, `ifconfig.me` | Show your external IP address | A normal web request (your IP address is visible to the service, as with any website) |
-| [GitHub](https://github.com/) (`api.github.com`, `github.com`) | Check for and download updates | A normal web request; can be turned off under Settings → Widget |
+| [GitHub](https://github.com/) (`api.github.com`, `github.com`) | Check for and download updates (the version installed from GitHub) | A normal web request; automatic checks can be turned off under Settings → General |
+| Microsoft Store | Check for updates (the Store version) | Handled by Windows and Microsoft Store, as for any Store app |
 
 The network section also pings a public DNS server to measure latency.
 
@@ -21,6 +22,12 @@ Finland and the Baltics `dashboard.elering.ee`, Germany, Luxembourg and Austria 
 the Netherlands `api.energyzero.nl`, Poland `api.raporty.pse.pl`, Spain and Portugal `www.omie.es`, and the other countries
 LabWidge's own price service `labwidge-prices.karalumpas.workers.dev` – a Cloudflare Worker that receives only the price area,
 the time window and the currency (and, like any website, sees your IP address), and fetches the prices from ENTSO-E with its own token.
+
+## Only when you ask for it
+
+| Service | Purpose | Data sent |
+|---|---|---|
+| [Green Power Denmark](https://greenpowerdenmark.dk/) "Find netselskab" (`api.elnet.greenpowerdenmark.dk`, the lookup behind [elnet.dk](https://elnet.dk/find-netselskab)) | In Denmark, find your grid company when you type your address under Electricity and press Find | Street, house number and postal code – not floor, door or your name. The address is not saved by LabWidge |
 
 ## Only if you set it up
 
