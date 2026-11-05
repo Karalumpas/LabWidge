@@ -6,9 +6,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>1.24.0</Version>
-    <AssemblyVersion>1.24.0.0</AssemblyVersion>
-    <FileVersion>1.24.0.0</FileVersion>
+    <Version>1.25.0</Version>
+    <AssemblyVersion>1.25.0.0</AssemblyVersion>
+    <FileVersion>1.25.0.0</FileVersion>
     <Product>LabWidge</Product>
     <Description>Your PC, your home lab and the electricity price at a glance</Description>
     <!-- Also run on newer .NET runtimes (9, 10 …) if 8 is not installed -->
