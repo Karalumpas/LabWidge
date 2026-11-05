@@ -15,7 +15,7 @@ internal sealed partial class DashboardForm
 
     private double _opacity = 1;
     private bool _presentQueued;
-    private Bitmap? _surfaceFrame;
+    private GdiSurface? _surfaceFrame;
     private bool _surfaceDirty = true;
     private Point _paintedMouse = new(-1, -1);
     private SizeF _surfaceContentSize;
@@ -76,30 +76,35 @@ internal sealed partial class DashboardForm
         }
     }
 
-    /// <summary>Retained RGB frame. Only interaction damage is repainted until data/layout changes.</summary>
+    /// <summary>
+    /// Retained frame on a GDI surface, so the text gets the same ClearType as in any window.
+    /// Only interaction damage is repainted until data/layout changes.
+    /// </summary>
     internal Bitmap PaintSurface(bool forceFull = false)
     {
-        var size = ClientSize;
+        var size = new Size(Math.Max(1, ClientSize.Width), Math.Max(1, ClientSize.Height));
         if (_surfaceFrame == null || _surfaceFrame.Size != size)
         {
             _surfaceFrame?.Dispose();
-            _surfaceFrame = new Bitmap(Math.Max(1, size.Width), Math.Max(1, size.Height), PixelFormat.Format24bppRgb);
+            _surfaceFrame = new GdiSurface(size.Width, size.Height);
             _surfaceDirty = true;
         }
-        using var g = Graphics.FromImage(_surfaceFrame);
-        if (!forceFull && !_surfaceDirty && _drag == null && _railDrag == null && _iconDrag == null)
+        using (var g = _surfaceFrame.CreateGraphics())
         {
-            using var damage = InteractionDamage();
-            g.SetClip(damage, CombineMode.Replace);
+            if (!forceFull && !_surfaceDirty && _drag == null && _railDrag == null && _iconDrag == null)
+            {
+                using var damage = InteractionDamage();
+                g.SetClip(damage, CombineMode.Replace);
+            }
+            // Graphics.Clear ignores the clip. Filling preserves all undamaged pixels.
+            using (var background = new SolidBrush(_p.Bg)) g.FillRectangle(background, ClientRectangle);
+            _reuseSectionMeasurements = true;
+            try { _surfaceContentSize = Render(g); }
+            finally { _reuseSectionMeasurements = false; }
         }
-        // Graphics.Clear ignores the clip. Filling preserves all undamaged pixels.
-        using (var background = new SolidBrush(_p.Bg)) g.FillRectangle(background, ClientRectangle);
-        _reuseSectionMeasurements = true;
-        try { _surfaceContentSize = Render(g); }
-        finally { _reuseSectionMeasurements = false; }
         _surfaceDirty = false;
         _paintedMouse = _mouse;
-        return _surfaceFrame; // owned and disposed by the widget
+        return _surfaceFrame.Bitmap; // owned and disposed by the widget
     }
 
     private Region InteractionDamage()
@@ -189,7 +194,7 @@ internal sealed partial class DashboardForm
 
         var output = new Bitmap(w, h, PixelFormat.Format32bppArgb);
         var rect = new Rectangle(0, 0, w, h);
-        var f = frame.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        var f = frame.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
         var m = _mask.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
         var o = output.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
         try
@@ -202,7 +207,7 @@ internal sealed partial class DashboardForm
             for (var y = 0; y < h; y++)
             {
                 int fi = y * f.Stride, mi = y * m.Stride, oi = y * o.Stride;
-                for (var x = 0; x < w; x++, fi += 3, mi += 4, oi += 4)
+                for (var x = 0; x < w; x++, fi += 4, mi += 4, oi += 4)
                 {
                     _outBytes[oi] = _frameBytes[fi];
                     _outBytes[oi + 1] = _frameBytes[fi + 1];

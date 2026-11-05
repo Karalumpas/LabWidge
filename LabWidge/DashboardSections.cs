@@ -100,14 +100,18 @@ internal sealed partial class DashboardForm
 
         // A snapshot of the section becomes the card that is dragged around
         var pad = U(8);
-        var snapshot = new Bitmap(Math.Max(1, ClientSize.Width - (int)RailWidth), (int)Math.Ceiling(bounds.Height + pad * 2));
-        using (var g = Graphics.FromImage(snapshot))
+        Bitmap snapshot;
+        using (var surface = new GdiSurface(ClientSize.Width - (int)RailWidth, (int)Math.Ceiling(bounds.Height + pad * 2)))
         {
-            g.Clear(_p.Bg);
-            var saved = _mouse;
-            _mouse = new Point(-1, -1);    // no hover highlight on the card
-            DrawSection(g, VisibleSections().First(s => s.Key == key), U(Pad), pad, U(LayoutWidth) - U(Pad) * 2);
-            _mouse = saved;
+            using (var g = surface.CreateGraphics())
+            {
+                g.Clear(_p.Bg);
+                var saved = _mouse;
+                _mouse = new Point(-1, -1);    // no hover highlight on the card
+                DrawSection(g, VisibleSections().First(s => s.Key == key), U(Pad), pad, U(LayoutWidth) - U(Pad) * 2);
+                _mouse = saved;
+            }
+            snapshot = new Bitmap(surface.Bitmap); // a copy that outlives the surface
         }
         var offset = PinOf(key) == SectionPin.None ? _scroll : 0;
         var group = _sectionBounds.Where(b => PinOf(b.Key) == PinOf(key)).ToList();

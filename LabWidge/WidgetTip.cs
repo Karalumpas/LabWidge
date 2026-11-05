@@ -74,9 +74,9 @@ internal sealed class WidgetTip : Form
 
         // Rasterise the text, background and border BEFORE making any window visible.
         // WS_EX_TRANSPARENT otherwise defers WM_PAINT until sibling windows finish painting.
-        using (var opaque = new Bitmap(size.Width, size.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb))
+        using (var opaque = new GdiSurface(size.Width, size.Height))
         {
-            using (var g = Graphics.FromImage(opaque))
+            using (var g = opaque.CreateGraphics())
             {
                 g.Clear(_p.Bg);
                 g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -87,7 +87,7 @@ internal sealed class WidgetTip : Form
                 using var path = WidgetIcon.RoundedRect(new RectangleF(half, half, size.Width - border.Width, size.Height - border.Width), 4 * scale);
                 g.DrawPath(border, path);
             }
-            var prepared = LayeredWindowSurface.Round(opaque, 4 * scale);
+            var prepared = LayeredWindowSurface.Round(opaque.Bitmap, 4 * scale);
             _preparedFrame?.Dispose();
             _preparedFrame = prepared;
         }
