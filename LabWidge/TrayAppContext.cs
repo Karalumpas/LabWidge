@@ -483,7 +483,7 @@ internal sealed class TrayAppContext : ApplicationContext
     }
 
     /// <summary>
-    /// Windows 11 puts a new tray icon under ^ by the clock, so "click the bolt" would point at nothing. Then the
+    /// Windows 10 and 11 put a new tray icon under ^ by the clock, so "click the bolt" would point at nothing. Then the
     /// toast says where it is and offers Windows' setting that shows it by the clock.
     /// </summary>
     private void ShowWelcomeToast()
@@ -493,8 +493,7 @@ internal sealed class TrayAppContext : ApplicationContext
             ToastHelper.Show("welcome", L.T("LabWidge is ready", "LabWidge er klar"),
                 L.T("The bolt is under ^ by the clock – click it to show or hide the widget",
                     "Lynet ligger under ^ ved uret – klik på det for at vise eller skjule widgetten"),
-                L.T("Turn LabWidge on under \"Other system tray icons\" to keep it by the clock",
-                    "Slå LabWidge til under \"Andre ikoner i systembakken\" for at have det ved uret"),
+                TrayIconVisibility.HowToShow,
                 new (string, Action)[] { (L.T("Show the bolt by the clock", "Vis lynet ved uret"), TrayIconVisibility.OpenSettings) },
                 ShowWidgetFromToast, expireAfter: TimeSpan.FromMinutes(30));
             return;
