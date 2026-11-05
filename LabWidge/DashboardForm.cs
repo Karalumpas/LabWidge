@@ -174,7 +174,7 @@ internal sealed partial class DashboardForm : Form
         EnsureOnScreen();
         Show();
         Present(); // a layered window shows nothing until it has been given its pixels
-        if (TopMost) BringToFront();
+        BringToTop(); // also above other windows when "always on top" is off
     }
 
     public void SetCompact(bool compact)
