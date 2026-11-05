@@ -53,6 +53,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private DateTime _lastCloudflareRefresh = DateTime.MinValue;
     private PriceLevel? _iconLevel;
     private bool _iconInitialized;
+    private int _iconSize;
     private bool _dialogOpen;
     /// <summary>The settings, setup guide or update window while it is open; null for a plain message box.</summary>
     private Form? _openDialog;
@@ -209,6 +210,8 @@ internal sealed class TrayAppContext : ApplicationContext
         // A sleeping laptop can go a long time without a check – so also check when the PC wakes up
         _ui = SynchronizationContext.Current;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         // LabWidge started again while running: the wait runs on a pool thread, the answer on the UI thread
         _showWait = ThreadPool.RegisterWaitForSingleObject(_showRequest, (_, _) => _ui?.Post(_ => OnShowRequested(), null), null, -1, executeOnlyOnce: false);
 
@@ -391,6 +394,8 @@ internal sealed class TrayAppContext : ApplicationContext
     {
         SectionWindows.WindowOpened -= OnPluginWindowOpened;
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _showWait?.Unregister(null);
         _showRequest.Dispose();
         _plugins.Dispose();
@@ -421,6 +426,7 @@ internal sealed class TrayAppContext : ApplicationContext
         try
         {
             using var form = new SettingsWindow(_settings, key, _dashboard.PreviewAppearance, ApplyNewSettings) { CheckForUpdatesOnShow = checkForUpdates };
+            WindowZOrder.CenterOn(form, DialogArea());
             _openDialog = form;
             form.ShowDialog();
             runWizard = form.RunOnboardingRequested;
@@ -457,6 +463,7 @@ internal sealed class TrayAppContext : ApplicationContext
         try
         {
             using var form = new OnboardingForm(_settings);
+            WindowZOrder.CenterOn(form, DialogArea());
             _openDialog = form;
             if (form.ShowDialog() == DialogResult.OK)
             {
@@ -486,6 +493,10 @@ internal sealed class TrayAppContext : ApplicationContext
     /// Windows 10 and 11 put a new tray icon under ^ by the clock, so "click the bolt" would point at nothing. Then the
     /// toast says where it is and offers Windows' setting that shows it by the clock.
     /// </summary>
+    /// <summary>Where dialogs open: the screen the widget is on, otherwise the one with the mouse (the tray icon that was clicked).</summary>
+    private Rectangle DialogArea() =>
+        (_dashboard.Visible ? Screen.FromControl(_dashboard) : Screen.FromPoint(Cursor.Position)).WorkingArea;
+
     private void ShowWelcomeToast()
     {
         if (TrayIconVisibility.IsHidden())
@@ -661,11 +672,13 @@ internal sealed class TrayAppContext : ApplicationContext
             level = ElectricityPriceService.Level(_prices.Consumer(cur.Time, cur.Spot, _settings), values);
         }
 
-        if (_iconInitialized && level == _iconLevel) return;
+        var size = TrayIconSize();
+        if (_iconInitialized && level == _iconLevel && size == _iconSize) return;
 
         var color = level is PriceLevel l ? WidgetIcon.LevelColor(l) : WidgetIcon.Amber;
         var old = _notifyIcon.Icon;
-        _notifyIcon.Icon = WidgetIcon.CreateIcon(TrayIconSize(), color);
+        _notifyIcon.Icon = WidgetIcon.CreateIcon(size, color);
+        _iconSize = size;
         old?.Dispose();
         _iconLevel = level;
         _iconInitialized = true;
@@ -714,11 +727,44 @@ internal sealed class TrayAppContext : ApplicationContext
     private static string TrimNotifyText(string text) =>
         text.Length <= NotifyTextMaxLength ? text : text[..(NotifyTextMaxLength - 1)] + "…";
 
-    private static int TrayIconSize()
+    /// <summary>
+    /// The size of a small icon on the taskbar's screen. The taskbar follows that screen's scaling, which can differ from
+    /// the scaling Windows had when LabWidge started (Graphics.FromHwnd(0) keeps reporting that one).
+    /// </summary>
+    internal static int TrayIconSize()
     {
+        try
+        {
+            var taskbar = FindWindow("Shell_TrayWnd", null);
+            var dpi = taskbar != IntPtr.Zero ? GetDpiForWindow(taskbar) : 0;
+            if (dpi > 0 && GetSystemMetricsForDpi(SmCxSmIcon, dpi) is var size and > 0) return size;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Windows 10 before 1607: the scaling at start is used below
+        }
         using var g = Graphics.FromHwnd(IntPtr.Zero);
         return (int)Math.Round(16 * g.DpiX / 96f);
     }
+
+    /// <summary>Scaling or screens changed: redraw the bolt at the size the taskbar now uses.</summary>
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e) => _ui?.Post(_ => UpdateNotifyIcon(), null);
+
+    private void OnUserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category is UserPreferenceCategory.Desktop or UserPreferenceCategory.Window) _ui?.Post(_ => UpdateNotifyIcon(), null);
+    }
+
+    private const int SmCxSmIcon = 49;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string className, string? windowName);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetDpiForWindow(IntPtr hwnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetSystemMetricsForDpi(int index, int dpi);
 
     // ---------- Updates ----------
 
@@ -904,6 +950,7 @@ internal sealed class TrayAppContext : ApplicationContext
         try
         {
             using var form = new UpdateDownloadForm(release);
+            WindowZOrder.CenterOn(form, DialogArea());
             _openDialog = form;
             if (form.ShowDialog() == DialogResult.OK) setupPath = form.SetupPath;
         }

@@ -28,6 +28,7 @@ internal static partial class UiChecks
         UpdateChecks();
         ZOrderChecks();
         GridLookupChecks();
+        PlacementChecks();
         TextInkChecks();
         SettingsMenuHeader();
         using var fixture = new Fixture();

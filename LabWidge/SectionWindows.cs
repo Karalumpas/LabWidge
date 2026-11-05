@@ -94,6 +94,12 @@ internal static class SectionWindows
         foreach (var window in OpenPinned()) WindowZOrder.BringToTop(window);
     }
 
+    /// <summary>Moves open windows that are no longer on any screen onto the nearest one (a screen was unplugged).</summary>
+    public static void KeepOnScreen()
+    {
+        foreach (var window in Open.Values.Where(w => !w.IsDisposed && w.Visible).ToList()) WindowZOrder.KeepOnScreen(window);
+    }
+
     private static List<PopupPanel> OpenPinned() => Open.Values.Where(w => !w.IsDisposed && w.Visible && w.Pinned).ToList();
 
     public static void Close(string key)
