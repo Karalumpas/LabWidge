@@ -216,7 +216,8 @@ internal sealed partial class DashboardForm : Form
         BeginInvoke(new Action(() =>
         {
             if (IsDisposed) return;
-            if (Visible) EnsureOnScreen();
+            // Only a widget no screen shows any more is moved; one still reachable (e.g. across two screens) stays
+            WindowZOrder.KeepOnScreen(this);
             SectionWindows.KeepOnScreen();
         }));
     }

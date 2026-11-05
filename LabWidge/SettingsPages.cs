@@ -284,7 +284,10 @@ internal sealed class PricePage : SettingsPage
     private string _loadedOwner = "";
     private string[] _loadedCodes = Array.Empty<string>();
     private int _detectVersion;
-    private bool _companiesRequested;
+    /// <summary>The company list request, shared by whoever needs the list, so an address lookup can wait for one in flight.</summary>
+    private Task? _companiesTask;
+    /// <summary>Raised for each address lookup; an answer to an older one is dropped.</summary>
+    private int _lookupVersion;
 
     public override string Title => L.T("Electricity", "Elpris");
     public override string Glyph => "\uE945";
@@ -396,11 +399,14 @@ internal sealed class PricePage : SettingsPage
                                   "Skriv vejnavn, husnummer og postnummer – fx Ringstedgade 66, 4000 Roskilde"), Ui.Warn);
             return;
         }
+        // Enter works while a lookup runs: a newer address wins, and an answer to an older one is dropped
+        var version = ++_lookupVersion;
         _find.Enabled = false;
         ShowAddressStatus(L.T("Looking up the address…", "Slår adressen op…"), Ui.Muted);
         try
         {
             var found = await TariffCatalog.LookupAddressAsync(Http, query.Value.Query);
+            if (version != _lookupVersion) return;
             if (found == null)
             {
                 ShowAddressStatus(L.T("The address was not found – check the spelling, or choose the grid company in the list",
@@ -410,6 +416,7 @@ internal sealed class PricePage : SettingsPage
             // The address is where the electricity is used, so its postal code also gives the price area
             _postal.Text = query.Value.PostalCode;
             await EnsureCompaniesAsync();
+            if (version != _lookupVersion) return;
             var owner = _companyCache == null ? null : TariffCatalog.MatchOwner(found, _companyCache);
             if (owner == null)
             {
@@ -424,13 +431,14 @@ internal sealed class PricePage : SettingsPage
         }
         catch (Exception ex)
         {
+            if (version != _lookupVersion) return;
             ShowAddressStatus(L.T("Could not look up the address – try again, or choose the grid company in the list",
                                   "Kunne ikke slå adressen op – prøv igen, eller vælg netselskabet på listen"), Ui.Error);
             Logger.Error($"Grid company lookup failed: {ex.Message}");
         }
         finally
         {
-            _find.Enabled = true;
+            if (version == _lookupVersion) _find.Enabled = true;
         }
     }
 
@@ -522,10 +530,10 @@ internal sealed class PricePage : SettingsPage
     }
 
     /// <summary>Fetches the Danish grid companies the first time Denmark is shown.</summary>
-    private async Task EnsureCompaniesAsync()
+    private Task EnsureCompaniesAsync() => _companiesTask ??= LoadCompaniesAsync();
+
+    private async Task LoadCompaniesAsync()
     {
-        if (_companiesRequested) return;
-        _companiesRequested = true;
         _companyStatus.Text = L.T("Fetching grid companies from Energinet…", "Henter netselskaber fra Energinet…");
         _companyStatus.ForeColor = Ui.Muted;
         try
@@ -543,7 +551,7 @@ internal sealed class PricePage : SettingsPage
         }
         catch (Exception ex)
         {
-            _companiesRequested = false;
+            _companiesTask = null; // try again next time it is needed
             _companyStatus.Text = L.T("Could not fetch grid companies – check the internet connection", "Kunne ikke hente netselskaber – tjek internetforbindelsen");
             _companyStatus.ForeColor = Ui.Error;
             Logger.Error($"Grid companies could not be fetched: {ex.Message}");
@@ -555,8 +563,7 @@ internal sealed class PricePage : SettingsPage
     {
         owner = owner.Trim();
         if (owner.Length == 0) return;
-        var version = ++_detectVersion;
-        _lastDetectedOwner = owner;
+        var version = ++_detectVersion;         _lastDetectedOwner = owner;
         _tariff.Items.Clear();
         _tariffPreview.Text = "";
         _companyStatus.Text = L.T("Finding the tariff…", "Finder tarif…");
