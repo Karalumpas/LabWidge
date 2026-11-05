@@ -14,11 +14,13 @@ internal static partial class UiChecks
         settings.ShowLaunchRail = true;
         Bitmap Fresh()
         {
-            var frame = new Bitmap(widget.ClientSize.Width, widget.ClientSize.Height, PixelFormat.Format24bppRgb);
-            using var g = Graphics.FromImage(frame);
-            g.Clear(widget.BackColor);
-            Call(widget, "Render", g);
-            return frame;
+            using var surface = new GdiSurface(widget.ClientSize.Width, widget.ClientSize.Height);
+            using (var g = surface.CreateGraphics())
+            {
+                g.Clear(widget.BackColor);
+                Call(widget, "Render", g);
+            }
+            return new Bitmap(surface.Bitmap);
         }
         bool EqualFrames(Bitmap first, Bitmap second)
         {
