@@ -159,13 +159,16 @@ internal sealed class ElectricityPriceService
         LastFetch = DateTime.Now;
     }
 
+    /// <summary>How long to wait before asking again after "too many requests"; shortened in the tests.</summary>
+    internal Func<TimeSpan, CancellationToken, Task> RetryDelay { get; set; } = Task.Delay;
+
     private async Task<IReadOnlyList<TariffRow>> FetchTariffsAsync(string ownerFilter, string[] codes, int limit, CancellationToken cancel)
     {
         var codeJson = string.Join(",", codes.Select(c => $"\"{c}\""));
         var filter = Uri.EscapeDataString($"{{{ownerFilter},\"ChargeTypeCode\":[{codeJson}],\"ChargeType\":[\"D03\"]}}");
         var url = $"{Api}DatahubPricelist?filter={filter}&sort=ValidFrom%20desc&limit={limit}";
 
-        using var doc = JsonDocument.Parse(await _http.GetStringAsync(url, cancel));
+        using var doc = JsonDocument.Parse(await TariffCatalog.GetStringWithRetryAsync(_http, url, cancel, RetryDelay));
         return ParseTariffRows(doc.RootElement.GetProperty("records"));
     }
 

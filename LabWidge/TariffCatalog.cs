@@ -75,20 +75,25 @@ internal static class TariffCatalog
         return new TariffDetection(candidates, discounts);
     }
 
-    /// <summary>Energi Data Service limits the number of calls; wait and retry on 429.</summary>
-    private static async Task<string> GetStringWithRetryAsync(HttpClient http, string url)
+    /// <summary>
+    /// Energi Data Service limits the number of calls and answers 429 when they come close together – e.g. right after
+    /// the setup guide has looked up grid companies and tariffs. Waits as asked (at most 20 s) and tries up to four times.
+    /// </summary>
+    internal static async Task<string> GetStringWithRetryAsync(HttpClient http, string url, CancellationToken cancel = default,
+                                                             Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
+        delay ??= Task.Delay;
         for (var attempt = 1; ; attempt++)
         {
-            using var response = await http.GetAsync(url);
+            using var response = await http.GetAsync(url, cancel);
             if ((int)response.StatusCode == 429 && attempt < 4)
             {
                 var wait = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(2 * attempt);
-                await Task.Delay(wait > TimeSpan.FromSeconds(20) ? TimeSpan.FromSeconds(20) : wait);
+                await delay(wait > TimeSpan.FromSeconds(20) ? TimeSpan.FromSeconds(20) : wait, cancel);
                 continue;
             }
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsStringAsync();
+            return await response.Content.ReadAsStringAsync(cancel);
         }
     }
 

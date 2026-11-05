@@ -50,8 +50,8 @@ It is small, fast and private – no account, no ads and no telemetry.
 - **Home Assistant rules**: switch the water heater on in the cheapest hours, charge the car overnight, or switch something off
   when power is expensive.
 - **History**: the last 30 days, monthly averages and what your planned runs saved – kept on your PC and exportable as CSV.
-- Day-ahead spot prices for **26 European countries**. In Denmark it is your real total price: grid tariff (found automatically
-  from your grid company), taxes, your supplier's add-on and VAT. Elsewhere: spot price plus your own add-on and VAT.
+- Day-ahead spot prices for **26 European countries**. In Denmark it is your real total price: grid tariff (type your address and
+  LabWidge finds your grid company and its tariff), taxes, your supplier's add-on and VAT. Elsewhere: spot price plus your own add-on and VAT.
 - The tray icon's bolt changes colour with the price, so you can see it even when the widget is hidden.
 
 **🖥️ Your PC**
