@@ -55,7 +55,9 @@ internal static class Program
         using var mutex = new Mutex(false, "Local\\LabWidge");
         if (!AcquireSingleInstance(mutex, args.Contains(RestartArgument) ? TimeSpan.FromSeconds(15) : TimeSpan.Zero))
         {
-            return; // Already running
+            // Already running: started again from the Start menu, a shortcut or a notification, the user wants to see it
+            SignalRunningInstance();
+            return;
         }
 
         SelfInstaller.RegisterUninstallEntry();
@@ -68,6 +70,24 @@ internal static class Program
     }
 
     public const string RestartArgument = "--restart";
+
+    /// <summary>Set by a second start; the running instance then shows the widget (see TrayAppContext).</summary>
+    public const string ShowEventName = "Local\\LabWidge.Show";
+
+    private static void SignalRunningInstance()
+    {
+        try
+        {
+            if (EventWaitHandle.TryOpenExisting(ShowEventName, out var show))
+            {
+                using (show) show.Set();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Could not reach the running LabWidge: {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// The old instance never releases the mutex, so when it exits while we wait, Windows hands it over as
