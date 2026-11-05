@@ -122,66 +122,91 @@ internal static partial class UiChecks
         }
 
         // Codex findings on #48: a lookup must wait for a company list still on its way, and an older answer must not win.
-        // The app's awaits continue on the UI thread (Application.Run installs the WinForms context); an earlier check's
-        // dialog can leave this thread with a plain context, so it is installed here as in the app.
-        var previousContext = SynchronizationContext.Current;
-        SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+        // These run inside Application.Run like the app: outside it, every Application.DoEvents ends as the outermost
+        // message loop and puts a plain SynchronizationContext back, so awaits would continue on pool threads.
         handler = new GridLookupHandler();
         PricePage.Http = new HttpClient(handler);
         cache.SetValue(null, null);
         L.Use(L.Danish);
         try
         {
-            var companies = new TaskCompletionSource();
-            handler.Holds["companies"] = companies;
-            handler.LookupAnswer = "{\"name\":\"Cerius A/S\",\"def\":\"740\"}";
-            using var form = new OnboardingForm(new AppSettings { Country = "DK", PriceArea = "DK1" });
-            form.Show();
-            Application.DoEvents();
-            var pages = Get<SettingsPage[]>(form, "_pages");
-            var price = pages.OfType<PricePage>().Single();
-            ((Task)Call(form, "GoToAsync", Array.IndexOf(pages, price))!).GetAwaiter();
-            PumpUntil(() => Get<int>(form, "_index") == Array.IndexOf(pages, price));
-            var address = Get<TextBox>(price, "_address");
-            var company = Get<ComboBox>(price, "_company");
-            var status = Get<Label>(price, "_addressStatus");
+            RunInMessageLoop(async () =>
+            {
+                var companies = new TaskCompletionSource();
+                handler.Holds["companies"] = companies;
+                handler.LookupAnswer = "{\"name\":\"Cerius A/S\",\"def\":\"740\"}";
+                using var form = new OnboardingForm(new AppSettings { Country = "DK", PriceArea = "DK1" });
+                form.Show();
+                var pages = Get<SettingsPage[]>(form, "_pages");
+                var price = pages.OfType<PricePage>().Single();
+                // Not awaited: showing the page waits for the company list, which is held on purpose
+                _ = (Task)Call(form, "GoToAsync", Array.IndexOf(pages, price))!;
+                await WaitUntil(() => Get<int>(form, "_index") == Array.IndexOf(pages, price));
+                var address = Get<TextBox>(price, "_address");
+                var company = Get<ComboBox>(price, "_company");
+                var status = Get<Label>(price, "_addressStatus");
 
-            // Cold start: the company list is still on its way when the address is found
-            address.Text = "Ringstedgade 66, 4000 Roskilde";
-            Call(price, "FindCompanyAsync");
-            PumpUntil(() => handler.Requests.Any(r => r.Contains("supplierlookup")));
-            for (var i = 0; i < 20; i++) { Application.DoEvents(); Thread.Sleep(10); }
-            Check(company.Text.Length == 0 && !status.Text.Contains("vælg det på listen"), "The lookup gave up before the company list arrived.");
-            companies.SetResult();
-            PumpUntil(() => company.Text == "Cerius A/S" && status.Text.StartsWith("✓"));
-            Check(status.Text.StartsWith("✓"), $"A lookup that waited for the list did not finish: {status.Text}");
+                // Cold start: the company list is still on its way when the address is found
+                address.Text = "Ringstedgade 66, 4000 Roskilde";
+                var cold = (Task)Call(price, "FindCompanyAsync")!;
+                await WaitUntil(() => handler.Requests.Any(r => r.Contains("supplierlookup")));
+                await Task.Delay(200);
+                Check(!cold.IsCompleted && company.Text.Length == 0, "The lookup gave up before the company list arrived.");
+                companies.SetResult();
+                await cold;
+                Check(company.Text == "Cerius A/S" && status.Text.StartsWith("✓"), $"A lookup that waited for the list did not finish: {status.Text}");
 
-            // Two lookups: the first answers last and must not overwrite the second
-            var first = new TaskCompletionSource();
-            handler.Holds["Bobjergvej 19 5771"] = first;
-            handler.Answers["Bobjergvej 19 5771"] = "{\"name\":\"Radius Elnet A/S\",\"def\":\"790\"}";
-            handler.Answers["Ringstedgade 66 4000"] = "{\"name\":\"Cerius A/S\",\"def\":\"740\"}";
-            address.Text = "Bobjergvej 19, 5771 Stenstrup";
-            Call(price, "FindCompanyAsync");
-            PumpUntil(() => handler.Requests.Any(r => r.Contains("Bobjergvej")));
-            address.Text = "Ringstedgade 66, 4000 Roskilde";
-            Call(price, "FindCompanyAsync");
-            PumpUntil(() => handler.Requests.Count(r => r.Contains("Ringstedgade")) >= 2 && status.Text.StartsWith("✓"));
-            first.SetResult();
-            for (var i = 0; i < 30; i++) { Application.DoEvents(); Thread.Sleep(10); }
-            Check(company.Text == "Cerius A/S" && Get<TextBox>(price, "_postal").Text == "4000",
-                $"An older lookup overwrote the newer one ({company.Text}, {Get<TextBox>(price, "_postal").Text}).");
-            Check(Get<Button>(price, "_find").Enabled, "Find stayed disabled after the lookups.");
-            form.Close();
+                // Two lookups: the first answers last and must not overwrite the second
+                var held = new TaskCompletionSource();
+                handler.Holds["Bobjergvej 19 5771"] = held;
+                handler.Answers["Bobjergvej 19 5771"] = "{\"name\":\"Radius Elnet A/S\",\"def\":\"790\"}";
+                handler.Answers["Ringstedgade 66 4000"] = "{\"name\":\"Cerius A/S\",\"def\":\"740\"}";
+                address.Text = "Bobjergvej 19, 5771 Stenstrup";
+                var older = (Task)Call(price, "FindCompanyAsync")!;
+                await WaitUntil(() => handler.Requests.Any(r => r.Contains("Bobjergvej")));
+                address.Text = "Ringstedgade 66, 4000 Roskilde";
+                await (Task)Call(price, "FindCompanyAsync")!;
+                Check(status.Text.StartsWith("✓"), $"The newer lookup did not finish: {status.Text}");
+                held.SetResult();
+                await older;
+                Check(company.Text == "Cerius A/S" && Get<TextBox>(price, "_postal").Text == "4000",
+                    $"An older lookup overwrote the newer one ({company.Text}, {Get<TextBox>(price, "_postal").Text}).");
+                Check(Get<Button>(price, "_find").Enabled, "Find stayed disabled after the lookups.");
+                form.Close();
+            });
         }
         finally
         {
             PricePage.Http = oldHttp;
             cache.SetValue(null, oldCache);
             L.Use(L.English);
-            SynchronizationContext.SetSynchronizationContext(previousContext);
         }
         Console.WriteLine("PASS UI: the guide finds the grid company and tariff from an address, sets the price area and keeps no address");
         Console.WriteLine("PASS UI: an address lookup waits for the company list on a cold start, and an older lookup never overwrites a newer one");
+    }
+
+    /// <summary>Runs an async check inside Application.Run, so awaits continue on the UI thread as in the app.</summary>
+    private static void RunInMessageLoop(Func<Task> body)
+    {
+        Exception? error = null;
+        using var host = new Form { ShowInTaskbar = false, Opacity = 0, StartPosition = FormStartPosition.Manual, Location = new Point(-32000, -32000) };
+        host.Shown += async (_, _) =>
+        {
+            try { await body().WaitAsync(TimeSpan.FromSeconds(30)); }
+            catch (Exception ex) { error = ex; }
+            finally { host.Close(); }
+        };
+        Application.Run(host);
+        if (error != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+    }
+
+    private static async Task WaitUntil(Func<bool> done)
+    {
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (!done())
+        {
+            Check(DateTime.UtcNow < until, "Timed out waiting.");
+            await Task.Delay(10);
+        }
     }
 }
