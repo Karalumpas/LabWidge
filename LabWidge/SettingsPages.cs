@@ -743,7 +743,17 @@ internal sealed class WidgetPage : SettingsPage
             Ui.Help(L.T("Click the bolt by the clock to show or hide the widget. Click a header to collapse a section, drag its handle to move it, " +
                         "and drag it out of the widget to open it in a window.",
                         "Klik på lynet ved uret for at vise eller skjule widgetten. Klik på en overskrift for at folde en sektion sammen, træk i grebet for at flytte den, " +
-                        "og træk den ud af widgetten for at åbne den i et vindue.")),
+                        "og træk den ud af widgetten for at åbne den i et vindue.")));
+        if (TrayIconVisibility.IsHidden())
+        {
+            var showBolt = new Button { Text = L.T("Show the bolt by the clock...", "Vis lynet ved uret..."), AutoSize = true };
+            showBolt.Click += (_, _) => TrayIconVisibility.OpenSettings();
+            Add(Ui.Section(L.T("Tray icon", "Ikon ved uret")),
+                Ui.Help(L.T("Windows keeps the bolt under ^ by the clock. Turn LabWidge on under \"Other system tray icons\" to keep it in view.",
+                            "Windows gemmer lynet under ^ ved uret. Slå LabWidge til under \"Andre ikoner i systembakken\" for altid at kunne se det.")),
+                Ui.Row("", showBolt));
+        }
+        Add(
             Ui.Section(L.T("Sections", "Sektioner")),
             Ui.Help(L.T("Choose active sections on the Sections page. Each section has its own settings.",
                         "Vælg aktive sektioner på siden Sektioner. Hver sektion har sine egne indstillinger.")),

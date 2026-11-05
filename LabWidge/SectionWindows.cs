@@ -85,6 +85,17 @@ internal static class SectionWindows
             if (!w.IsDisposed && !w.Pinned) w.Close();
     }
 
+    /// <summary>True when a window of another program lies over one of the pinned windows.</summary>
+    public static bool AnyPinnedCovered() => OpenPinned().Any(WindowZOrder.IsCovered);
+
+    /// <summary>Puts the pinned windows above other programs' windows, without taking focus.</summary>
+    public static void BringPinnedToTop()
+    {
+        foreach (var window in OpenPinned()) WindowZOrder.BringToTop(window);
+    }
+
+    private static List<PopupPanel> OpenPinned() => Open.Values.Where(w => !w.IsDisposed && w.Visible && w.Pinned).ToList();
+
     public static void Close(string key)
     {
         if (IsOpen(key)) Open[key].Close();

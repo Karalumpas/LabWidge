@@ -157,6 +157,12 @@ internal sealed partial class DashboardForm : Form
         Invalidate();
     }
 
+    /// <summary>True when a window of another program lies over the widget.</summary>
+    public bool IsCovered() => WindowZOrder.IsCovered(this);
+
+    /// <summary>Puts the widget above all normal windows, without taking focus.</summary>
+    public void BringToTop() => WindowZOrder.BringToTop(this);
+
     public void ToggleVisible()
     {
         if (Visible) Hide();

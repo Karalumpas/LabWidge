@@ -54,6 +54,10 @@ internal sealed class TrayAppContext : ApplicationContext
     private PriceLevel? _iconLevel;
     private bool _iconInitialized;
     private bool _dialogOpen;
+    /// <summary>The settings, setup guide or update window while it is open; null for a plain message box.</summary>
+    private Form? _openDialog;
+    private readonly EventWaitHandle _showRequest = new(false, EventResetMode.AutoReset, Program.ShowEventName);
+    private RegisteredWaitHandle? _showWait;
 
     public TrayAppContext(bool forceSetup = false)
     {
@@ -138,8 +142,8 @@ internal sealed class TrayAppContext : ApplicationContext
         _notifyIcon.MouseClick += (_, e) =>
         {
             if (e.Button != MouseButtons.Left) return;
-            // A widget hidden behind other windows comes to the front; only one already on top is hidden
-            if (_dashboard!.Visible && _dashboard.IsCovered()) _dashboard.BringToTop();
+            // A widget or pinned window hidden behind other windows comes to the front; only a widget already on top is hidden
+            if (_dashboard!.Visible && (_dashboard.IsCovered() || SectionWindows.AnyPinnedCovered())) ShowOnTop();
             else ToggleWidget();
         };
 
@@ -205,6 +209,8 @@ internal sealed class TrayAppContext : ApplicationContext
         // A sleeping laptop can go a long time without a check – so also check when the PC wakes up
         _ui = SynchronizationContext.Current;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        // LabWidge started again while running: the wait runs on a pool thread, the answer on the UI thread
+        _showWait = ThreadPool.RegisterWaitForSingleObject(_showRequest, (_, _) => _ui?.Post(_ => OnShowRequested(), null), null, -1, executeOnlyOnce: false);
 
         StartupRegistration.Apply(_settings.StartWithWindows);
 
@@ -385,6 +391,8 @@ internal sealed class TrayAppContext : ApplicationContext
     {
         SectionWindows.WindowOpened -= OnPluginWindowOpened;
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        _showWait?.Unregister(null);
+        _showRequest.Dispose();
         _plugins.Dispose();
         SectionWindows.CloseAllForShutdown();
         _updateTimer.Dispose();
@@ -407,18 +415,20 @@ internal sealed class TrayAppContext : ApplicationContext
     /// <summary>Opens the settings, at the page of the plugin with <paramref name="key"/> if one is given.</summary>
     private void OpenSettings(string? key, bool checkForUpdates = false)
     {
-        if (_dialogOpen) return;
+        if (FocusOpenDialog()) return;
         _dialogOpen = true;
         bool runWizard;
         try
         {
             using var form = new SettingsWindow(_settings, key, _dashboard.PreviewAppearance, ApplyNewSettings) { CheckForUpdatesOnShow = checkForUpdates };
+            _openDialog = form;
             form.ShowDialog();
             runWizard = form.RunOnboardingRequested;
         }
         finally
         {
             _dialogOpen = false;
+            _openDialog = null;
         }
         // An update downloaded and verified from About runs now that the settings window has closed
         if (AppUpdates.PendingInstaller is { } installer)
@@ -442,20 +452,18 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private void RunOnboarding()
     {
-        if (_dialogOpen) return;
+        if (FocusOpenDialog()) return;
         _dialogOpen = true;
         try
         {
             using var form = new OnboardingForm(_settings);
+            _openDialog = form;
             if (form.ShowDialog() == DialogResult.OK)
             {
                 form.Settings.WidgetVisible = true;
                 ApplyNewSettings(form.Settings);
                 _dashboard.ShowWidget();
-                ToastHelper.Show("welcome", L.T("LabWidge is ready", "LabWidge er klar"),
-                    L.T("Click the bolt by the clock to show or hide the widget", "Klik på lynet ved uret for at vise eller skjule widgetten"),
-                    L.T("Right-click the bolt for settings", "Højreklik på lynet for indstillinger"),
-                    Array.Empty<(string, Action)>(), ShowWidgetFromToast, expireAfter: TimeSpan.FromMinutes(5));
+                ShowWelcomeToast();
             }
             else if (!_settings.OnboardingCompleted)
             {
@@ -470,7 +478,58 @@ internal sealed class TrayAppContext : ApplicationContext
         finally
         {
             _dialogOpen = false;
+            _openDialog = null;
         }
+    }
+
+    /// <summary>
+    /// Windows 11 puts a new tray icon under ^ by the clock, so "click the bolt" would point at nothing. Then the
+    /// toast says where it is and offers Windows' setting that shows it by the clock.
+    /// </summary>
+    private void ShowWelcomeToast()
+    {
+        if (TrayIconVisibility.IsHidden())
+        {
+            ToastHelper.Show("welcome", L.T("LabWidge is ready", "LabWidge er klar"),
+                L.T("The bolt is under ^ by the clock – click it to show or hide the widget",
+                    "Lynet ligger under ^ ved uret – klik på det for at vise eller skjule widgetten"),
+                L.T("Turn LabWidge on under \"Other system tray icons\" to keep it by the clock",
+                    "Slå LabWidge til under \"Andre ikoner i systembakken\" for at have det ved uret"),
+                new (string, Action)[] { (L.T("Show the bolt by the clock", "Vis lynet ved uret"), TrayIconVisibility.OpenSettings) },
+                ShowWidgetFromToast, expireAfter: TimeSpan.FromMinutes(30));
+            return;
+        }
+        ToastHelper.Show("welcome", L.T("LabWidge is ready", "LabWidge er klar"),
+            L.T("Click the bolt by the clock to show or hide the widget", "Klik på lynet ved uret for at vise eller skjule widgetten"),
+            L.T("Right-click the bolt for settings", "Højreklik på lynet for indstillinger"),
+            Array.Empty<(string, Action)>(), ShowWidgetFromToast, expireAfter: TimeSpan.FromMinutes(5));
+    }
+
+    /// <summary>
+    /// If the settings, setup guide or an update question is already open, it comes forward instead of a second
+    /// one opening – before, the click did nothing, and the open window could be hidden behind others.
+    /// </summary>
+    private bool FocusOpenDialog()
+    {
+        if (!_dialogOpen) return false;
+        if (_openDialog is { IsDisposed: false } dialog) WindowZOrder.BringDialogForward(dialog);
+        return true;
+    }
+
+    /// <summary>LabWidge was started again while it runs: show what is open, or the widget.</summary>
+    private void OnShowRequested()
+    {
+        Logger.Info("Started again while running – showing the widget.");
+        if (FocusOpenDialog()) return;
+        ShowOnTop();
+    }
+
+    /// <summary>Shows the widget if it is hidden, and puts it and the pinned windows above other windows.</summary>
+    private void ShowOnTop()
+    {
+        if (!_dashboard.Visible) ToggleWidget();
+        SectionWindows.BringPinnedToTop();
+        _dashboard.BringToTop();
     }
 
     private void ApplyNewSettings(AppSettings updated)
@@ -579,8 +638,8 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private void ShowWidgetFromToast()
     {
-        if (!_dashboard.Visible) ToggleWidget();
-        else _dashboard.BringToTop();
+        if (FocusOpenDialog()) return;
+        ShowOnTop();
     }
 
     // ---------- Icon and tooltip ----------
@@ -806,7 +865,7 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private void PromptForUpdate(ReleaseInfo release)
     {
-        if (_dialogOpen) return;
+        if (FocusOpenDialog()) return;
         _dialogOpen = true;
         DialogResult answer;
         try
@@ -840,17 +899,19 @@ internal sealed class TrayAppContext : ApplicationContext
     /// <summary>Downloads the installer and lets it take over. The app closes by itself afterwards.</summary>
     private void InstallUpdate(ReleaseInfo release)
     {
-        if (_dialogOpen) return;
+        if (FocusOpenDialog()) return;
         _dialogOpen = true;
         string? setupPath = null;
         try
         {
             using var form = new UpdateDownloadForm(release);
+            _openDialog = form;
             if (form.ShowDialog() == DialogResult.OK) setupPath = form.SetupPath;
         }
         finally
         {
             _dialogOpen = false;
+            _openDialog = null;
         }
 
         if (setupPath == null) return;
@@ -870,7 +931,16 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private void ShowInfo(string message)
     {
-        if (_dialogOpen) return;
+        if (_dialogOpen)
+        {
+            // E.g. "See what's new" while the settings are open: shown on top of them instead of being dropped
+            if (_openDialog is { IsDisposed: false } dialog)
+            {
+                WindowZOrder.BringDialogForward(dialog);
+                MessageBox.Show(dialog, message, "LabWidge", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            return;
+        }
         _dialogOpen = true;
         try
         {
