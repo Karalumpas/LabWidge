@@ -249,7 +249,8 @@ internal sealed class WelcomePage : SettingsPage
 
 internal sealed class PricePage : SettingsPage
 {
-    private static readonly HttpClient Http = HttpClientFactory.Create(TimeSpan.FromSeconds(30));
+    /// <summary>Energinet and the grid company lookup; replaced in the UI checks so they need no network.</summary>
+    internal static HttpClient Http { get; set; } = HttpClientFactory.Create(TimeSpan.FromSeconds(30));
     private static IReadOnlyList<string>? _companyCache;
     private static CultureInfo Fmt => L.Culture;
     private static readonly string OtherCountry = L.T("Other country (no electricity price)", "Andet land (ingen elpris)");
@@ -264,6 +265,9 @@ internal sealed class PricePage : SettingsPage
     private readonly CheckBox _spotOnly = Ui.Check(L.T("Show the spot price only (without grid tariff and taxes)", "Vis kun spotpris (uden nettarif og afgifter)"));
     private readonly ComboBox _company = new() { Width = Ui.FieldWidth, DropDownStyle = ComboBoxStyle.DropDown, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
     private readonly Label _companyStatus = new() { AutoSize = true, MaximumSize = new Size(Ui.FieldWidth, 0), ForeColor = Ui.Muted, Padding = new Padding(0, 5, 0, 0) };
+    private readonly EnterTextBox _address = new() { Width = Ui.FieldWidth, PlaceholderText = L.T("e.g. Ringstedgade 66, 4000 Roskilde", "fx Ringstedgade 66, 4000 Roskilde") };
+    private readonly Button _find = new() { Text = L.T("Find", "Find"), AutoSize = true };
+    private readonly Label _addressStatus = new() { AutoSize = true, MaximumSize = new Size(Ui.FieldWidth, 0), ForeColor = Ui.Muted, Padding = new Padding(0, 5, 0, 0) };
     private readonly ComboBox _tariff = new() { Width = Ui.FieldWidth, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _tariffPreview = Ui.Help("", Ui.ContentWidth);
     private readonly TextBox _supplierName = new() { Width = 200, PlaceholderText = L.T("e.g. Aura Energi", "fx Aura Energi") };
@@ -274,7 +278,7 @@ internal sealed class PricePage : SettingsPage
     private readonly CheckBox _showPrice = Ui.Check(L.T("Show the electricity price in the widget", "Vis elprisen i widgetten"));
     private readonly CheckBox _vat = Ui.Check(L.T("Show prices including VAT", "Vis priser inkl. moms"));
     private readonly Panel _totalPanel;
-    private readonly Control _gridPanel, _areaRow, _postalRow, _dk1Row, _dk2Row, _displaySection, _vatRow;
+    private readonly Control _gridPanel, _areaRow, _postalRow, _dk1Row, _dk2Row, _displaySection, _vatRow, _addressRow, _addressStatusRow;
 
     private TariffDetection? _detection;
     private string _loadedOwner = "";
@@ -294,16 +298,23 @@ internal sealed class PricePage : SettingsPage
 
     public PricePage()
     {
+        var lookupLink = new LinkLabel { Text = L.T("Look it up yourself on elnet.dk", "Slå det selv op på elnet.dk"), AutoSize = true, Margin = new Padding(0, 4, 0, 4) };
+        lookupLink.LinkClicked += (_, _) =>
+        {
+            try { Process.Start(new ProcessStartInfo(TariffCatalog.LookupPage) { UseShellExecute = true }); }
+            catch (Exception ex) { Logger.Error($"Could not open {TariffCatalog.LookupPage}: {ex.Message}"); }
+        };
         _gridPanel = Ui.Stack(
             Ui.Section(L.T("Grid company", "Netselskab")),
-            Ui.Help(L.T("The grid company owns the wires to your home – it is not necessarily your electricity supplier. " +
-                        "You'll find it on your electricity bill under grid tariff (nettarif) or grid subscription.",
-                        "Netselskabet ejer ledningerne til din bolig – det er ikke nødvendigvis dit elselskab. " +
-                        "Det står på elregningen under nettarif eller netabonnement.")),
             Ui.Row(L.T("Grid company", "Netselskab"), _company),
             Ui.Row("", _companyStatus),
             Ui.Row(L.T("Tariff", "Tarif"), _tariff),
-            _tariffPreview);
+            _tariffPreview,
+            Ui.Help(L.T("The grid company owns the wires to your home – it is not necessarily your electricity supplier. " +
+                        "It is also on your electricity bill under grid tariff (nettarif).",
+                        "Netselskabet ejer ledningerne til din bolig – det er ikke nødvendigvis dit elselskab. " +
+                        "Det står også på elregningen under nettarif.")),
+            lookupLink);
         _totalPanel = Ui.Stack(
             _gridPanel,
             Ui.Section(L.T("Electricity supplier", "Elselskab")),
@@ -312,6 +323,8 @@ internal sealed class PricePage : SettingsPage
             Ui.Row(L.T("Add-on excl. VAT", "Tillæg ekskl. moms"), _supplierAddOn, _addOnUnit));
 
         _areaRow = Ui.Row(L.T("Price area", "Prisområde"), _area);
+        _addressRow = Ui.Row(L.T("Your address", "Din adresse"), _address, _find);
+        _addressStatusRow = Ui.Row("", _addressStatus);
         _postalRow = Ui.Row(L.T("Postal code", "Postnummer"), _postal, _postalHint);
         _dk1Row = Ui.Row(L.T("Price area", "Prisområde"), _dk1);
         _dk2Row = Ui.Row("", _dk2);
@@ -325,6 +338,8 @@ internal sealed class PricePage : SettingsPage
             Ui.Row(L.T("Country", "Land"), _country),
             _intro,
             _areaRow,
+            _addressRow,
+            _addressStatusRow,
             _postalRow,
             _dk1Row,
             _dk2Row,
@@ -348,7 +363,7 @@ internal sealed class PricePage : SettingsPage
                 _postalHint.Text = _postal.Text.Length == 4 ? L.T("unknown postal code", "ukendt postnummer") : "";
                 return;
             }
-            (area == "DK2" ? _dk2 : _dk1).Checked = true;
+            SetArea(area);
             _postalHint.Text = area == "DK2" ? L.T("→ East Denmark (DK2)", "→ Østdanmark (DK2)") : L.T("→ West Denmark (DK1)", "→ Vestdanmark (DK1)");
         };
         _spotOnly.CheckedChanged += (_, _) => _totalPanel.Enabled = !_spotOnly.Checked;
@@ -359,6 +374,76 @@ internal sealed class PricePage : SettingsPage
                 await DetectAsync(_company.Text.Trim());
         };
         _tariff.SelectedIndexChanged += (_, _) => UpdatePreview();
+        // The two price areas sit in separate rows, where Windows does not uncheck the other one
+        _dk1.CheckedChanged += (_, _) => { if (_dk1.Checked) _dk2.Checked = false; };
+        _dk2.CheckedChanged += (_, _) => { if (_dk2.Checked) _dk1.Checked = false; };
+        _find.Click += async (_, _) => await FindCompanyAsync();
+        _address.KeyDown += async (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            e.SuppressKeyPress = true;
+            await FindCompanyAsync();
+        };
+    }
+
+    /// <summary>Finds the grid company for the typed address, chooses it in the list and finds its tariff.</summary>
+    private async Task FindCompanyAsync()
+    {
+        var query = TariffCatalog.LookupQuery(_address.Text, _postal.Text);
+        if (query == null)
+        {
+            ShowAddressStatus(L.T("Type street, house number and postal code – e.g. Ringstedgade 66, 4000 Roskilde",
+                                  "Skriv vejnavn, husnummer og postnummer – fx Ringstedgade 66, 4000 Roskilde"), Ui.Warn);
+            return;
+        }
+        _find.Enabled = false;
+        ShowAddressStatus(L.T("Looking up the address…", "Slår adressen op…"), Ui.Muted);
+        try
+        {
+            var found = await TariffCatalog.LookupAddressAsync(Http, query.Value.Query);
+            if (found == null)
+            {
+                ShowAddressStatus(L.T("The address was not found – check the spelling, or choose the grid company in the list",
+                                      "Adressen blev ikke fundet – tjek stavningen, eller vælg netselskabet på listen"), Ui.Warn);
+                return;
+            }
+            // The address is where the electricity is used, so its postal code also gives the price area
+            _postal.Text = query.Value.PostalCode;
+            await EnsureCompaniesAsync();
+            var owner = _companyCache == null ? null : TariffCatalog.MatchOwner(found, _companyCache);
+            if (owner == null)
+            {
+                ShowAddressStatus(L.T($"Your grid company is {found.Name} – choose it in the list", $"Dit netselskab er {found.Name} – vælg det på listen"), Ui.Warn);
+                return;
+            }
+            _company.SelectedItem = owner;
+            _company.Text = owner;
+            ShowAddressStatus(L.T($"✓ Found: {found.Name} – grid company and price area are filled in below", $"✓ Fundet: {found.Name} – netselskab og prisområde er udfyldt nedenfor"), Ui.Ok);
+            Logger.Info($"Grid company found from the address: {found.Name} (area {found.Area}) → {owner}.");
+            await DetectAsync(owner, found: true);
+        }
+        catch (Exception ex)
+        {
+            ShowAddressStatus(L.T("Could not look up the address – try again, or choose the grid company in the list",
+                                  "Kunne ikke slå adressen op – prøv igen, eller vælg netselskabet på listen"), Ui.Error);
+            Logger.Error($"Grid company lookup failed: {ex.Message}");
+        }
+        finally
+        {
+            _find.Enabled = true;
+        }
+    }
+
+    private void ShowAddressStatus(string text, Color color)
+    {
+        _addressStatus.Text = text;
+        _addressStatus.ForeColor = color;
+    }
+
+    private void SetArea(string area)
+    {
+        _dk1.Checked = area == "DK1";
+        _dk2.Checked = area == "DK2";
     }
 
     private Country? _vatCountry;
@@ -368,7 +453,7 @@ internal sealed class PricePage : SettingsPage
     {
         var country = SelectedCountry;
         var danish = country?.Code == "DK";
-        _postalRow.Visible = _dk1Row.Visible = _dk2Row.Visible = _gridPanel.Visible = danish;
+        _postalRow.Visible = _dk1Row.Visible = _dk2Row.Visible = _gridPanel.Visible = _addressRow.Visible = _addressStatusRow.Visible = danish;
         _areaRow.Visible = country != null && !danish && country.Areas.Count > 1;
         _displaySection.Visible = country != null;
         _spotOnly.Text = danish
@@ -383,8 +468,10 @@ internal sealed class PricePage : SettingsPage
         }
 
         _intro.Text = danish
-            ? L.T("Your Danish postal code tells us the price area, and Energinet's public data is used to calculate your price.",
-                  "Vi bruger dit postnummer til at finde prisområdet og Energinets offentlige data til at beregne din pris.")
+            ? L.T("Type your address and LabWidge finds your price area, grid company and grid tariff in Energinet's public data. " +
+                  "The address is only sent to Green Power Denmark's lookup (elnet.dk) and is not saved.",
+                  "Skriv din adresse, så finder LabWidge dit prisområde, netselskab og din nettarif i Energinets offentlige data. " +
+                  "Adressen sendes kun til Green Power Denmarks opslag (elnet.dk) og gemmes ikke.")
             : L.T("The widget shows the day-ahead spot price for your price area from free public sources. " +
                   "Add your supplier's add-on and other charges per kWh to see what you pay.",
                   "Widgetten viser day-ahead-spotprisen for dit prisområde fra gratis, offentlige kilder. " +
@@ -416,7 +503,7 @@ internal sealed class PricePage : SettingsPage
         _vatCountry = country;
         ApplyCountry();
         _postal.Text = s.PostalCode ?? "";
-        (s.PriceArea == "DK2" ? _dk2 : _dk1).Checked = true;
+        SetArea(s.PriceArea == "DK2" ? "DK2" : "DK1");
         _spotOnly.Checked = !s.PriceShowTotal;
         _totalPanel.Enabled = s.PriceShowTotal;
         _company.Text = s.NetTariffOwner;
@@ -463,7 +550,8 @@ internal sealed class PricePage : SettingsPage
         }
     }
 
-    private async Task DetectAsync(string owner)
+    /// <summary>Finds the tariff for the grid company; <paramref name="found"/> when the address lookup chose it.</summary>
+    private async Task DetectAsync(string owner, bool found = false)
     {
         owner = owner.Trim();
         if (owner.Length == 0) return;
@@ -489,9 +577,12 @@ internal sealed class PricePage : SettingsPage
             _tariff.Items.AddRange(detection.Candidates.Cast<object>().ToArray());
             var preferred = detection.Candidates.FirstOrDefault(c => _loadedCodes.Contains(c.Code) && owner == _loadedOwner);
             _tariff.SelectedItem = preferred ?? detection.Candidates[0];
+            var what = found ? L.T("✓ Grid company and tariff found", "✓ Netselskab og tarif fundet") : L.T("✓ Tariff found", "✓ Tarif fundet");
             _companyStatus.Text = detection.Candidates.Count == 1
-                ? L.T("✓ Tariff found", "✓ Tarif fundet")
-                : L.T($"✓ {detection.Candidates.Count} tariffs found – the most common one is selected", $"✓ {detection.Candidates.Count} tariffer fundet – den mest almindelige er valgt");
+                ? what
+                : found
+                    ? L.T($"✓ Grid company found – {detection.Candidates.Count} tariffs, the most common one is selected", $"✓ Netselskab fundet – {detection.Candidates.Count} tariffer, den mest almindelige er valgt")
+                    : L.T($"✓ {detection.Candidates.Count} tariffs found – the most common one is selected", $"✓ {detection.Candidates.Count} tariffer fundet – den mest almindelige er valgt");
             _companyStatus.ForeColor = Ui.Ok;
         }
         catch (Exception ex)
@@ -563,6 +654,12 @@ internal sealed class PricePage : SettingsPage
         return L.T("Choose your grid company so the grid tariff can be found – or choose \"Show the spot price only\".",
                    "Vælg dit netselskab, så nettariffen kan findes – eller vælg \"Vis kun spotpris\".");
     }
+}
+
+/// <summary>A text box that gets Enter itself, instead of the dialog's default button pressing "Next".</summary>
+internal sealed class EnterTextBox : TextBox
+{
+    protected override bool IsInputKey(Keys keyData) => keyData == Keys.Enter || base.IsInputKey(keyData);
 }
 
 // ---------------------------------------------------------------------------

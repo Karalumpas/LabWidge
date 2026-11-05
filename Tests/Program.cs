@@ -37,6 +37,26 @@ if (args.Length == 1 && args[0] == "--live")
                 Console.WriteLine($"{country.Code} {area.Code,-6} FAILED: {ex.Message}");
             }
         }
+    // The grid company lookup and its match in Energinet's list, for addresses in different grid areas
+    var owners = await TariffCatalog.GetGridCompaniesAsync(http);
+    foreach (var address in new[] { "Ringstedgade 66, 4000 Roskilde", "Vesterbrogade 1A, 1620 København V", "Torvet 1, 8600 Silkeborg",
+                                     "Søndergade 1, 8700 Horsens", "Torvet 1, 5700 Svendborg", "Torvet 1, 6000 Kolding", "Torvet 1, 3700 Rønne" })
+    {
+        try
+        {
+            var query = TariffCatalog.LookupQuery(address, null)!.Value.Query;
+            var found = await TariffCatalog.LookupAddressAsync(http, query);
+            var owner = found == null ? null : TariffCatalog.MatchOwner(found, owners);
+            var tariffs = owner == null ? 0 : (await TariffCatalog.DetectAsync(http, owner)).Candidates.Count;
+            Console.WriteLine($"{address,-36} {found?.Name ?? "not found"} ({found?.Area}) → {owner ?? "NO MATCH"}, {tariffs} C tariff(s)");
+            if (owner == null || tariffs == 0) failed++;
+        }
+        catch (Exception ex)
+        {
+            failed++;
+            Console.WriteLine($"{address,-36} FAILED: {ex.Message}");
+        }
+    }
     Environment.Exit(failed);
 }
 
@@ -76,7 +96,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Appliances: failed starts, changed addresses, switched-off plugins and late starts are safe", PlannedRunSafety),
     ("Automation: rules switch on change, put back their old entity when edited, off or out of prices", RuleFlow),
     ("Store package: the manifest matches the startup task, logos and values the app and build script use", StorePackageManifest),
-    ("Docker: Portainer environments, containers, health, exit codes and addresses are read correctly", PortainerParsing)
+    ("Docker: Portainer environments, containers, health, exit codes and addresses are read correctly", PortainerParsing),
+    ("Grid company: an address finds the company and its name in Energinet's list", GridCompanyLookup)
 };
 foreach (var test in tests)
 {
@@ -84,6 +105,51 @@ foreach (var test in tests)
     Console.WriteLine("PASS " + test.Name);
 }
 Console.WriteLine($"{tests.Length} regression tests passed.");
+
+static Task GridCompanyLookup()
+{
+    // What users type: floor and door, dots, no town, and the postcode only in the postal code field
+    Check(TariffCatalog.LookupQuery("Ringstedgade 66, 1. th, 4000 Roskilde", null) == ("Ringstedgade 66 4000", "4000"), "Floor and door were not left out.");
+    Check(TariffCatalog.LookupQuery("H.C. Andersens Boulevard 27, 1553 København V", null)?.Query == "H C Andersens Boulevard 27 1553", "Dots were not turned into spaces.");
+    Check(TariffCatalog.LookupQuery("Vesterbrogade 1A, 1620", null)?.Query == "Vesterbrogade 1A 1620", "A house letter was lost.");
+    Check(TariffCatalog.LookupQuery("Ringstedgade 66 th", "4000")?.Query == "Ringstedgade 66 4000", "The side of the floor was read as a house letter.");
+    Check(TariffCatalog.LookupQuery("Vestergade 1", "7500") == ("Vestergade 1 7500", "7500"), "The postal code field was not used.");
+    Check(TariffCatalog.LookupQuery("Vestergade 1", null) == null, "A street without postcode was looked up.");
+    Check(TariffCatalog.LookupQuery("4000 Roskilde", null) == null && TariffCatalog.LookupQuery("Ringstedgade", "4000") == null, "Street or number missing was looked up.");
+    Check(TariffCatalog.LookupQuery("Ringstedgade* 66; 4000", null)?.Query == "Ringstedgade 66 4000", "Signs that break the request were kept.");
+
+    Check(TariffCatalog.ParseLookup("null") == null, "\"null\" (address not found) was read as a company.");
+    Check(TariffCatalog.ParseLookup("{\"name\":\"Cerius A/S\",\"phone\":\"(+45) 70 29 20 24\",\"website\":\"www.cerius.dk\",\"def\":\"740\"}")
+          == new GridCompanyFound("Cerius A/S", "740", "www.cerius.dk"), "A found company was not read.");
+
+    // Energinet's names, and the names and grid areas the lookup really answered with (Nov 2026)
+    var owners = new[]
+    {
+        "Aal El-Net A M B A", "Cerius A/S", "Dinel A/S", "Elektrus A/S", "Elnet Midt A/S", "FLOW Elnet A/S", "Forsyning Elnet A/S",
+        "Grindsted Elnet A/S", "Hammel Elforsyning Net A/S", "Hjerting Transformatorforening", "Hurup Elværk Net A/S", "Ikast El Net A/S",
+        "Kimbrer Elnet A/S", "Konstant Net A/S - 151", "Konstant Net A/S - 245", "L-Net A/S", "Læsø Elnet A/S", "Midtfyns Elforsyning  A.m.b.A",
+        "N1 A/S - 016", "N1 A/S - 131", "N1 A/S - 344", "NOE Net A/S", "Netselskabet Elværk A/S", "Nord Energi Net A/S", "RAH Net A/S",
+        "Radius Elnet A/S", "Ravdex A/S", "Sunds Net A.m.b.a", "TREFOR El-net A/S", "TREFOR El-net Øst A/S", "Tarm Elværk Net A/S",
+        "Veksel A/S", "Vores Elnet A/S", "Zeanet A/S"
+    };
+    var found = new (string Name, string Area, string Expected)[]
+    {
+        ("Cerius A/S", "740", "Cerius A/S"), ("Dinel A/S", "232", "Dinel A/S"), ("Elektrus A/S", "757", "Elektrus A/S"),
+        ("Elnetselskabet N1", "344", "N1 A/S - 344"), ("Flow Elnet A/S", "533", "FLOW Elnet A/S"), ("KONSTANT Net A/S", "151", "Konstant Net A/S - 151"),
+        ("Midtfyns Elforsyning A.m.b.a", "584", "Midtfyns Elforsyning  A.m.b.A"), ("Netselskabet Elværk", "331", "Netselskabet Elværk A/S"),
+        ("Nord Energi Net A/S", "032", "Nord Energi Net A/S"), ("RAH Net A/S", "348", "RAH Net A/S"), ("Radius Elnet A/S", "790", "Radius Elnet A/S"),
+        ("Ravdex", "531", "Ravdex A/S"), ("TREFOR El-net A/S", "244", "TREFOR El-net A/S"), ("TREFOR El-net A/S (Øst)", "911", "TREFOR El-net Øst A/S"),
+        ("Vores Elnet", "553", "Vores Elnet A/S"), ("L-NET", "351", "L-Net A/S"), ("Elnet Midt A/S", "154", "Elnet Midt A/S"),
+        ("Elnetselskabet N1", "016", "N1 A/S - 016"), ("Konstant Net", "245", "Konstant Net A/S - 245")
+    };
+    foreach (var (name, area, expected) in found)
+    {
+        var match = TariffCatalog.MatchOwner(new GridCompanyFound(name, area, null), owners);
+        Check(match == expected, $"{name} ({area}) matched {match ?? "nothing"}, not {expected}.");
+    }
+    Check(TariffCatalog.MatchOwner(new GridCompanyFound("Ukendt Net A/S", "999", null), owners) == null, "An unknown company was matched.");
+    return Task.CompletedTask;
+}
 
 static Task StorePackageManifest()
 {
