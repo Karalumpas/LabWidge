@@ -45,9 +45,15 @@ internal static partial class UiChecks
                 Thread.Sleep(100);
             }
             Check(hwnd != IntPtr.Zero, "The covering window did not open.");
-            // Put it above LabWidge's windows, as the user activating another app would
-            SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
-            Application.DoEvents();
+            // Put it above LabWidge's windows, as the user activating another app would. The other process may still be
+            // drawing its window, and HWND_TOP alone does not always win, so it is raised the way BringToTop does, until it is above
+            for (var attempt = 0; attempt < 30 && !(widget.IsCovered() && SectionWindows.AnyPinnedCovered()); attempt++)
+            {
+                SetWindowPos(hwnd, new IntPtr(-1), 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+                SetWindowPos(hwnd, new IntPtr(-2), 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+                Application.DoEvents();
+                Thread.Sleep(100);
+            }
             Check(widget.IsCovered(), "A window over the widget was not seen.");
             Check(SectionWindows.AnyPinnedCovered(), "A window over the pinned window was not seen.");
 

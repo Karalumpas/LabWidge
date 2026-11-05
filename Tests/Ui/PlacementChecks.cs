@@ -53,6 +53,13 @@ internal static partial class UiChecks
             widget.GetType().GetMethod("OnDisplaySettingsChanged", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(widget, new object?[] { null, EventArgs.Empty });
             PumpUntil(() => Screen.AllScreens.Any(s => s.WorkingArea.IntersectsWith(widget.Bounds)));
 
+            // Codex finding on #52: a widget still reachable, e.g. reaching past the edge of its screen, stays where it is
+            var reachable = new Point(area.Right - widget.Width / 2, area.Top + 40);
+            widget.Location = reachable;
+            widget.GetType().GetMethod("OnDisplaySettingsChanged", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(widget, new object?[] { null, EventArgs.Empty });
+            for (var i = 0; i < 20; i++) { Application.DoEvents(); Thread.Sleep(10); }
+            Check(widget.Location == reachable, $"A reachable widget was moved on a display change ({widget.Location} vs {reachable}).");
+
             // Alt+F4 (a user close) hides the widget and remembers it
             var saves = fixture.SaveCount;
             widget.Close();
