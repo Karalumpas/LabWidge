@@ -113,6 +113,7 @@ internal sealed partial class DashboardForm : Form
         SectionWindows.WindowClosed += ExpandReturnedSection;
         LocationChanged += (_, _) => { foreach (var key in SectionWindows.Keys) OnSectionWindowChanged(key); };
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
     }
 
     internal PluginServices Services { get; }
@@ -205,6 +206,21 @@ internal sealed partial class DashboardForm : Form
         BeginInvoke(new Action(() => ApplySettings(_settings)));
     }
 
+    /// <summary>
+    /// A screen was unplugged or its resolution changed: the widget and the open section windows move onto a screen
+    /// that is there, instead of waiting until the widget is shown again. The saved position is kept for when it returns.
+    /// </summary>
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        if (!IsHandleCreated || IsDisposed) return;
+        BeginInvoke(new Action(() =>
+        {
+            if (IsDisposed) return;
+            if (Visible) EnsureOnScreen();
+            SectionWindows.KeepOnScreen();
+        }));
+    }
+
     // ---------- Window ----------
 
     protected override CreateParams CreateParams
@@ -257,8 +273,15 @@ internal sealed partial class DashboardForm : Form
     {
         if (e.CloseReason == CloseReason.UserClosing)
         {
+            // Alt+F4 hides the widget like the tray click does, and it stays hidden at the next start
             e.Cancel = true;
             Hide();
+            SectionWindows.ClosePopups();
+            if (_settings.WidgetVisible)
+            {
+                _settings.WidgetVisible = false;
+                _saveSettings();
+            }
             return;
         }
         base.OnFormClosing(e);
@@ -269,6 +292,7 @@ internal sealed partial class DashboardForm : Form
         if (disposing)
         {
             SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+            SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
             _el.Updated -= OnDataUpdated;
             _ha.Updated -= OnDataUpdated;
             _cf.Updated -= OnDataUpdated;

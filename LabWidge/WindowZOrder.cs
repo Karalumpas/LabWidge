@@ -1,7 +1,11 @@
+using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-/// <summary>Whether a window is covered by another program's window, and bringing it to the top without taking focus.</summary>
+/// <summary>
+/// Where LabWidge's windows are: whether one is covered by another program's window, bringing it to the top without
+/// taking focus, and keeping windows on a screen that is there.
+/// </summary>
 internal static class WindowZOrder
 {
     /// <summary>
@@ -50,6 +54,33 @@ internal static class WindowZOrder
         var target = GetLastActivePopup(dialog.Handle);
         // Without permission to take focus, Windows flashes the taskbar button instead – still a sign the window is open
         SetForegroundWindow(target != IntPtr.Zero ? target : dialog.Handle);
+    }
+
+    /// <summary>
+    /// Opens a dialog centred in <paramref name="area"/> (e.g. the screen the widget is on) instead of where Windows
+    /// would put it. Centred again once it is shown if Windows rescaled it for that screen's DPI.
+    /// </summary>
+    public static void CenterOn(Form form, Rectangle area)
+    {
+        form.StartPosition = FormStartPosition.Manual;
+        var loaded = Size.Empty;
+        void Center() => form.Location = new Point(area.Left + Math.Max(0, (area.Width - form.Width) / 2),
+                                                   area.Top + Math.Max(0, (area.Height - form.Height) / 2));
+        form.Load += (_, _) => { Center(); loaded = form.Size; };
+        form.Shown += (_, _) => { if (form.Size != loaded) Center(); };
+    }
+
+    /// <summary>Moves a window that no screen shows any more (a screen was unplugged) onto the nearest screen.</summary>
+    public static void KeepOnScreen(Form form)
+    {
+        if (form.IsDisposed || !form.Visible) return;
+        // A window still reachable by its top strip stays where the user put it, also across two screens
+        var top = new Rectangle(form.Left + 20, form.Top + 4, Math.Max(1, form.Width - 40), 24);
+        if (Screen.AllScreens.Any(s => s.WorkingArea.IntersectsWith(top))) return;
+        var area = Screen.FromRectangle(form.Bounds).WorkingArea;
+        var x = Math.Clamp(form.Left, area.Left, Math.Max(area.Left, area.Right - form.Width));
+        var y = Math.Clamp(form.Top, area.Top, Math.Max(area.Top, area.Bottom - form.Height));
+        if (x != form.Left || y != form.Top) form.Location = new Point(x, y);
     }
 
     /// <summary>The taskbars and the tray's flyouts, which are open right when the tray icon is clicked.</summary>
