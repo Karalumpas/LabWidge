@@ -137,7 +137,10 @@ internal sealed class TrayAppContext : ApplicationContext
         };
         _notifyIcon.MouseClick += (_, e) =>
         {
-            if (e.Button == MouseButtons.Left) ToggleWidget();
+            if (e.Button != MouseButtons.Left) return;
+            // A widget hidden behind other windows comes to the front; only one already on top is hidden
+            if (_dashboard!.Visible && _dashboard.IsCovered()) _dashboard.BringToTop();
+            else ToggleWidget();
         };
 
         _dashboard = new DashboardForm(_prices, _system, _network, _audio, _homeAssistant, _cloudflare, _services, _proxmox, _settings, () => SettingsStore.Save(_settings),
@@ -577,6 +580,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private void ShowWidgetFromToast()
     {
         if (!_dashboard.Visible) ToggleWidget();
+        else _dashboard.BringToTop();
     }
 
     // ---------- Icon and tooltip ----------
