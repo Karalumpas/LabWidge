@@ -86,8 +86,9 @@ window.__lwUpload = { state: 'fetching' };
 ```
 
 Poll `window.__lwUpload` and the page text until the new package shows its size and version without "Uploading"/"Validating".
-The warning *"restricted capabilities require approval … runFullTrust"* is expected for this desktop app; the reason is already in
-the submission options. Any other validation error: stop and show it. The older package is marked *"will be removed after you save
+The warning *"restricted capabilities require approval … runFullTrust"* is expected for this desktop app. A new submission does
+not always keep the reason: if the overview shows *Indstillinger for indsendelse – Ufuldstændig*, open it and fill in
+*"Hvorfor har du brug for runFullTrust …"* with the text in `docs/MICROSOFT_STORE.md`, then click **Gem**. Any other validation error: stop and show it. The older package is marked *"will be removed after you save
 this page"* – that is right. Click **Save**; the overview then lists `LabWidge-<version>.msix – Validated – Opdateret`.
 
 Stop the server as soon as the upload is saved:
@@ -111,7 +112,9 @@ Never change screenshots or logos without being asked.
 
 ## 5. Submit
 
-On the overview, check that Pakker says *Validated* and nothing reports an error, then click **Send til certificering**. After
+Partner Center's session can expire mid-way ("Logon er påkrævet"): the user signs in again, then reload the tab and check that
+the last save stuck. On the overview, check that Pakker says *Validated*, no section says *Ufuldstændig* and nothing reports an
+error, then click **Send til certificering**. After
 ~10 seconds the overview shows "Opdatering i certificering" with the steps Indsendelse → Forbehandling → Certificering → Publicering.
 Close the tab you opened and report: version, submission number, and that certification usually takes hours up to three working
 days. When asked later, open the overview again and read the status; on a certification failure show Microsoft's report and propose

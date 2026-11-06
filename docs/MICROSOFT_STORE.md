@@ -48,7 +48,9 @@ In Partner Center, **Start submission** and fill in:
 - **Store listings** (English and Danish): description, the logo and at least one screenshot (the PR build's
   `widget-ui-preview` artifact has some).
 - **Submission options → restricted capabilities**: `runFullTrust` needs a reason, e.g. *"LabWidge is a desktop tray app
-  (WinForms) that reads system information and controls the user's own Home Assistant and Proxmox."*
+  (WinForms, packaged as MSIX) that shows a widget by the clock. It needs full trust to read system information (CPU, memory,
+  disks, GPU temperature and network) through Windows APIs, to switch the default audio device, and to call the user's own Home
+  Assistant, Proxmox, Portainer and Cloudflare APIs. It does not install drivers or services and does not change other programs."*
 
 Certification usually takes from a few hours to three working days. Each new version needs a new submission with the new
 package: run the Release workflow (it does that by itself when the version changes) and upload the artifact.
